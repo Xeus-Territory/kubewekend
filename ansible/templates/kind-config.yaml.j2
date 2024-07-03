@@ -1,0 +1,141 @@
+kind: Cluster
+# Exist two apiVersions for Kind Cluster
+# Documentation: https://pkg.go.dev/sigs.k8s.io/kind/pkg/apis/config@v0.23.0
+apiVersion: kind.x-k8s.io/v1alpha4
+name: {{ cluster_name }}
+
+# Enable ny feature gate can be enabled here with "Name": true or false to disable
+# Find your feature gate at: https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/
+# featureGates:
+#   "CSIMigration": true
+
+# Maps parameters to flag `--runtime-config` in kube-apiserver flag: https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/
+# eg: Disable alpha API version
+# runtimeConfig:
+#   "api/alpha": "false"
+
+# Use to configuration networking part for kubernetes
+networking:
+  # API SERVER
+  ###################################
+  # For security reasons, need to keep this option default (default = "127.0.0.1")
+  apiServerAddress: {{ cluster.networking.apiServer.address }}
+  # By default the API server listens on a random open port.
+  # You may choose a specific port but probably don't need to in most cases.
+  # Using a random port makes it easier to spin up multiple clusters.
+  apiServerPort: {{ cluster.networking.apiServer.port }}
+
+  # POD SUBNET
+  ###################################
+  # Configuration subnet assign when turn on pod
+  # By default, kind uses 10.244.0.0/16
+  podSubnet: {{ cluster.networking.podSubnet }}
+
+  # SERVICE SUBNET
+  ###################################
+  # Configuration subnet for services, help you expose the service
+  # By default, kind uses 10.96.0.0/16
+  serviceSubnet: {{ cluster.networking.serviceSubnet }}
+
+  # DEFAULT CNI
+  ###################################
+  # Configuration CNI (Container Network Interface) for Kubernetes Cluster
+  # Kind ships us with multiple CNI like kindnetd
+  # But we don't want to use that, be stay calm, disable now and manually setup cillium
+  disableDefaultCNI: {{ cluster.networking.disableDefaultCNI }}
+
+  # kube-proxy MODE
+  ###################################
+  # Kind offer us many proxy mode, include iptables, nftables (v1.31+), ipvs
+  # Behind the scenes: https://gist.github.com/aojea/f9ca1a51e2afd03621744c95bfdab5b8
+  # To disable, set mode to `none`. One more, default option will be `iptables`
+  kubeProxyMode: {{ cluster.networking.kubeProxyMode }}
+
+# Set the role for your node
+nodes:
+###########################################
+# Use roles for set up permit for your node
+# https://kind.sigs.k8s.io/docs/user/configuration/#nodes
+# NOTICE: KIND ALWAYS NEED ONE CONTROL-PLANE TO OPERATE
+# YOU CAN NOT CREATE ONLY WORKER ON HOST
+###########################################
+- role: control-plane
+  # Use can specify the version of Kubernetes cluster of kind, use image
+  # Find docker version at: https://hub.docker.com/r/kindest/node/
+  image: {{ cluster.image }}
+- role: worker
+  # Use can specify the version of Kubernetes cluster of kind, use image
+  # Find docker version at: https://hub.docker.com/r/kindest/node/
+  image: {{ cluster.image }}
+
+  # Extra Mounts
+  ########################################
+  # Use can use extraMounts to add additional from host to node
+  # Read more at: https://kind.sigs.k8s.io/docs/user/configuration/#extra-mounts
+  ########################################
+  # extraMounts:
+  # - hostPath: /path/to/my/files
+  #   containerPath: /files
+
+  # Extra Port Mappings
+  # Doc: https://kind.sigs.k8s.io/docs/user/configuration/#extra-port-mappings
+  ########################################
+  # Extra port mappings can be used to port forward to the kind nodes. This is a cross-platform option to get traffic into your kind cluster.
+  # NOTE: Don't need use this configuration with Docker Desktop App in Linux because this exist method to send traffic to node Ips from host
+  # If you like, you can configuration, that will help you when configuration Load Balancer and provide Ingress plugin for your cluster to
+  # serve traffic to nodes
+  ########################################
+  # extraPortMappings:
+  # - containerPort: 80
+  #   hostPort: 80
+  #   # optional: set the bind address on the host
+  #   # 0.0.0.0 is the current default
+  #   listenAddress: "127.0.0.1"
+  #   # optional: set the protocol to one of TCP, UDP, SCTP.
+  #   # TCP is the default
+  #   protocol: TCP
+
+  # Extra Labels
+  # Read more at: https://kind.sigs.k8s.io/docs/user/configuration/#extra-labels
+  #######################################
+  # Usually use for set the target for your node, to use `nodeSelectors` option in Kubernetes
+  # Doc: https://kubernetes.io/docs/tasks/configure-pod-container/assign-pods-nodes/
+  #######################################
+  # labels:
+  # tier: frontend
+
+  # Kubeadm Config Patches
+  # Read more at: https://kind.sigs.k8s.io/docs/user/configuration/#kubeadm-config-patches
+  #######################################
+  # Kind will use `kubeadm` to configure cluster nodes, formally use `kubeadm init` on first control plane
+  # Read more about `kubeadm init` at: https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-init/#config-file
+  ######################################
+  # kubeadmConfigPatches:
+  # - |
+  #   kind: InitConfiguration
+  #   nodeRegistration:
+  #     kubeletExtraArgs:
+  #       node-labels: "my-label=true"    
+  ######################################
+  # You can use different type configuration for customization, like: InitConfiguration ClusterConfiguration
+  # KubeProxyConfiguration KubeletConfiguration
+  # You can override the apiserver flag by kubeadm at: https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/control-plane-flags/
+  # kubeadmConfigPatches:
+  #   - |
+  #     kind: ClusterConfiguration
+  #     apiServer:
+  #         extraArgs:
+  #           enable-admission-plugins: NodeRestriction,MutatingAdmissionWebhook,ValidatingAdmissionWebhook    
+  ######################################
+  # Another way, if you want to join node, you will concern about using `kubeadm join`
+  # Kind offers for us to do smt like that, which uses the joinconfiguration
+  # at https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-join/#config-file 
+  # kubeadmConfigPatches:
+  # - |
+  #   kind: JoinConfiguration
+  #   nodeRegistration:
+  #     kubeletExtraArgs:
+  #       node-labels: "my-label2=true"   
+  #####################################
+  # External: Use can use over patches via strategic merge and JSON6092 patches
+  # You can read more and adopting that kind in last of Kind's Configuration
