@@ -8,6 +8,7 @@
   - [`Vargrant` note](#vargrant-note)
 - [Ansible - To setup and run script and bring up kubernetes cluster on locally, Use `kind`](#ansible---to-setup-and-run-script-and-bring-up-kubernetes-cluster-on-locally-use-kind)
   - [Define host for ansible provisioning](#define-host-for-ansible-provisioning)
+  - [Run ansible for provisioning k8s with kind](#run-ansible-for-provisioning-k8s-with-kind)
 
 ## Use `Vargrant` to configuration the VM with provider
 
