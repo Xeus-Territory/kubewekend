@@ -30,6 +30,7 @@
       ansible.builtin.debug:
         msg: "{{ shell_output.stdout_lines }}"
 
+      # Task help choose var_files when host is master
     - name: Access master var_files
       tags: setup_kind
       # Use `include_vars` to handling to task to import
@@ -42,6 +43,7 @@
       # https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_conditionals.html
       when: cluster_name is search("master")
 
+      # Task help choose var_files when host is worker
     - name: Access worker var_files
       tags: setup_kind
       ansible.builtin.include_vars:
