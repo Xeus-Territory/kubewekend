@@ -15,6 +15,8 @@
   - [Learn about `kind` cluster](#learn-about-kind-cluster)
   - [Detailing the important components inside the `kind` cluster](#detailing-the-important-components-inside-the-kind-cluster)
 - [`cilium` and `ebpf` - The powerful kernal service of kubewekend cluster](#cilium-and-ebpf---the-powerful-kernal-service-of-kubewekend-cluster)
+  - [Do familiar with `ebpf` and `cilium`](#do-familiar-with-ebpf-and-cilium)
+  - [Enable `hubble` in cluster to see what network work inside the kubewekend cluster](#enable-hubble-in-cluster-to-see-what-network-work-inside-the-kubewekend-cluster)
 
 ## Use `Vargrant` to configuration the VM with provider
 
@@ -543,5 +545,304 @@ And now we go through all the services of the cluster, reach to especially thing
 
 ## `cilium` and `ebpf` - The powerful kernal service of kubewekend cluster
 
+### Do familiar with `ebpf` and `cilium`
 
+So on the previous session, we do installation `cilium` to the kubewekend cluster, if use `status` command, you can known about status of cilium kubewekend cluster, including
+
+- `cilium-operator`
+- `cilium` in deamonset
+
+If you have those one in `kubernetes`, you can practice around the command `cilium` to understand what `cilium` can do for
+
+- You can use `--help` flag with `cilium-cli` to see more information
+
+```bash
+vagrant@k8s-master-machine:~$ cilium --help
+CLI to install, manage, & troubleshooting Cilium clusters running Kubernetes.
+
+Cilium is a CNI for Kubernetes to provide secure network connectivity and
+load-balancing with excellent visibility using eBPF
+
+Examples:
+# Install Cilium in current Kubernetes context
+cilium install
+
+# Check status of Cilium
+cilium status
+
+# Enable the Hubble observability layer
+cilium hubble enable
+
+# Perform a connectivity test
+cilium connectivity test
+
+Usage:
+  cilium [flags]
+  cilium [command]
+
+Available Commands:
+  bgp          Access to BGP control plane
+  clustermesh  Multi Cluster Management
+  completion   Generate the autocompletion script for the specified shell
+  config       Manage Configuration
+  connectivity Connectivity troubleshooting
+  context      Display the configuration context
+  encryption   Cilium encryption
+  help         Help about any command
+  hubble       Hubble observability
+  install      Install Cilium in a Kubernetes cluster using Helm
+  status       Display status
+  sysdump      Collects information required to troubleshoot issues with Cilium and Hubble
+  uninstall    Uninstall Cilium using Helm
+  upgrade      Upgrade a Cilium installation a Kubernetes cluster using Helm
+  version      Display detailed version information
+
+Flags:
+      --context string             Kubernetes configuration context
+      --helm-release-name string   Helm release name (default "cilium")
+  -h, --help                       help for cilium
+  -n, --namespace string           Namespace Cilium is running in (default "kube-system")
+
+Use "cilium [command] --help" for more information about a command.
+```
+
+- To setup completion with `cilium` in your shell, use `completion` and command into your shell profile, such as `zsh` or `bash`
+
+```bash
+# Use if your profile is bash
+echo "source <(cilium completion bash) >> .bashrc"
+
+# Use if your profile is zsh
+echo "source <(cilium completion zsh) >> .zshrc"
+```
+
+![alt text](assets/images/session4/cilium-completion.png)
+
+- You can check about `cilium` connectivity access in kubewekend cluster with providing scenarios from `cilium` via `connectivity test`
+ 
+```bash
+# If you validate connectivity
+
+## Read manual of connectivity test command
+cilium connectivity test --help
+
+## Run tests inside cluster
+cilium connectivity test
+
+# If you want ti check network performance
+
+## Read manual of connectivity perf command
+cilium connectivity perf --help
+
+## Run tests for check network performance
+cilium connectivity perf
+```
+
+![alt text](assets/images/session4/cilium-connectivity-test.png)
+
+You will have `82` tests scenarios in kubewekend cluster, afterward you will get the result, if not any failure, your `cilium` work great with cluster
+
+![alt text](assets/images/session4/results.png)
+
+Fun things if you want to check about `echo-same-node` deployment, you can play with `port-forward` command inside `kubectl` and use reverse `ssh` to check the web-service before we setup `cilium` to expose service via domain
+
+```bash
+# Expose your service via localhost
+kubectl port-forward -n cilium-test service/echo-same-node 8080:8080
+
+# Because we do not hand-on any network inside `vmbox`, so we will use another way expose this service to your via `ssh-tunneling`
+# Documentation: https://www.ssh.com/academy/ssh/tunneling-example
+
+ssh -N -L 8080:127.0.0.1:8080 -i .vagrant/machines/k8s-master-machine/virtualbox/private_key vagrant@127.0.0.1 -p 6996
+```
+
+Access your host at `http://localhost:8080`
+
+![alt text](assets/images/session4/ssh-tunneling.png)
+
+> Quite fun a little bit, move on to inside `cilium` and inspect what is going on inside, view all the commands to use inside agent at https://docs.cilium.io/en/latest/cheatsheet/
+
+```bash
+# Find out the cilium pod
+kubectl get pods -n kube-system
+
+# Exec to the cilium pod to inspect more extensions
+kubectl exec --tty --stdin -n kube-system cilium-xxxxx -- /bin/bash
+```
+
+![alt text](assets/images/session4/exec-cilium-pod.png)
+
+- First of all, you run `status` command to deep inspect about the agent
+
+```bash
+# Check basic status
+cilium status
+
+# Check more about information on all controllers, health and redirects
+cilium status --all-controllers --all-health --all-redirects
+```
+
+![alt text](assets/images/session4/cilium-agent-status.png)
+
+- Get current agent configuration
+
+```bash
+# Check configuration in basic
+cilium config
+
+# View all configuration of agent
+cilium config --all
+```
+
+![alt text](assets/images/session4/cilium-config.png)
+
+- Run a monitoring to capture all traffic like `tcpdump` inside cluster, with `monitor` command
+
+```bash
+# All Traffic monitoring
+cilium monitor
+
+# Monitoring with verbose version
+cilium monitor -v
+
+# Monitoring with only L7
+cilium monitor -t l7
+```
+
+![alt text](assets/images/session4/cilium-L4.png)
+
+
+- Move on to check about `service` to view all loadbalancer services inside cluster
+
+```bash
+# View all services routing
+cilium service list
+
+# View specific services routing
+cilium service get <id> -o json
+```
+
+![alt text](assets/images/session4/cilium-service.png)
+
+More over you can see about bpf level of load balancer
+
+```bash
+cilium bpf lb list
+```
+
+- See the `endpoint` inside cluster is useful optional in `cilium`
+
+```bash
+# Get list of all local endpoints
+cilium endpoint list
+
+# Get detailed view of endpoint properties and state
+cilium endpoint get <id>
+
+# Show recent endpoint specific log entries
+cilium endpoint log <id>
+
+# Turn on or off debug in monitor of target endpoint
+cilium endpoint config <id> Debug=true
+```
+
+![alt text](assets/images/session4/cilium-endpoint.png)
+
+> `cilium` is more powerful, but if i list all, we will make this session become boring. So if you want to explore more features, check out at: https://docs.cilium.io/en/latest/cmdref/
+ 
+### Enable `hubble` in cluster to see what network work inside the kubewekend cluster
+
+Back to the cilium in shell of `vagrant` host, you need to turn of `hubble` with command
+
+```bash
+cilium hubble enable
+```
+
+And now use `status` to check if `hubble` run or not
+
+![alt text](assets/images/session4/hubble-relay.png)
+
+With hubble enable, kubewekend cluster will add a new thing run as deployment `hubble-relay`. But your version is deploy will not have any accesable, you need install add-on like `hubble-client` and `hubble-ui` to more visualize about `hubble`. Read more about `hubble` at: [What is hubble?](https://docs.cilium.io/en/latest/overview/intro/#what-is-hubble)
+
+First of all, install `hubble-client` to use command in your host
+
+```bash
+HUBBLE_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/hubble/master/stable.txt)
+HUBBLE_ARCH=amd64
+if [ "$(uname -m)" = "aarch64" ]; then HUBBLE_ARCH=arm64; fi
+curl -L --fail --remote-name-all https://github.com/cilium/hubble/releases/download/$HUBBLE_VERSION/hubble-linux-${HUBBLE_ARCH}.tar.gz{,.sha256sum}
+sha256sum --check hubble-linux-${HUBBLE_ARCH}.tar.gz.sha256sum
+sudo tar xzvfC hubble-linux-${HUBBLE_ARCH}.tar.gz /usr/local/bin
+rm hubble-linux-${HUBBLE_ARCH}.tar.gz{,.sha256sum}
+```
+
+Now validate the hubble API Access
+
+> In order to access the Hubble API, create a port forward to the Hubble service from your local machine. This will allow you to connect the Hubble client to the local port 4245 and access the Hubble Relay service in your Kubernetes cluster.
+
+```bash
+# Use via cilium
+cilium hubble port-forward
+
+# use via kubectl
+kubectl port-forward -n kube-system service/hubble-relay 4245:80
+```
+
+And lastly, you can view status and observe about `hubble` 
+
+```bash
+# View status
+hubble status
+
+# Observe API
+hubble observe
+```
+
+<h3>Hubble Status</h3>
+
+![alt text](assets/images/session4/hubble-status.png)
+
+<h3>Hubble observe</h3>
+
+![alt text](assets/images/session4/hubble-observe.png)
+
+
+But if you don't view result of network traffic inside cluster via CLI, `hubble` offer us about using via web-ui. Use command below 
+
+
+```bash
+cilium hubble enable --ui
+```
+
+Wait for minite, and use `status` command with `cilium` to view your ui is enabling
+
+![alt text](assets/images/session4/hubble-ui.png)
+
+Use `port-forward` to expose web-ui to your localhost
+
+```bash
+# Use via cilium
+cilium hubble ui
+
+# Use port-foward of kubectl instead
+kubectl port-forward -n kube-system service/hubble-ui 12000:80
+```
+
+You will hard to connect to `vagrant` host if you not attacked to `vmbox`, so instead of I use `ssh-tunnel` to connect `hubble-ui`
+
+```bash
+ssh -N -L 12000:127.0.0.1:12000 -i .vagrant/machines/k8s-master-machine/virtualbox/private_key vagrant@127.0.0.1 -p 6996
+```
+
+Now you can access `http://localhost:12000` to view web-ui of `hubble`
+
+![alt text](assets/images/session4/hubble-ui-accessable.png)
+
+Inspect real time with example when use `connectivity` scenarios
+
+```bash
+while true; do cilium connectivity test; done
+```
+
+![alt text](assets/images/session4/hubble-ui-flow.png)
 
