@@ -22,43 +22,72 @@ Vagrant.configure("2") do |config|
 
     config.vm.provider "virtualbox" do |config|
       config.name = "k8s-master-machine"
+      # Change here when you need more memory to prevent Errors: 137 in Kubernetes
       config.memory = 2048
       config.cpus = 2
     end
   end
-  
-  # Use to loo[] over VM defination
-  # Documentation: https://developer.hashicorp.com/vagrant/docs/vagrantfile/tips#loop-over-vm-definitions
-  # Use can use `up` with regex to numberic the machines what you want to provisioning
-  # Example: vagrant up "/k8s-worker-machine-[1-2]/" --provider=virtualbox
-  (1..3).each do |i|
-    config.vm.define "k8s-worker-machine-#{i}" do |config|
-      config.vm.box = "ubuntu/focal64"
-      config.vm.hostname = "k8s-worker-machine-#{i}"
-      config.vm.communicator = "ssh"
-      # Default enable 2222 for ssh communication (Add id: "ssh" to disable default)
-      # https://realguess.net/2015/10/06/overriding-the-default-forwarded-ssh-port-in-vagrant/
-      # For prevent collisions, use `auto_correct` and `unsable_port_parameter` to guide the port to new one
-      config.vm.network "forwarded_port", guest: 22, host: 9669, protocol: "tcp", id: "ssh", host_ip: "127.0.0.1", auto_correct: true
-      config.vm.usable_port_range = 9669..9671
-      config.vm.box_check_update = false
-      config.ssh.username = ENV["SSH_USER"]
-      config.ssh.private_key_path = ENV["SSH_PRIV_KEY_PATH"]
-      config.ssh.guest_port = 22
 
-      # # Disable to generate a key pair inside .vargrant directory, use insecure_private_keys
-      # # instead of using private_key
-      # config.ssh.insert_key = false
+  # # Use to loo[] over VM defination
+  # # Documentation: https://developer.hashicorp.com/vagrant/docs/vagrantfile/tips#loop-over-vm-definitions
+  # # Use can use `up` with regex to numberic the machines what you want to provisioning
+  # # Example: vagrant up "/k8s-worker-machine-[1-2]/" --provider=virtualbox
+  # (1..3).each do |i|
+  #   config.vm.define "k8s-worker-machine-#{i}" do |config|
+  #     config.vm.box = "ubuntu/focal64"
+  #     config.vm.hostname = "k8s-worker-machine-#{i}"
+  #     config.vm.communicator = "ssh"
+  #     # Default enable 2222 for ssh communication (Add id: "ssh" to disable default)
+  #     # https://realguess.net/2015/10/06/overriding-the-default-forwarded-ssh-port-in-vagrant/
+  #     # For prevent collisions, use `auto_correct` and `unsable_port_parameter` to guide the port to new one
+  #     config.vm.network "forwarded_port", guest: 22, host: 9669, protocol: "tcp", id: "ssh", host_ip: "127.0.0.1", auto_correct: true
+  #     config.vm.usable_port_range = 9669..9671
+  #     config.vm.box_check_update = false
+  #     config.ssh.username = ENV["SSH_USER"]
+  #     config.ssh.private_key_path = ENV["SSH_PRIV_KEY_PATH"]
+  #     config.ssh.guest_port = 22
 
-      config.ssh.forward_agent = true
+  #     # # Disable to generate a key pair inside .vargrant directory, use insecure_private_keys
+  #     # # instead of using private_key
+  #     # config.ssh.insert_key = false
 
-      config.vm.provider "virtualbox" do |config|
-        config.name = "k8s-worker-machine-#{i}"
-        config.memory = 1024
-        config.cpus = 1
-      end
-    end
+  #     config.ssh.forward_agent = true
+
+  #     config.vm.provider "virtualbox" do |config|
+  #       config.name = "k8s-worker-machine-#{i}"
+  #       config.memory = 1024
+  #       config.cpus = 1
+  #     end
+  #   end
+  # end
+
+  config.vm.define "k8s-worker-machine-1" do |config|
+  config.vm.box = "ubuntu/focal64"
+  config.vm.hostname = "k8s-worker-machine-1"
+  config.vm.communicator = "ssh"
+  # Default enable 2222 for ssh communication (Add id: "ssh" to disable default)
+  # https://realguess.net/2015/10/06/overriding-the-default-forwarded-ssh-port-in-vagrant/
+  # For prevent collisions, use `auto_correct` and `unsable_port_parameter` to guide the port to new one
+  config.vm.network "forwarded_port", guest: 22, host: 9669, protocol: "tcp", id: "ssh", host_ip: "127.0.0.1"
+  config.vm.box_check_update = false
+  config.ssh.username = ENV["SSH_USER"]
+  config.ssh.private_key_path = ENV["SSH_PRIV_KEY_PATH"]
+  config.ssh.guest_port = 22
+  config.ssh.port = 9669
+
+  # # Disable to generate a key pair inside .vargrant directory, use insecure_private_keys
+  # # instead of using private_key
+  # config.ssh.insert_key = false
+
+  config.ssh.forward_agent = true
+
+  config.vm.provider "virtualbox" do |config|
+    config.name = "k8s-worker-machine-1"
+    config.memory = 1024
+    config.cpus = 1
   end
+end
+
 
   # Initialize the shell command to configuration
   $configScript = <<-'SHELL'
