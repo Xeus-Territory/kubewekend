@@ -23,9 +23,12 @@ Vagrant.configure("2") do |config|
     config.vm.provider "virtualbox" do |config|
       config.name = "k8s-master-machine"
       # Change here when you need more memory to prevent Errors: 137 in Kubernetes
-      config.memory = 2048
+      config.memory = 4092
       config.cpus = 2
     end
+
+    # Add one more disk 10GB for master node, use for ceph prerequisites
+    config.vm.disk :disk, size: "10GB", name: "extra_storage"
   end
 
   # # Use to loo[] over VM defination

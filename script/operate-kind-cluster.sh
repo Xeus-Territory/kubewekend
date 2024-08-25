@@ -26,4 +26,4 @@ EOF
     echo "VM: $vm ✅"
 done
 
-printf "\n🤩 Your patience is incrediable 🤩"
+printf "\n🤩 Your patience is incredible 🤩"
