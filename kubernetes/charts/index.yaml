@@ -1,0 +1,18 @@
+apiVersion: v1
+entries:
+  common:
+  - apiVersion: v2
+    appVersion: 1.0.0
+    created: "2025-06-21T19:19:22.969447659+07:00"
+    description: A Helm chart for Kubewekend's application
+    digest: bbf53faaebd54273dbe778dd95e39aaee22f7db94cd629380847145c1a8cf757
+    maintainers:
+    - email: xeusnguyen@gmail.com
+      name: Xeus Nguyen
+      url: https://wiki.xeusnguyen.xyz
+    name: common
+    type: application
+    urls:
+    - https://kubewekend.xeusnguyen.xyz/kubernetes/charts/common-0.1.0.tgz
+    version: 0.1.0
+generated: "2025-06-21T19:19:22.968866295+07:00"

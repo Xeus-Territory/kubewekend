@@ -1,25 +1,32 @@
-<h1>Setup the fully kubernetes cluster inside the locally hosted</h1>
+# Kubewekend :rocket::cloud::moon:
+
+>[!NOTE]
+Learn how to setup the fully kubernetes cluster inside your local environment
 
 <div align="center">
 	<img src="assets/images/kubewekend-thumbnail.jpeg">
 </div>
 
+---
+
 <h2>Table of Contents</h2>
 
-- [Usage](#usage)
-  - [Requirements tools](#requirements-tools)
-  - [Step by step](#step-by-step)
-  - [Specific Vagrantfile](#specific-vagrantfile)
-- [Kubewekend Major Session](#kubewekend-major-session)
-  - [Kubewekend Session 1: Use `Vargrant` to configuration the VM with provider](#kubewekend-session-1-use-vargrant-to-configuration-the-vm-with-provider)
-  - [Kubewekend Session 2: Ansible - To setup and run script and bring up kubernetes cluster on locally, Use `kind`](#kubewekend-session-2-ansible---to-setup-and-run-script-and-bring-up-kubernetes-cluster-on-locally-use-kind)
-  - [Kubewekend Session 3: Exploring, understanding and provisioning require components inside the `kind` cluster](#kubewekend-session-3-exploring-understanding-and-provisioning-require-components-inside-the-kind-cluster)
-  - [Kubewekend Session 4: `cilium` and `ebpf` - The powerful kernal service of kubewekend cluster](#kubewekend-session-4-cilium-and-ebpf---the-powerful-kernal-service-of-kubewekend-cluster)
-  - [Kubewekend Session 5: Build and Operate High Availability (HA) `Kubewekend` Cluster](#kubewekend-session-5-build-and-operate-high-availability-ha-kubewekend-cluster)
-  - [Kubewekend Session 6: CSI and Ceph with Kubewekend](#kubewekend-session-6-csi-and-ceph-with-kubewekend)
-- [Kubewekend Extra Session](#kubewekend-extra-session)
-  - [Kubewekend Session Extra 1: Longhorn and the story about NFS in Kubernetes](#kubewekend-session-extra-1-longhorn-and-the-story-about-nfs-in-kubernetes)
-  - [Kubewekend Session Extra 2: Rebuild Cluster with RKE2 or K3S](#kubewekend-session-extra-2-rebuild-cluster-with-rke2-or-k3s)
+- [Kubewekend :rocket::cloud::moon:](#kubewekend-rocketcloudmoon)
+  - [Usage](#usage)
+    - [Requirements tools](#requirements-tools)
+    - [Step by step](#step-by-step)
+    - [Specific Vagrantfile](#specific-vagrantfile)
+    - [Helm Chart](#helm-chart)
+  - [Kubewekend Major Session](#kubewekend-major-session)
+    - [Kubewekend Session 1: Use `Vargrant` to configuration the VM with provider](#kubewekend-session-1-use-vargrant-to-configuration-the-vm-with-provider)
+    - [Kubewekend Session 2: Ansible - To setup and run script and bring up kubernetes cluster on locally, Use `kind`](#kubewekend-session-2-ansible---to-setup-and-run-script-and-bring-up-kubernetes-cluster-on-locally-use-kind)
+    - [Kubewekend Session 3: Exploring, understanding and provisioning require components inside the `kind` cluster](#kubewekend-session-3-exploring-understanding-and-provisioning-require-components-inside-the-kind-cluster)
+    - [Kubewekend Session 4: `cilium` and `ebpf` - The powerful kernal service of kubewekend cluster](#kubewekend-session-4-cilium-and-ebpf---the-powerful-kernal-service-of-kubewekend-cluster)
+    - [Kubewekend Session 5: Build and Operate High Availability (HA) `Kubewekend` Cluster](#kubewekend-session-5-build-and-operate-high-availability-ha-kubewekend-cluster)
+    - [Kubewekend Session 6: CSI and Ceph with Kubewekend](#kubewekend-session-6-csi-and-ceph-with-kubewekend)
+  - [Kubewekend Extra Session](#kubewekend-extra-session)
+    - [Kubewekend Session Extra 1: Longhorn and the story about NFS in Kubernetes](#kubewekend-session-extra-1-longhorn-and-the-story-about-nfs-in-kubernetes)
+    - [Kubewekend Session Extra 2: Rebuild Cluster with RKE2 or K3S](#kubewekend-session-extra-2-rebuild-cluster-with-rke2-or-k3s)
 
 ## Usage
 
@@ -63,6 +70,14 @@ vagrant up <name-machine>
 
 # Run specific Vagrantfile for CEPH version
 VAGRANT_VAGRANTFILE=Vagrantfile.ceph vagrant up <name-machine>
+```
+
+### Helm Chart
+
+For install **helm-charts** from `kubewekend`, you can use **command** 
+
+```bash
+helm repo add kubewekend https://kubewekend.xeusnguyen.xyz/kubernetes/charts
 ```
 
 ## Kubewekend Major Session
