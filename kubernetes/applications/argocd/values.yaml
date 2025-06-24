@@ -1,0 +1,14 @@
+argocd:
+  deployed: true
+
+apps:
+  deployed: true
+
+imageUpdater:
+  deployed: true
+
+rollout:
+  deployed: false
+
+workflows:
+  deployed: false

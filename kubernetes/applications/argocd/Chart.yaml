@@ -1,0 +1,29 @@
+apiVersion: v2
+name: argocd
+version: 1.0.0
+dependencies:
+  - name: argo-cd
+    repository: https://argoproj.github.io/argo-helm
+    condition: argocd.deployed
+    alias: argocd
+    version: 8.1.1
+  - name: argocd-apps
+    repository: https://argoproj.github.io/argo-helm
+    condition: apps.deployed
+    alias: apps
+    version: 2.0.2
+  - name: argo-image-updater
+    repository: https://argoproj.github.io/argo-helm
+    condition: image-updater.deployed
+    alias: image-updater
+    version: 0.12.3
+  - name: argocd-rollout
+    repository: https://argoproj.github.io/argo-helm
+    condition: rollout.deployed
+    alias: rollout
+    version: 2.39.6
+  - name: argo-workflows
+    repository: https://argoproj.github.io/argo-helm
+    condition: workflows.deployed
+    alias: workflows
+    version: 0.45.19
