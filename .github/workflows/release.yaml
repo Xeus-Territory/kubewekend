@@ -27,6 +27,5 @@ jobs:
           skip_existing: true
           packages_with_index: true
           charts_dir: kubernetes/charts
-          pages_branch: main
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
