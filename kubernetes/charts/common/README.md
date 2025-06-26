@@ -9,7 +9,7 @@ A Helm chart for Kubewekend's application
 To install the chart with the release name `appwekend`:
 
 ```console
-$ helm repo add kubewekend https://kubewekend.xeusnguyen.xyz/kubernetes/charts
+$ helm repo add kubewekend https://kubewekend.xeusnguyen.xyz
 $ helm install appwekend kubewekend/common
 ```
 

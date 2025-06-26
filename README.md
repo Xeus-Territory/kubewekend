@@ -77,7 +77,7 @@ VAGRANT_VAGRANTFILE=Vagrantfile.ceph vagrant up <name-machine>
 For install **helm-charts** from `kubewekend`, you can use **command** 
 
 ```bash
-helm repo add kubewekend https://kubewekend.xeusnguyen.xyz/kubernetes/charts
+helm repo add kubewekend https://kubewekend.xeusnguyen.xyz
 ```
 
 ## Kubewekend Major Session
