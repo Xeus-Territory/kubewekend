@@ -1,0 +1,27 @@
+{{ template "chart.header" . }}
+{{ template "chart.deprecationWarning" . }}
+
+{{ template "chart.badgesSection" . }}
+
+{{ template "chart.description" . }}
+
+## Installing the Chart
+
+To install the chart with the release name `appwekend`:
+
+```console
+$ helm repo add kubewekend https://kubewekend.xeusnguyen.xyz/kubernetes/charts
+$ helm install appwekend kubewekend/{{ template "chart.name" . }}
+```
+
+{{ template "chart.homepageLine" . }}
+
+{{ template "chart.maintainersSection" . }}
+
+{{ template "chart.sourcesSection" . }}
+
+{{ template "chart.requirementsSection" . }}
+
+{{ template "chart.valuesSection" . }}
+
+{{ template "helm-docs.versionFooter" . }}
