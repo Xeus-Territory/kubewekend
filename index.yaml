@@ -3,6 +3,20 @@ entries:
   common:
   - apiVersion: v2
     appVersion: 1.0.0
+    created: "2025-07-03T06:56:24.295301275Z"
+    description: A Helm chart for Kubewekend's application
+    digest: 12fa6c2f6381461ebbca3aeb86d4e91439a9e5c1fe9e446181d2213ec96a3b9d
+    maintainers:
+    - email: xeusnguyen@gmail.com
+      name: Xeus Nguyen
+      url: https://wiki.xeusnguyen.xyz
+    name: common
+    type: application
+    urls:
+    - https://github.com/Xeus-Territory/kubewekend/releases/download/common-0.1.2/common-0.1.2.tgz
+    version: 0.1.2
+  - apiVersion: v2
+    appVersion: 1.0.0
     created: "2025-06-26T08:58:08.339545622Z"
     description: A Helm chart for Kubewekend's application
     digest: a965330a2c8de0bdb491be9ee6ea922a800148f264b5c041bcd5cbc803531e04
@@ -29,4 +43,4 @@ entries:
     urls:
     - https://github.com/Xeus-Territory/kubewekend/releases/download/common-0.1.0/common-0.1.0.tgz
     version: 0.1.0
-generated: "2025-06-26T08:58:08.339558997Z"
+generated: "2025-07-03T06:56:24.295316644Z"
