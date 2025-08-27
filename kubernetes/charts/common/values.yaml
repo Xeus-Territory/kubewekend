@@ -17,7 +17,21 @@ image:
   # -- This sets the pull policy for images.
   pullPolicy: IfNotPresent
   # -- Overrides the image tag whose default is the chart appVersion.
-  tag: ""
+  tag: "latest"
+
+# -- This will set the command for your application
+# Let it null if you already have entrypoint or cmd in your application
+# For more information checkout: https://kubernetes.io/docs/tasks/inject-data-application/define-command-argument-container/
+command: []
+# -- This will set the runtimeArgs for your application
+# Let it null if you feel pleasure with cmd command in your application
+# Add more if you want to override it
+runtimeArgs: []
+
+# -- This sets the environment for your deployment
+# For more information checkout: https://kubernetes.io/docs/tasks/inject-data-application/define-environment-variable-container/
+env: {}
+  # KEY: "value"
 
 # -- This is for the secretes for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
 imagePullSecrets: []
@@ -99,15 +113,46 @@ resources: {}
   #   cpu: 100m
   #   memory: 128Mi
 
-# -- This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
-livenessProbe:
-  httpGet:
-    path: /
-    port: http
-readinessProbe:
-  httpGet:
-    path: /
-    port: http
+# -- This is to setup the liveness,readiness and startupProbe probes 
+# More information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+probes:
+  # -- Probe list that you want to disable, accepted values: "livenessProbe", "readinessProbe", "startupProbe", "all"
+  # Ex: ["livenessProbe", "readinessProbe"] -> enable `startupProbe` only
+  disableProbes: []
+  livenessProbe:
+    httpGet:
+      path: /
+      port: http
+    initialDelaySeconds: 15
+    periodSeconds: 15
+    timeoutSeconds: 10
+    failureThreshold: 30
+    successThreshold: 1
+  readinessProbe:
+    httpGet:
+      path: /
+      port: http
+    initialDelaySeconds: 15
+    periodSeconds: 15
+    timeoutSeconds: 10
+    failureThreshold: 30
+    successThreshold: 1
+  startupProbe:
+    httpGet:
+      path: /
+      port: http
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 30
+
+# -- This set the override probes base on your decision
+probesOverride: {}
+  # livenessProbe:
+  #   ...
+  # readinessProbe:
+  #   ...
+  # startupProbe:
+  #   ...
 
 # -- This section is for setting up autoscaling more information can be found here: https://kubernetes.io/docs/concepts/workloads/autoscaling/
 autoscaling:
@@ -141,3 +186,10 @@ affinity: {}
 
 # -- To add your extra manifest into your applications
 extraManifests: {}
+
+# -- To enable/disable the rbac for deployment
+rbac:
+  create: false
+
+# -- To enable/disable the testconnection for deployment
+testConnection: false
