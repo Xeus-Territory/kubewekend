@@ -80,3 +80,39 @@ Usage:
         {{- tpl (.value | toYaml) .context }}
     {{- end }}
 {{- end -}}
+
+{{/*
+Renders a key value list to YAML format, e.g: env
+Usage:
+{{- with .Values.env }}
+    env: {{ include "common.keyvalues.render" . | indent 8 }}
+{{- end }}
+*/}}
+{{- define "common.keyvalues.render" }}
+{{- range $key, $value := . }}
+- name: {{ $key | upper | quote }}
+  value: {{ $value | quote }}
+{{- end }}
+{{- end }}
+
+
+{{/*
+Render probes in pod template for healthcheck
+*/}}
+{{- define "common.probes" -}}
+{{- $probes := .Values.probes -}}
+{{- if not (mustHas "all" $probes.disableProbes) -}}
+{{- if not (mustHas "livenessProbe" $probes.disableProbes) -}}
+{{- $_ := set $probes.livenessProbe.httpGet "path" (default $probes.livenessProbe.httpGet.path | default "/") -}}
+livenessProbe: {{ toYaml $probes.livenessProbe | nindent 2 }}
+{{- end }}
+{{- if not (mustHas "readinessProbe" $probes.disableProbes) }}
+{{- $_ := set $probes.readinessProbe.httpGet "path" (default $probes.readinessProbe.httpGet.path | default "/") }}
+readinessProbe: {{ toYaml $probes.readinessProbe | nindent 2 }}
+{{- end }}
+{{- if not (mustHas "startupProbe" $probes.disableProbes) }}
+{{- $_ := set $probes.startupProbe.httpGet "path" (default $probes.startupProbe.httpGet.path | default "/") }}
+startupProbe: {{ toYaml $probes.startupProbe | nindent 2 }}
+{{- end }}
+{{- end -}}
+{{- end -}}

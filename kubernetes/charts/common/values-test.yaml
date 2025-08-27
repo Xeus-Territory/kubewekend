@@ -1,0 +1,41 @@
+enabled: true
+replicaCount: 1
+fullnameOverride: "kubewekend-todo-application"
+image:
+  repository: "xeusnguyen/application"
+  pullPolicy: IfNotPresent
+  tag: "v0.0.1"
+imagePullSecrets: []
+command: ["/bin/sh", "-c"]
+runtimeArgs: ["yarn run dev"]
+service:
+  port: 3000
+volumeMounts:
+  - mountPath: /vault/secrets/
+    name: secret-vault
+    readOnly: true
+volumes:
+  - name: secret-vault
+    configMap:
+      name: secret-vault
+      items:
+        - key: config.env
+          path: config.env
+serviceAccount:
+  create: true
+  name: nlp-sandbox
+rbac:
+  create: false
+probes:
+  disableProbes: ["all"]
+  livenessProbe:
+    httpGet:
+      path: /
+      port: http
+  readinessProbe:
+    httpGet:
+      path: /
+      port: http
+ingress:
+  enabled: false
+testConnection: false
