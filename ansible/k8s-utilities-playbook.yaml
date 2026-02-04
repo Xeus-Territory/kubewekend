@@ -1,0 +1,525 @@
+---
+- name: "Kubernetes Cluster Utilities Playbook"
+  vars:
+    cluster_name: "{{ host_name }}"
+    user: "vagrant"
+  # To fix lint issues: when you not set host_name, use default func of jinja2 to handle
+  # https://stackoverflow.com/questions/35105615/use-a-default-if-a-variable-is-not-defined
+  hosts: "{{ host_name | default('sample-k8s-master') }}"
+  tasks:
+      # Task help choose var_files when host is master
+    - name: Access master var_files
+      tags: always
+      # Use `include_vars` to handling to task to import
+      # host_vars base on conditional
+      # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/include_vars_module.html
+      ansible.builtin.include_vars:
+        file: "./inventories/host_vars/master.yaml"
+      # `when` conditional inside the ansible which help handle configuration,
+      # and give the flexible to dynamic tasks on ansible
+      # https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_conditionals.html
+      when: cluster_name is search("master")
+
+    - name: "Ingress test deployment in side the cluster"
+      tags: ingress_test
+      when: utilities.ingressTestDeployment.enable | default(false)
+      block:
+        # Copy test deployment template to remote host
+        - name: "Create test deployment template on remote host"
+          ansible.builtin.template:
+            src: "ingress-test-deployment.yaml.j2"
+            dest: "/home/{{ user }}/ingress-test-deployment.yaml"
+            mode: "0644"
+          changed_when: false
+
+        - name: "Create test deployment, service and ingress"
+          ansible.builtin.shell: |
+            kubectl apply -n {{ utilities.ingressTestDeployment.namespace }} -f /home/{{ user }}/ingress-test-deployment.yaml
+          changed_when: false
+          register: test_deployment_result
+
+        - name: "Display test deployment result"
+          ansible.builtin.debug:
+            msg: "{{ test_deployment_result.stdout_lines }}"
+          changed_when: false
+
+    - name: "API Gateway test deployment in side the cluster"
+      tags: apigateway_test
+      when: utilities.apiGatewayTestDeployment.enable | default(false)
+      block:
+        # Copy API gateway test deployment template to remote host
+        - name: "Create API gateway test deployment template on remote host"
+          ansible.builtin.template:
+            src: "apigateway-test-deployment.yaml.j2"
+            dest: "/home/{{ user }}/apigateway-test-deployment.yaml"
+            mode: "0644"
+          changed_when: false
+
+        - name: "Create API gateway test deployment, service, gateway and httproute"
+          ansible.builtin.shell: |
+            kubectl apply -n {{ utilities.apiGatewayTestDeployment.namespace }} -f /home/{{ user }}/apigateway-test-deployment.yaml
+          changed_when: false
+          register: apigateway_test_deployment_result
+
+        - name: "Display API gateway test deployment result"
+          ansible.builtin.debug:
+            msg: "{{ apigateway_test_deployment_result.stdout_lines }}"
+          changed_when: false
+
+    - name: "Setup cert-manager for the cluster"
+      tags: certmanager
+      when: utilities.certmanager.enable | default(false)
+      block:
+        - name: "Install cert-manager CRDs"
+          ansible.builtin.shell: |
+            helm repo add jetstack https://charts.jetstack.io
+            helm repo update
+            helm upgrade --install cert-manager jetstack/cert-manager \
+              --namespace cert-manager --create-namespace --version v1.19.2 --wait \
+              --set crds.enabled=true
+          changed_when: false
+          register: certmanager_install_result
+
+        - name: "Display cert-manager installation result"
+          ansible.builtin.debug:
+            msg: "{{ certmanager_install_result.stdout_lines }}"
+          changed_when: false
+
+    - name: "Setup Dashboard for the cluster"
+      tags: dashboard
+      when: utilities.dashboard.enable | default(false)
+      block:
+        # Documentation (Deprecated): https://github.com/kubernetes/dashboard
+        - name: "Setup Kubernetes Dashboard"
+          when: utilities.dashboard.type == "kubernetes-dashboard"
+          ansible.builtin.shell: |
+            helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/
+            helm repo update
+            helm upgrade --install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard \
+              --namespace {{ utilities.dashboard.namespace }} --create-namespace --version 7.14.0 --wait \
+              --set app.ingress.enabled=true \
+              --set app.ingress.hosts[0]={{ utilities.dashboard.host }} \
+              --set app.ingress.ingressClassName={{ utilities.dashboard.ingressClass }}
+          changed_when: false
+          register: kubernetes_dashboard_result
+
+        - name: "Display Kubernetes Dashboard result"
+          ansible.builtin.debug:
+            msg: "{{ kubernetes_dashboard_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.dashboard.type == "kubernetes-dashboard"
+
+        - name: "Setup Kubernetes Headlamp Dashboard"
+          when: utilities.dashboard.type == "headlamp"
+          ansible.builtin.shell: |
+            helm repo add headlamp https://kubernetes-sigs.github.io/headlamp/
+            helm repo update
+            helm upgrade --install headlamp headlamp/headlamp \
+              --namespace {{ utilities.dashboard.namespace }} --create-namespace --version 0.39.0 --wait \
+              --set ingress.enabled=true \
+              --set ingress.ingressClassName={{ utilities.dashboard.ingressClass }} \
+              --set ingress.hosts[0].host={{ utilities.dashboard.host }} \
+              --set ingress.hosts[0].paths[0].path=/ \
+              --set ingress.hosts[0].paths[0].type="ImplementationSpecific"
+
+          changed_when: false
+          register: headlamp_dashboard_result
+
+        - name: "Display Kubernetes Headlamp Dashboard result"
+          ansible.builtin.debug:
+            msg: "{{ headlamp_dashboard_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.dashboard.type == "headlamp"
+
+        - name: "Setup Kubernetes Dashboard Admin Token"
+          when: utilities.dashboard.type == "kubernetes-dashboard" and utilities.dashboard.createAdminToken | default(false)
+          ansible.builtin.shell: |
+            kubectl -n {{ utilities.dashboard.namespace }} create serviceaccount admin-user
+            kubectl -n {{ utilities.dashboard.namespace }} create clusterrolebinding admin-user \
+              --clusterrole=cluster-admin --serviceaccount={{ utilities.dashboard.namespace }}:admin-user
+            kubectl -n {{ utilities.dashboard.namespace }} create token admin-user
+          changed_when: false
+          register: kubernetes_dashboard_admin_token
+
+        - name: "Display Kubernetes Dashboard Admin Token"
+          ansible.builtin.debug:
+            msg: "{{ kubernetes_dashboard_admin_token.stdout_lines }}"
+          changed_when: false
+          when: utilities.dashboard.type == "kubernetes-dashboard" and utilities.dashboard.createAdminToken | default(false)
+
+        - name: "Setup Headlamp Dashboard Admin Token"
+          when: utilities.dashboard.type == "headlamp" and utilities.dashboard.createAdminToken | default(false)
+          ansible.builtin.shell: |
+            kubectl create token --namespace {{ utilities.dashboard.namespace }} headlamp
+          changed_when: false
+          register: headlamp_dashboard_admin_token
+
+        - name: "Display Headlamp Dashboard Admin Token"
+          ansible.builtin.debug:
+            msg: "{{ headlamp_dashboard_admin_token.stdout_lines }}"
+          changed_when: false
+          when: utilities.dashboard.type == "headlamp" and utilities.dashboard.createAdminToken | default(false)
+
+        - name: "Setup Rancher Dashboard"
+          when: utilities.dashboard.type == "rancher" and utilities.certmanager.enable
+          ansible.builtin.shell: |
+            helm repo add rancher-stable https://releases.rancher.com/server-charts/stable
+            helm repo update
+            helm upgrade --install rancher rancher-stable/rancher \
+              --namespace cattle-system --create-namespace --version 2.13.1 --wait \
+              --set hostname={{ utilities.dashboard.host }} \
+              --set ingress.ingressClassName={{ utilities.dashboard.ingressClass }} \
+              --set replicas=1
+          changed_when: false
+          register: rancher_dashboard_result
+
+        - name: "Display Rancher Dashboard result"
+          ansible.builtin.debug:
+            msg: "{{ rancher_dashboard_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.dashboard.type == "rancher" and utilities.certmanager.enable
+
+    - name: "Setup Secret Management for the cluster"
+      tags: secret_management
+      when: utilities.secretManagement.enable | default(false)
+      block:
+        - name: "Setup HashiCorp Vault for Secret Management"
+          when: utilities.secretManagement.type == "vault"
+          ansible.builtin.shell: |
+            helm repo add hashicorp https://helm.releases.hashicorp.com
+            helm repo update
+            helm upgrade --install vault hashicorp/vault \
+              --namespace {{ utilities.secretManagement.namespace }}  --create-namespace --version 0.32.0 --wait \
+              --set server.ingress.enabled=true \
+              --set server.ingress.ingressClassName={{ utilities.secretManagement.ingressClass }} \
+              --set server.ingress.hosts[0].host={{ utilities.secretManagement.host }}
+          changed_when: false
+          register: vault_secret_management_result
+
+        - name: "Display HashiCorp Vault Secret Management result"
+          ansible.builtin.debug:
+            msg: "{{ vault_secret_management_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.secretManagement.type == "vault"
+
+        - name: "Setup openbao for Secret Management"
+          when: utilities.secretManagement.type == "openbao"
+          ansible.builtin.shell: |
+            helm repo add openbao https://openbao.github.io/openbao-helm
+            helm repo update
+            # Determine openbao chart version based on secret management type by K8s Server Version
+            # NOTE: Because version usually in float format, we need to use bash comparison with `bc`
+            # Reference: https://www.baeldung.com/linux/bash-compare-float#using-the-bc-command
+            KUBE_VERSION=$(kubectl version | grep 'Server Version' | awk '{print $3}' | sed 's/v//g' | cut -d'.' -f1,2)
+            if [ 1 -eq "$(echo "$KUBE_VERSION < 1.30" | bc)" ]; then
+              VERSION="0.6.0"
+            else
+              VERSION="0.23.2"
+            fi
+            helm upgrade --install openbao openbao/openbao \
+              --namespace {{ utilities.secretManagement.namespace }} --create-namespace --version $VERSION --wait \
+              --set server.ingress.enabled=true \
+              --set server.ingress.ingressClassName={{ utilities.secretManagement.ingressClass }} \
+              --set server.ingress.hosts[0].host={{ utilities.secretManagement.host }} \
+              --set ui.enabled={{ utilities.secretManagement.openbao.ui }}
+          changed_when: false
+          register: openbao_secret_management_result
+
+        - name: "Display openbao Secret Management result"
+          ansible.builtin.debug:
+            msg: "{{ openbao_secret_management_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.secretManagement.type is search("openbao")
+
+        - name: "Initialize Vault or Openbao Secret Management"
+          when: utilities.secretManagement.actions.init | default(false)
+          ansible.builtin.shell: |
+            # Choose the vault platfrom to initialize, Vault or Openbao
+            if [ "{{ utilities.secretManagement.type }}" = "vault" ]; then
+              POD_NAME="vault-0"
+            elif [ "{{ utilities.secretManagement.type }}" = "openbao" ]; then
+              POD_NAME="openbao-0"
+            else
+              echo "Unsupported secret management type for initialization."
+              exit 1
+            fi
+            # Prevent re-initialization error by checking if vault is already initialized
+            INIT_STATUS=$(kubectl -n {{ utilities.secretManagement.namespace }} exec $POD_NAME -- vault status | grep 'Initialized' | awk '{print $2}')
+            if [ $INIT_STATUS = "true" ]; then
+              echo "Vault is already initialized, skipping initialization."
+              exit 0
+            else
+              kubectl -n {{ utilities.secretManagement.namespace }} exec $POD_NAME -- vault operator init -key-shares=1 -key-threshold=1 -format=json > /home/{{ user }}/vault-init-output.json
+              echo "Vault initialized successfully. Initialization output saved to /home/{{ user }}/vault-init-output.json"
+              exit 0
+            fi
+          changed_when: false
+          register: vault_initialize_result
+
+        - name: "Display Vault or Openbao Initialize result"
+          ansible.builtin.debug:
+            msg: "{{ vault_initialize_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.secretManagement.actions.init | default(false)
+
+        - name: "Unseal Vault or Openbao automatically"
+          when: utilities.secretManagement.actions.unseal == "auto" 
+          ansible.builtin.shell: |
+            # Choose the vault platfrom to initialize, Vault or Openbao
+            if [ "{{ utilities.secretManagement.type }}" = "vault" ]; then
+              POD_NAME="vault-0"
+            elif [ "{{ utilities.secretManagement.type }}" = "openbao" ]; then
+              POD_NAME="openbao-0"
+            else
+              echo "Unsupported secret management type for initialization."
+              exit 1
+            fi
+            VAULT_UNSEAL_KEY=$(jq -r '.unseal_keys_b64[0]' /home/{{ user }}/vault-init-output.json)
+            kubectl -n {{ utilities.secretManagement.namespace }} exec $POD_NAME -- vault operator unseal $VAULT_UNSEAL_KEY
+          changed_when: false
+          register: vault_unseal_result
+
+        - name: "Display Vault or Openbao Unseal result"
+          ansible.builtin.debug:
+            msg: "{{ vault_unseal_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.secretManagement.actions.unseal == "auto"
+
+        - name: "Unseal Vault or Openbao manually"
+          when: utilities.secretManagement.actions.unseal == "manual"
+          # Make pretty message for user to unseal vault manually
+          # Reference: https://stackoverflow.com/a/40325864
+          vars:
+            unseal_instructions: |
+              Please unseal the Vault manually by following these steps:
+              1. Retrieve the unseal key from the vault-init-output.json file located on the control node.
+                 jq -r '.unseal_keys_b64[0]' vault-init-output.json
+              2. Execute the following command to unseal the Vault or Openbao:
+                 kubectl -n {{ utilities.secretManagement.namespace }} exec $POD_NAME -- vault operator unseal <UNSEAL_KEY>
+              Replace <UNSEAL_KEY> with the actual unseal key retrieved in step 1.
+          ansible.builtin.debug:
+            msg: "{{ unseal_instructions.split('\n') }}"
+          changed_when: false
+
+        - name: "Save Vault or Openbao unseal keys to ansible output file"
+          when: utilities.secretManagement.actions.savingUnsealKeys | default(false) and utilities.secretManagement.actions.init | default(false)
+          ansible.builtin.fetch:
+            src: "/home/{{ user }}/vault-init-output.json"
+            dest: "./vault-init-output.json"
+            flat: yes
+          changed_when: false
+
+        - name: "Setup Hashicorp Vault Operator for Secret Management"
+          when: utilities.secretManagement.vault.operator | default(false) and utilities.secretManagement.type == "vault"
+          ansible.builtin.shell: |
+            helm repo add hashicorp https://helm.releases.hashicorp.com
+            helm repo update
+            helm upgrade --install vault-operator hashicorp/vault-secrets-operator \
+              --namespace {{ utilities.secretManagement.namespace }} --create-namespace --version 1.2.0 --wait
+
+          changed_when: false
+          register: vault_operator_secret_management_result
+
+        - name: "Display Hashicorp Vault Operator Secret Management result"
+          ansible.builtin.debug:
+            msg: "{{ vault_operator_secret_management_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.secretManagement.vault.operator | default(false) and utilities.secretManagement.type == "vault"
+
+    - name: "Setup K8s Extensions for the cluster"
+      tags: k8s_extensions
+      when: utilities.extensions.enable | default(false)
+      block:
+        - name: "Setup K8s Reflector Extension"
+          when: utilities.extensions.reflector.enable | default(false)
+          ansible.builtin.shell: |
+            helm repo add emberstack https://emberstack.github.io/helm-charts
+            helm repo update
+            helm upgrade --install reflector emberstack/reflector \
+              --namespace kube-extensions --create-namespace --version 9.1.45 --wait
+          changed_when: false
+          register: reflector_extension_result
+
+        - name: "Display K8s Reflector Extension result"
+          ansible.builtin.debug:
+            msg: "{{ reflector_extension_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.extensions.reflector.enable | default(false)
+
+        - name: "Setup K8s Reloader Extension"
+          when: utilities.extensions.reloader.enable | default(false)
+          ansible.builtin.shell: |
+            helm repo add stakater https://stakater.github.io/stakater-charts
+            helm repo update
+            helm upgrade --install reloader stakater/reloader \
+              --namespace kube-extensions --create-namespace --version 2.2.7 --wait
+          changed_when: false
+          register: reloader_extension_result
+
+        - name: "Display K8s Reloader Extension result"
+          ansible.builtin.debug:
+            msg: "{{ reloader_extension_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.extensions.reloader.enable | default(false)
+        
+        - name: "Setup K8s External Secrets Extension"
+          when: utilities.extensions.externalsecrets.enable | default(false)
+          ansible.builtin.shell: |
+            helm repo add external-secrets https://charts.external-secrets.io
+            helm repo update
+            helm upgrade --install externalsecrets external-secrets/external-secrets \
+              --namespace kube-extensions --create-namespace --version 1.2.1 --wait
+          changed_when: false
+          register: externalsecrets_extension_result
+
+        - name: "Display K8s External Secrets Extension result"
+          ansible.builtin.debug:
+            msg: "{{ externalsecrets_extension_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.extensions.externalsecrets.enable | default(false)
+
+    - name: "Setup GitOps for the cluster"
+      tags: gitops
+      when: utilities.gitops.enable | default(false)
+      block:
+        - name: "Setup ArgoCD for GitOps"
+          when: utilities.gitops.type == "argocd"
+          ansible.builtin.shell: |
+            helm repo add argo https://argoproj.github.io/argo-helm
+            helm repo update
+            helm upgrade --install argocd argo/argo-cd \
+              --namespace {{ utilities.gitops.argocd.namespace }} --create-namespace --version 9.1.3 --wait \
+              --set global.domain={{ utilities.gitops.argocd.host }} \
+              --set server.ingress.enabled=true \
+              --set server.ingress.ingressClassName={{ utilities.gitops.argocd.ingressClass }} \
+              --set server.ingress.hostname={{ utilities.gitops.argocd.host }} \
+              --set configs.params."server.insecure"="true"
+
+          changed_when: false
+          register: argocd_gitops_result
+
+        - name: "Display ArgoCD GitOps result"
+          ansible.builtin.debug:
+            msg: "{{ argocd_gitops_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.gitops.type == "argocd"
+
+        - name: "Setup Image Updater for ArgoCD"
+          when: utilities.gitops.type == "argocd" and utilities.gitops.argocd.argocdImageUpdater | default(false)
+          ansible.builtin.shell: |
+            helm repo add argo https://argoproj.github.io/argo-helm
+            helm repo update
+            helm upgrade --install argocd-image-updater argo/argocd-image-updater \
+              --namespace {{ utilities.gitops.argocd.namespace }} --version 1.0.1 --wait
+          changed_when: false
+          register: argocd_image_updater_result
+
+        - name: "Display ArgoCD Image Updater result"
+          ansible.builtin.debug:
+            msg: "{{ argocd_image_updater_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.gitops.type == "argocd" and utilities.gitops.argocd.argocdImageUpdater | default(false)
+
+        - name: "Setup ArgoCD Extensions for ArgoCD"
+          when: utilities.gitops.type == "argocd" and utilities.gitops.argocd.argocdExtensions | default(false)
+          ansible.builtin.shell: |
+            helm upgrade --install argocd argo/argo-cd \
+              --namespace {{ utilities.gitops.argocd.namespace }} --version 9.1.3 --wait \
+              --reuse-values \
+              --set server.extensions.enabled=true \
+              --set server.extensions.extensionList[0].name="argocd-extension-metrics" \
+              --set server.extensions.extensionList[0].env[0].name=EXTENSION_URL \
+              --set server.extensions.extensionList[0].env[0].value="https://github.com/argoproj-labs/argocd-extension-metrics/releases/download/v1.0.3/extension.tar.gz" \
+              --set server.extensions.extensionList[0].env[1].name=EXTENSION_VERSION \
+              --set server.extensions.extensionList[0].env[1].value="v1.0.3" \
+              --set server.extensions.extensionList[1].name="rollout-extension" \
+              --set server.extensions.extensionList[1].env[0].name=EXTENSION_URL \
+              --set server.extensions.extensionList[1].env[0].value="https://github.com/argoproj-labs/rollout-extension/releases/download/v0.3.7/extension.tar" \
+              --set server.extensions.extensionList[1].env[1].name=EXTENSION_VERSION \
+              --set server.extensions.extensionList[1].env[1].value="v0.3.7"
+            
+          changed_when: false
+          register: argocd_extensions_result
+
+        - name: "Display ArgoCD Extensions result"
+          ansible.builtin.debug:
+            msg: "{{ argocd_extensions_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.gitops.type == "argocd" and utilities.gitops.argocd.argocdExtensions | default(false)
+
+        - name: "Setup Flux for GitOps"
+          when: utilities.gitops.type == "flux"
+          ansible.builtin.shell: |
+            curl -s https://fluxcd.io/install.sh | sudo bash
+            kubectl apply -f https://github.com/fluxcd/flux2/releases/download/v2.7.5/install.yaml
+          changed_when: false
+          register: flux_gitops_result
+
+        - name: "Display Flux GitOps result"
+          ansible.builtin.debug:
+            msg: "{{ flux_gitops_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.gitops.type == "flux"
+
+        # Reference: https://docs.gitops.weaveworks.org/docs/intro-weave-gitops/
+        - name: "Setup Weave GitOps UI for Flux"
+          when: utilities.gitops.type == "flux" and utilities.gitops.flux.ui | default(false)
+          ansible.builtin.shell: |
+            # Install gitops command
+            curl --silent --location "https://github.com/weaveworks/weave-gitops/releases/download/v0.38.0/gitops-$(uname)-$(uname -m).tar.gz" | tar xz -C /tmp
+            sudo mv /tmp/gitops /usr/local/bin
+            gitops version
+
+            # Install Weave GitOps UI
+            helm upgrade --install weave-gitops oci://ghcr.io/weaveworks/charts/weave-gitops:4.0.36 \
+              --namespace flux-system --create-namespace --wait \
+              --set adminUser.create=true \
+              --set adminUser.username="kubewekend" \
+              --set adminUser.passwordHash="$(echo -n kubewekend | gitops get bcrypt-hash)" \
+              --set ingress.enabled=true \
+              --set ingress.className={{ utilities.gitops.flux.ingressClass }} \
+              --set ingress.hosts[0].host={{ utilities.gitops.flux.host }} \
+              --set ingress.hosts[0].paths[0].path=/ \
+              --set ingress.hosts[0].paths[0].pathType="ImplementationSpecific"
+          changed_when: false
+          register: weave_gitops_ui_result
+
+        - name: "Display Weave GitOps UI result"
+          ansible.builtin.debug:
+            msg: "{{ weave_gitops_ui_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.gitops.type == "flux" and utilities.gitops.flux.ui | default(false)
+
+        # Reference: https://docs.kargo.io/operator-guide/basic-installation/
+        - name: "Setup Kargo for GitOps"
+          when: utilities.gitops.kargo.enable | default(false)
+          ansible.builtin.shell: |
+            # Generate hash password and sign key for kargo
+            pass=$(openssl rand -base64 48 | tr -d "=+/" | head -c 32)
+            echo "Password: $pass"
+            hashed_pass=$(htpasswd -bnBC 10 "" $pass | tr -d ':\n')
+            signing_key=$(openssl rand -base64 48 | tr -d "=+/" | head -c 32)
+
+            # Install Kargo
+            helm upgrade --install kargo oci://ghcr.io/akuity/kargo-charts/kargo --version 1.8.6 --wait \
+              --namespace {{ utilities.gitops.kargo.namespace }} --create-namespace \
+              --set api.adminAccount.passwordHash="$hashed_pass" \
+              --set api.adminAccount.tokenSigningKey="$signing_key" \
+              --set api.host={{ utilities.gitops.kargo.host }} \
+              --set api.ingress.enabled=true \
+              --set api.ingress.ingressClassName={{ utilities.gitops.kargo.ingressClass }} \
+              --set api.ingress.tls.enabled=false \
+              --set api.ingress.tls.selfSignedCert=false \
+              --set api.tls.enabled=false \
+              --set api.tls.selfSignedCert=false \
+              --set externalWebhooksServer.tls.enabled=false \
+              --set externalWebhooksServer.tls.selfSignedCert=false
+
+          changed_when: false
+          register: kargo_gitops_result
+
+        - name: "Display Kargo GitOps result"
+          ansible.builtin.debug:
+            msg: "{{ kargo_gitops_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.gitops.kargo.enable | default(false)

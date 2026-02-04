@@ -44,7 +44,7 @@ argocd:
   global:
     # -- Default domain used by all components
     ## Used for ingresses, certificates, SSO, notifications, etc.
-    domain: argocd.xeusnguyen.xyz
+    domain: argocd.local
 
     # -- Runtime class name for all components
     runtimeClassName: ""
@@ -2412,7 +2412,7 @@ argocd:
 
       # -- Argo CD server hostname
       # @default -- `""` (defaults to global.domain)
-      hostname: "argocd.xeusnguyen.xyz"
+      hostname: "argocd.local"
 
       # -- The path to Argo CD server
       path: /
@@ -4272,10 +4272,4 @@ apps:
   enabled: false
 
 imageUpdater:
-  enabled: false
-
-rollout:
-  enabled: false
-
-workflows:
   enabled: false

@@ -17,13 +17,3 @@ dependencies:
     condition: image-updater.enabled
     alias: image-updater
     version: 1.0.1
-  - name: argo-rollouts
-    repository: https://argoproj.github.io/argo-helm
-    condition: rollout.enabled
-    alias: rollout
-    version: 2.40.5
-  - name: argo-workflows
-    repository: https://argoproj.github.io/argo-helm
-    condition: workflows.enabled
-    alias: workflows
-    version: 0.45.28

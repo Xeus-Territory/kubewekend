@@ -1,0 +1,635 @@
+---
+# Playbook for provision Kubernete node
+- name: Playbook of Kubernetes Node with KIND
+  vars:
+    cluster_name: "{{ host_name }}"
+    user: "vagrant"
+  # To fix lint issues: when you not set host_name, use default func of jinja2 to handle
+  # https://stackoverflow.com/questions/35105615/use-a-default-if-a-variable-is-not-defined
+  hosts: "{{ host_name | default('sample-k8s-master') }}"
+  tasks:
+    - name: Install common libraries,kind and dependencies for your host
+      tags: install_common
+      # Help to do inline script and multiple line
+      # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/shell_module.html
+      ansible.builtin.shell: |-
+        # Update package index and install dependencies
+        sudo apt update
+        sudo apt install -y apt-transport-https ca-certificates curl gpg wget bash-completion socat unzip jq
+
+        # Install Kind
+        wget -q https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64 -O ./kind
+        chmod +x ./kind
+        sudo mv ./kind /usr/local/bin/kind
+
+        # Install kubectl
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x ./kubectl
+        sudo mv ./kubectl /usr/local/bin/kubectl
+
+        # Install helm
+        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+        # Add bash-completion into ~/.bashrc
+        echo 'source /etc/bash_completion' >>~/.bashrc
+        kubectl completion bash | sudo tee /etc/bash_completion.d/kubectl >/dev/null
+        helm completion bash | sudo tee /etc/bash_completion.d/helm >/dev/null
+
+        # Add the alias and kubectl with couple of useful options
+        echo 'export KUBE_EDITOR="nano"' >>~/.bashrc
+        echo 'alias k="kubectl"' >> ~/.bashrc
+        echo 'alias kgp="kubectl get pods"' >> ~/.bashrc
+        echo 'alias kn="kubectl config set-context --current --namespace"' >> ~/.bashrc
+        echo 'alias kaf="kubectl apply -f "' >> ~/.bashrc
+        echo 'alias kr="kubectl run --dry-run=client -o yaml "' >> ~/.bashrc
+        echo 'alias krcp="k resource-capacity -p --util"' >> ~/.bashrc
+        echo 'alias krca="k resource-capacity -a"' >> ~/.bashrc
+
+        # Install vault
+        wget https://releases.hashicorp.com/vault/1.18.5/vault_1.18.5_linux_amd64.zip && \
+          unzip -p vault_1.18.5_linux_amd64.zip vault > vault && \
+          chmod +x vault && sudo mv vault /usr/local/bin && \
+          rm -rf vault_1.18.5_linux_amd64.zip
+      changed_when: false
+      args:
+        executable: /bin/bash
+      register: shell_output
+
+    - name: Log the results of install common
+      # Use `debug` feature to log your progress when perform the script, such as output or error
+      # to your ansible shell. https://docs.ansible.com/ansible/latest/collections/ansible/builtin/debug_module.html
+      tags: install_common
+      ansible.builtin.debug:
+        msg: "{{ shell_output.stdout_lines }}"
+
+      # Task help choose var_files when host is master
+    - name: Access master var_files
+      tags: setup_kind, remove_kind
+      # Use `include_vars` to handling to task to import
+      # host_vars base on conditional
+      # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/include_vars_module.html
+      ansible.builtin.include_vars:
+        file: "./inventories/host_vars/master.yaml"
+      # `when` conditional inside the ansible which help handle configuration,
+      # and give the flexible to dynamic tasks on ansible
+      # https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_conditionals.html
+      when: cluster_name is search("master")
+
+    - name: Bring up Kind cluster
+      tags: setup_kind
+      block:
+        - name: Create kind directory for host
+          # Use `command` feature, if you want to execute command in your remote host
+          # Besides, you can use `shell`, `script` or `win_shell` to do same thing but multiple line or run script-file optional
+          # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
+          ansible.builtin.command:
+            cmd: "mkdir -p ~/.kind"
+          # Ansible lets you define when a particular task has “changed” a remote node using the changed_when conditional
+          # https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_error_handling.html#defining-changed
+          changed_when: false
+
+        - name: Mount the kind-config template to the host
+          # Use `template` feature, to handle your situation on load template jinja2 to host
+          # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/template_module.html
+          ansible.builtin.template:
+            src: "./templates/kind-config.yaml.j2"
+            dest: "~/.kind/kind-config.yaml"
+            owner: "{{ user }}"
+            mode: "0644"
+
+        - name: Bring up the cluster base on cluster
+          # Same reason as `command` feature above, but can do inline script and multiple line
+          # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/shell_module.html
+          ansible.builtin.shell: |-
+            kindCheck="$(kind get clusters)"
+            if [ $kindCheck != "" ]; then
+              echo "Exist cluster already"
+            else
+              kind create cluster --config ~/.kind/kind-config.yaml
+              echo "Create a new cluster succeed"
+            fi
+          register: kind_log
+          changed_when: false
+
+        - name: Log the results of Playbook K8s master node
+          tags: setup_kind
+          # Use `debug` feature to log your progress when perform the script, such as output or error
+          # to your ansible shell. https://docs.ansible.com/ansible/latest/collections/ansible/builtin/debug_module.html
+          ansible.builtin.debug:
+            msg: "{{ kind_log.stdout_lines }}"
+
+    # Setup network for Kind Cluster in the situation disableDefaultCNI is true (Options: Calico, Flannel or Cilium)
+    # Documentation CNI: https://sanj.dev/post/cilium-calico-flannel-cni-performance-comparison
+    - name: Setup Kind Network for cluster
+      tags: setup_kind
+      when: kindCluster.networking.disableDefaultCNI | default(false)
+      block:
+        - name: Install Calico CNI for Kind cluster
+          tags: setup_kind
+          when: kindCluster.networking.cni | default('calico') == 'calico'
+          ansible.builtin.shell: |-
+            # Calico Stable Version at: https://docs.projectcalico.org/manifests/calico.yaml
+            # GitHub Release: https://github.com/projectcalico/calico/releases
+            kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+          register: calico_log
+          changed_when: false
+
+        - name: Log the results of Install Calico CNI for Kind cluster
+          tags: setup_kind
+          ansible.builtin.debug:
+            msg: "{{ calico_log.stdout_lines }}"
+          when: kindCluster.networking.cni | default('calico') == 'calico'
+
+        # When you have the demand to use Flannel CNI, you need to ensure CNI Network Plugin are installed
+        # Documentation: https://github.com/flannel-io/flannel?tab=readme-ov-file#deploying-flannel-manually
+        # Issue: Failed to check br_netfilter: stat /proc/sys/net/bridge/bridge-nf-call-iptables: no such file or directory
+        # GitHub: https://github.com/siderolabs/talos/issues/10430#issuecomment-2818927374
+        - name: Setup Flannel CNI Requirements for Kind cluster
+          tags: setup_kind
+          when: kindCluster.networking.cni | default('calico') == 'flannel'
+          ansible.builtin.shell: |-
+            docker exec $(docker ps --filter "name={{ cluster_name }}-control-plane" -q) /bin/bash -c '
+              set -e
+              ARCH=$(uname -m)
+              case $ARCH in
+                armv7*) ARCH="arm";;
+                aarch64) ARCH="arm64";;
+                x86_64) ARCH="amd64";;
+              esac
+              mkdir -p /opt/cni/bin
+              cd /tmp
+              curl -O -L https://github.com/containernetworking/plugins/releases/download/v1.7.1/cni-plugins-linux-$ARCH-v1.7.1.tgz
+              tar -C /opt/cni/bin -xzf "cni-plugins-linux-$ARCH-v1.7.1.tgz"
+            '
+            docker exec $(docker ps --filter "name={{ cluster_name }}-control-plane" -q) /bin/bash -c '
+              set -e
+              # ---- Temporary optional (rerun when reboot the host) ----
+              # modprobe br_netfilter
+              # echo 1 | tee /proc/sys/net/bridge/bridge-nf-call-iptables
+              # echo 1 | tee /proc/sys/net/ipv4/ip_forward
+
+              # ---- Permanent setup via sysctl.conf ----
+              if ! grep -q "br_netfilter" /etc/modules; then
+                echo br_netfilter | tee -a /etc/modules
+              fi
+              if -e /etc/sysctl.d/99-kubernetes-cni.conf; then
+                continue
+              else
+                touch /etc/sysctl.d/99-kubernetes-cni.conf
+              fi
+              if ! grep -q "net.bridge.bridge-nf-call-iptables" /etc/sysctl.d/99-kubernetes-cni.conf; then
+                echo "net.bridge.bridge-nf-call-iptables = 1" >> /etc/sysctl.d/99-kubernetes-cni.conf
+              fi
+              if ! grep -q "net.ipv4.ip_forward" /etc/sysctl.d/99-kubernetes-cni.conf; then
+                echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.d/99-kubernetes-cni.conf
+              fi
+              sysctl --system
+            '
+          register: flannel_req_log
+          changed_when: false
+
+        - name: Install Flannel CNI for Kind cluster
+          tags: setup_kind
+          when: kindCluster.networking.cni | default('calico') == 'flannel'
+          ansible.builtin.shell: |-
+            kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/refs/tags/v0.28.0/Documentation/kube-flannel.yml
+          register: flannel_log
+          changed_when: false
+
+        - name: Log the results of Install Flannel CNI for Kind cluster
+          tags: setup_kind
+          ansible.builtin.debug:
+            msg: "{{ flannel_log.stdout_lines }}"
+          when: kindCluster.networking.cni | default('calico') == 'flannel'
+
+        - name: Install Cilium CNI for Kind cluster
+          tags: setup_kind
+          when: kindCluster.networking.cni | default('calico') == 'cilium'
+          ansible.builtin.shell: |-
+            helm repo add cilium https://helm.cilium.io/
+            helm repo update
+            helm upgrade --install cilium cilium/cilium --version 1.18.5 --wait \
+              --namespace kube-system \
+              --set operator.replicas=1 \
+              --set hubble.enabled=true \
+              --set hubble.relay.enabled=true \
+              --set hubble.ui.enabled=true \
+              --set ipam.mode=cluster-pool
+          register: cilium_log
+          changed_when: false 
+
+        - name: Log the results of Install Cilium CNI for Kind cluster
+          tags: setup_kind
+          ansible.builtin.debug:
+            msg: "{{ cilium_log.stdout_lines }}"
+          when: kindCluster.networking.cni | default('calico') == 'cilium'
+
+    # Setup Load Balancer for Kind Cluster for external accessing services as type LoadBalancer (Options: metallb, cloud-provider-kind, cilium-ipam-lb)
+    - name: Setup Load Balancer for Kind cluster
+      tags: setup_kind
+      when: kindCluster.loadbalancer.enable | default(false)
+      block:
+        - name: Install Load Balancer for Kind cluster
+          tags: setup_kind
+          when: kindCluster.loadbalancer.type | default('cloud-provider-kind') == 'cloud-provider-kind'
+          ansible.builtin.shell: |-
+            docker run -d --name cloud-provider-kind --network kind \
+              -v /var/run/docker.sock:/var/run/docker.sock --restart always \
+              xeusnguyen/cloud-provider-kind:latest || echo "cloud-provider-kind is running or exist"
+          register: lb_log
+          changed_when: false
+
+        - name: Log the results of Install Load Balancer for Kind cluster
+          tags: setup_kind
+          ansible.builtin.debug:
+            msg: "{{ lb_log.stdout_lines }}"
+          when: kindCluster.loadbalancer.type | default('cloud-provider-kind') == 'cloud-provider-kind' 
+      
+        # Documentation: https://metallb.io/
+        # Usage: https://metallb.io/usage/
+        # L2 Advertisement: https://metallb.io/configuration/_advanced_l2_configuration/
+        - name: Install MetalLB Load Balancer for Kind cluster
+          tags: setup_kind
+          when: kindCluster.loadbalancer.type | default('cloud-provider-kind') == 'metallb'
+          ansible.builtin.shell: |-
+            helm repo add metallb https://metallb.github.io/metallb
+            helm repo update
+            helm upgrade --install metallb metallb/metallb \
+              --namespace metallb-system --create-namespace --version 0.15.3 --wait
+            cat <<EOF | kubectl apply -f -
+            apiVersion: metallb.io/v1beta1
+            kind: IPAddressPool
+            metadata:
+              name: kind-loadbalancer-ippool
+              namespace: metallb-system
+            spec:
+              addresses:
+              - {{ kindCluster.loadbalancer.ippool.cidr }}
+            ---
+            apiVersion: metallb.io/v1beta1
+            kind: L2Advertisement
+            metadata:
+              name: kind-loadbalancer-l2adv
+              namespace: metallb-system
+            spec:
+              ipAddressPools:
+              - kind-loadbalancer-ippool
+            EOF
+          register: metallb_log
+          changed_when: false
+        
+        - name: Log the results of Install MetalLB Load Balancer for Kind cluster
+          tags: setup_kind
+          ansible.builtin.debug:
+            msg: "{{ metallb_log.stdout_lines }}"
+          when: kindCluster.loadbalancer.type | default('cloud-provider-kind') == 'metallb'
+
+        # When you want to use Cilium NodeIPAM for Load Balancer feature (inspired by: svclb of k3s by klipper-lb)
+        # Documentation: https://docs.cilium.io/en/latest/network/node-ipam/
+        # Otherwise: Cilium also support L2Advertisement, BGP, and ECMP for Load Balancer feature
+        # Article: https://rafay.co/ai-and-cloud-native-blog/using-cilium-as-a-kubernetes-load-balancer-a-powerful-alternative-to-metallb
+        - name: Install Cilium NodeIPAM for Kind cluster
+          tags: setup_kind
+          when: kindCluster.loadbalancer.type == 'cilium-ipam-lb' and kindCluster.networking.cni == 'cilium'
+          ansible.builtin.shell: |-
+            helm upgrade --install cilium cilium/cilium --version 1.18.5 \
+              --namespace kube-system \
+              --reuse-values \
+              --set nodeIPAM.enabled=true \
+              --set defaultLBServiceIPAM=nodeipam
+            kubectl rollout restart -n kube-system deployment cilium-operator
+          register: cilium_ipam_log
+          changed_when: false
+        
+        - name: Log the results of Install Cilium NodeIPAM for Kind cluster
+          tags: setup_kind
+          ansible.builtin.debug:
+            msg: "{{ cilium_ipam_log.stdout_lines }}"
+          when: kindCluster.loadbalancer.type == 'cilium-ipam-lb' and kindCluster.networking.cni == 'cilium'
+
+    # Setup Ingress Controller for Kind Cluster (Options: NGINX, Traefik, Cilium or Kong)
+    - name: Setup Ingress Controller for Kind cluster
+      tags: setup_kind
+      when: kindCluster.ingress.enable | default(false)
+      block:
+        - name: Install NGINX Ingress Controller for Kind cluster
+          tags: setup_kind
+          when: kindCluster.ingress.class | default('nginx') == 'nginx'
+          ansible.builtin.shell: |-
+            kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/refs/tags/controller-v1.14.1/deploy/static/provider/kind/deploy.yaml
+          register: nginx_log
+          changed_when: false
+        - name: Log the results of Install NGINX Ingress Controller for Kind cluster
+          tags: setup_kind
+          ansible.builtin.debug:
+            msg: "{{ nginx_log.stdout_lines }}"
+          when: kindCluster.ingress.class | default('nginx') == 'nginx'
+        
+        - name: Install Traefik Ingress Controller for Kind cluster
+          tags: setup_kind
+          when:  kindCluster.ingress.class | default('nginx') == 'traefik'
+          ansible.builtin.shell: |-
+            helm repo add traefik https://helm.traefik.io/traefik
+            helm repo update
+            helm upgrade --install traefik traefik/traefik --namespace kube-system --version 38.0.0 --wait \
+              --reuse-values \
+              --set ingressRoute.dashboard.enabled=true \
+              --set ingressRoute.dashboard.matchRule='Host(`dashboard.traefik.local`)' \
+              --set ingressRoute.dashboard.entryPoints={web} \
+              --set providers.kubernetesGateway.enabled=false \
+              --set gateway.enabled=false
+          register: traefik_log
+          changed_when: false
+        - name: Log the results of Install Traefik Ingress Controller for Kind cluster
+          tags: setup_kind
+          ansible.builtin.debug:
+            msg: "{{ traefik_log.stdout_lines }}"
+          when: kindCluster.ingress.class | default('nginx') == 'traefik'
+
+        # Documentation: https://docs.cilium.io/en/stable/network/servicemesh/ingress/
+        # Example: https://docs.cilium.io/en/stable/network/servicemesh/ingress/#examples
+        - name: Install Cilium Ingress Controller for Kind cluster
+          tags: setup_kind
+          when:  kindCluster.ingress.class | default('nginx') == 'cilium' and kindCluster.networking.cni == 'cilium'
+          ansible.builtin.shell: |-
+            helm upgrade --install cilium cilium/cilium --version 1.18.5 \
+              --namespace kube-system \
+              --reuse-values \
+              --set nodePort.enabled=true \
+              --set ingressController.enabled=true \
+              --set ingressController.loadbalancerMode=shared
+            kubectl rollout restart -n kube-system deployment cilium-operator
+            kubectl rollout restart -n kube-system daemonset cilium
+          register: cilium_ingress_log
+          changed_when: false
+
+        - name: Log the results of Install Cilium Ingress Controller for Kind cluster
+          tags: setup_kind
+          ansible.builtin.debug:
+            msg: "{{ cilium_ingress_log.stdout_lines }}"
+          when: kindCluster.ingress.class | default('nginx') == 'cilium' and kindCluster.networking.cni == 'cilium'
+
+        - name: Install Kong Ingress Controller for Kind cluster
+          tags: setup_kind
+          when:  kindCluster.ingress.class | default('nginx') == 'kong'
+          ansible.builtin.shell: |-
+            helm repo add kong https://charts.konghq.com
+            helm repo update
+            helm upgrade --install kong kong/kong --version 3.0.2 --wait \
+              --namespace kong --create-namespace
+          register: kong_ingress_log
+          changed_when: false
+
+        - name: Log the results of Install Kong Ingress Controller for Kind cluster
+          tags: setup_kind
+          ansible.builtin.debug:
+            msg: "{{ kong_ingress_log.stdout_lines }}"
+          when: kindCluster.ingress.class | default('nginx') == 'kong'
+
+    # Setup GatewayAPI for Kind Cluster (Options: Kong, Cilium or Traefik)
+    - name: Setup GatewayAPI for Kind cluster
+      tags: setup_kind
+      when: kindCluster.apigateway.enable | default(false)
+      block:
+        - name: Install GatewayAPI CRD for Kind cluster
+          tags: setup_kind
+          when: kindCluster.apigateway.crd.install | default(false)
+          ansible.builtin.shell: |-
+            kubectl apply --server-side -f https://github.com/kubernetes-sigs/gateway-api/releases/download/{{ kindCluster.apigateway.crd.version | default('v1.4.1') }}/standard-install.yaml
+          register: gatewayapi_log
+          changed_when: false
+
+        - name: Log the results of Install GatewayAPI CRD for Kind cluster
+          tags: setup_kind
+          ansible.builtin.debug:
+            msg: "{{ gatewayapi_log.stdout_lines }}"
+          when: kindCluster.apigateway.crd.install | default(false)
+
+        # Documentation: https://developer.konghq.com/gateway/
+        # View more example at: https://github.com/Kong/kubernetes-ingress-controller/tree/main/examples
+        - name: Kong GatewayAPI for Kind cluster
+          tags: setup_kind
+          when: kindCluster.apigateway.class == 'kong'
+          ansible.builtin.shell: |-
+            helm repo add kong https://charts.konghq.com
+            helm repo update
+            helm upgrade --install kong kong/kong --version 3.0.2 --wait \
+              --namespace kong --create-namespace \
+              --reuse-values
+            cat <<EOF | kubectl apply -f -
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: GatewayClass
+            metadata:
+              name: kong
+              annotations:
+                konghq.com/gatewayclass-unmanaged: "true"
+            spec:
+              controllerName: konghq.com/kic-gateway-controller
+            EOF
+
+          register: kong_gateway_log
+          changed_when: false
+
+        - name: Log the results of Kong GatewayAPI for Kind cluster
+          tags: setup_kind
+          ansible.builtin.debug:
+            msg: "{{ kong_gateway_log.stdout_lines }}"
+          when: kindCluster.apigateway.class == 'kong'
+
+        # Documentation: https://docs.cilium.io/en/stable/network/servicemesh/gateway-api/gateway-api/
+        # Example: https://docs.cilium.io/en/stable/network/servicemesh/gateway-api/gateway-api/#examples
+        - name: Install Cilium GatewayAPI for Kind cluster
+          tags: setup_kind
+          when: kindCluster.apigateway.class == 'cilium' and kindCluster.networking.cni == 'cilium'
+          ansible.builtin.shell: |-
+            helm upgrade --install cilium cilium/cilium --version 1.18.5 \
+              --namespace kube-system \
+              --reuse-values \
+              --set nodePort.enabled=true \
+              --set gatewayAPI.enabled=true
+            kubectl rollout restart -n kube-system deployment cilium-operator
+            kubectl rollout restart -n kube-system daemonset cilium
+          register: cilium_gateway_log
+          changed_when: false
+        
+        - name: Log the results of Install Cilium GatewayAPI for Kind cluster
+          tags: setup_kind
+          ansible.builtin.debug:
+            msg: "{{ cilium_gateway_log.stdout_lines }}"
+          when: kindCluster.apigateway.class == 'cilium' and kindCluster.networking.cni == 'cilium'
+
+        - name: Install Traefik GatewayAPI for Kind cluster (Including Traefik Ingress Controller)
+          tags: setup_kind
+          when: kindCluster.apigateway.class == 'traefik'
+          ansible.builtin.shell: |-
+            helm repo add traefik https://helm.traefik.io/traefik
+            helm repo update
+            kubectl apply -n kube-system \
+              -f https://raw.githubusercontent.com/traefik/traefik/refs/tags/v3.6.5/docs/content/reference/dynamic-configuration/kubernetes-gateway-rbac.yml
+            helm upgrade --install traefik traefik/traefik --version 38.0.0 --wait \
+              --namespace kube-system \
+              --reuse-values \
+              --set ingressRoute.dashboard.enabled=true \
+              --set ingressRoute.dashboard.matchRule='Host(`dashboard.traefik.local`)' \
+              --set ingressRoute.dashboard.entryPoints={web} \
+              --set gateway.enabled=true \
+              --set gateway.listeners.web.namespacePolicy.from=All \
+              --set providers.kubernetesGateway.enabled=true
+          register: traefik_gateway_log
+          changed_when: false
+        
+        - name: Log the results of Install Traefik GatewayAPI for Kind cluster (Including Traefik Ingress Controller)
+          tags: setup_kind
+          ansible.builtin.debug:
+            msg: "{{ traefik_gateway_log.stdout_lines }}"
+          when: kindCluster.apigateway.class == 'traefik'
+
+        - name: Setup Internal Kong GatewayAPI for Kind cluster
+          tags: setup_kind
+          when: kindCluster.apigateway.kong.internalOnly | default(false) and kindCluster.apigateway.class == 'kong'
+          ansible.builtin.shell: |-
+            helm repo add kong https://charts.konghq.com
+            helm repo update
+            helm upgrade --install kong kong/kong --version 3.0.2 --wait \
+              --namespace kong --create-namespace \
+              --reuse-values \
+              --set proxy.type=ClusterIP \
+              --set proxy.ingress.enabled=true \
+              --set proxy.ingress.ingressClassName={{ kindCluster.apigateway.kong.ingressClass }} \
+              --set proxy.ingress.hostnames={{ kindCluster.apigateway.kong.internalHostname }}
+          register: kong_internal_log
+          changed_when: false
+
+        - name: Log the results of Setup Internal Kong GatewayAPI for Kind cluster
+          tags: setup_kind
+          ansible.builtin.debug:
+            msg: "{{ kong_internal_log.stdout_lines }}"
+          when: kindCluster.apigateway.kong.internalOnly | default(false) and kindCluster.apigateway.class == 'kong'
+
+    # Setup Network Forwarding for Kind Cluster (from host to kind cluster) with forwarding rules by socat
+    - name: Setup Network Forwarding for port 80/443 from home to Kind cluster
+      tags: setup_kind
+      when: kindCluster.networkForwarding.enable | default(false)
+      block:
+        - name: Setup Network Forwarding for Kind cluster
+          when: kindCluster.loadbalancer.enable
+          tags: setup_kind
+          ansible.builtin.shell: |-
+            # Forward port 80/443 from host with private interface to cloud-provider-kind container IP
+
+            # Wait for LoadBalancer IP to be assigned (not in 'pending' state)
+            until LB_IP=$(kubectl get svc -A -o jsonpath='{.items[?(@.status.loadBalancer.ingress)].status.loadBalancer.ingress[0].ip}' | grep -E '^[0-9.]+$'); do echo "Waiting for LB IP..." && sleep 5; done; echo "Found: $LB_IP";
+
+            HOST_IFACE=$(ip route | grep -e "192.168.56.0/24" | awk '{print $3}')
+            HOST_IP=$(ip addr show $HOST_IFACE | grep "inet " | awk '{print $2}' | cut -d/ -f1)
+
+            # Use socat to forward port 80/443 from host to cloud-provider-kind container (interface bind to HOST_IP)
+            # Stackoverflow reference: 
+            # - https://stackoverflow.com/questions/34791674/socat-port-forwarding-for-https
+            # - https://stackoverflow.com/questions/75059280/what-actually-reuseaddr-option-does-in-socat
+            # - https://superuser.com/questions/1261685/forward-a-tcp-connection-with-logging-using-socat
+
+            cat <<EOF | sudo tee /etc/systemd/system/socat-netforward-port-80.service
+            [Unit]
+            Description=Socat Network Forwarding Service port 80
+            After=network.target
+
+            [Service]
+            Type=simple
+            User=root
+            ExecStart=/usr/bin/socat TCP-LISTEN:80,bind=$HOST_IP,fork TCP:$LB_IP:80
+            Restart=on-failure
+            RestartSec=10
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+
+            cat <<EOF | sudo tee /etc/systemd/system/socat-netforward-port-443.service
+            [Unit]
+            Description=Socat Network Forwarding Service port 443
+            After=network.target
+
+            [Service]
+            Type=simple
+            User=root
+            ExecStart=/usr/bin/socat TCP-LISTEN:443,bind=$HOST_IP,fork TCP:$LB_IP:443
+            Restart=on-failure
+            RestartSec=10
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+
+            sudo systemctl daemon-reload
+            sudo systemctl enable socat-netforward-port-80.service
+            sudo systemctl enable socat-netforward-port-443.service
+            sudo systemctl start socat-netforward-port-80.service
+            sudo systemctl start socat-netforward-port-443.service
+            sudo systemctl restart socat-netforward-port-80.service || echo "socat-netforward-port-80 service will be restarted after 10 seconds"
+            sudo systemctl restart socat-netforward-port-443.service || echo "socat-netforward-port-443 service will be restarted after 10 seconds"          
+            sudo systemctl status socat-netforward-port-80.service
+            sudo systemctl status socat-netforward-port-443.service
+
+          register: setup_netforward_log
+          changed_when: false
+
+        - name: Log the results of Install Network Forwarding for Kind cluster
+          tags: setup_kind
+          ansible.builtin.debug:
+            msg: "{{ setup_netforward_log.stdout_lines }}"
+          when: kindCluster.networkForwarding.enable
+          
+    # Remove the Kind cluster when you want to destroy the cluster
+    - name: Remove Kind cluster
+      tags: remove_kind
+      block:
+        - name: Delete Kind cluster
+          ansible.builtin.shell: |-
+            kind delete cluster --name {{ cluster_name }} || echo "No kind cluster to delete"
+          register: kind_remove_log
+          changed_when: false
+
+        - name: Log the results of Remove Kind cluster
+          tags: remove_kind
+          ansible.builtin.debug:
+            msg: "{{ kind_remove_log.stdout_lines }}"
+
+        - name: Remove socat-netforward service
+          tags: remove_kind
+          ansible.builtin.shell: |-
+            sudo systemctl stop socat-netforward-port-80.service || echo "No socat-netforward-port-80 service to stop"
+            sudo systemctl stop socat-netforward-port-443.service || echo "No socat-netforward-port-443 service to stop"
+            sudo systemctl disable socat-netforward-port-80.service || echo "No socat-netforward-port-80 service to disable"
+            sudo systemctl disable socat-netforward-port-443.service || echo "No socat-netforward-port-443 service to disable"
+            sudo rm -f /etc/systemd/system/socat-netforward-port-80.service
+            sudo rm -f /etc/systemd/system/socat-netforward-port-443.service
+            sudo systemctl daemon-reload
+            echo "socat-netforward 80/443 service removed successfully"
+          register: netforward_remove_log
+          changed_when: false
+          when: kindCluster.networkForwarding.enable
+
+        - name: Log the results of Remove socat-netforward service
+          tags: remove_kind
+          ansible.builtin.debug:
+            msg: "{{ netforward_remove_log.stdout_lines }}"
+          when: kindCluster.networkForwarding.enable
+
+        - name: Remove cloud-provider-kind container
+          tags: remove_kind
+          ansible.builtin.shell: |-
+            docker rm -f $(docker ps --filter "name=kindccm" -aq) || echo "No kindccm container to remove"
+            docker rm -f $(docker ps --filter "name=cloud-provider-kind" -aq) || echo "No cloud-provider-kind container to remove"
+          register: lb_remove_log
+          changed_when: false
+          when: kindCluster.loadbalancer.enable and kindCluster.loadbalancer.type == 'cloud-provider-kind'
+
+        - name: Log the results of Remove cloud-provider-kind container
+          tags: remove_kind
+          ansible.builtin.debug:
+            msg: "{{ lb_remove_log.stdout_lines }}"
+          when: kindCluster.loadbalancer.enable and kindCluster.loadbalancer.type == 'cloud-provider-kind'
+
+        
+        
