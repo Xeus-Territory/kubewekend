@@ -1,0 +1,62 @@
+# Write the test deployment with custom settings
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-deployment
+  labels:
+    app: test-deployment
+  namespace: {{ utilities.ingressTestDeployment.namespace | default('default') }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-deployment
+  template:
+    metadata:
+      labels:
+        app: test-deployment
+    spec:
+      containers:
+      - name: deployment-container
+        image: {{ utilities.ingressTestDeployment.image | default('nginx:latest') }}
+        ports:
+        - containerPort: {{ utilities.ingressTestDeployment.port | default(80) }}
+---
+# Write the test service with custom settings
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-service
+  labels:
+    app: test-deployment
+  namespace: {{ utilities.ingressTestDeployment.namespace | default('default') }}
+spec:
+  selector:
+    app: test-deployment
+  ports:
+  - protocol: TCP
+    port: {{ utilities.ingressTestDeployment.port | default(80) }}
+    targetPort: {{ utilities.ingressTestDeployment.port | default(80) }}
+  type: {{ utilities.ingressTestDeployment.type | default('ClusterIP') }}
+---
+# Write the test ingress with custom settings
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: test-ingress
+  labels:
+    app: test-deployment
+  namespace: {{ utilities.ingressTestDeployment.namespace | default('default') }}
+spec:
+  ingressClassName: {{ utilities.ingressTestDeployment.ingressClass | default('nginx') }}
+  rules:
+  - host: {{ utilities.ingressTestDeployment.host | default('') }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: test-service
+            port:
+              number: {{ utilities.ingressTestDeployment.port | default(80) }}

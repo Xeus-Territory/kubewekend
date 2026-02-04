@@ -1,0 +1,50 @@
+# The Failure Experiment of Kubewekend 👨‍🚀🚀☁️🌕
+
+
+<h2>Table of Contents</h2>
+
+- [The Failure Experiment of Kubewekend 👨‍🚀🚀☁️🌕](#the-failure-experiment-of-kubewekend-️)
+  - [NAT with `iptables`](#nat-with-iptables)
+
+
+## NAT with `iptables`
+
+> [!NOTE]
+>
+> Purpose: Want to use `iptables` for mapping the IPv4 of Host for IPv4 of Service Load Balancer in Kubernetes Cluster
+> Through concept I want to reroute and can serve the L7 traffic like HTTP/HTTPS from actual IPv4 of Host instead IPv4 of Service Load Balancer
+> But the result is becoming stuck foreover, so I found other solution with `socat` to open socket and link between 2 IPv4 above
+
+
+```bash
+# Get the IP metallb attached with loadbalancer service, and forward port 80/443 from host with private interface to service IP
+LB_IP=$(kubectl get svc -n kube-system | grep -e "LoadBalancer" | awk '{print $4}')
+HOST_IFACE=$(ip route | grep -e "192.168.56.0/24" | awk '{print $3}')
+HOST_IP=$(ip addr show $HOST_IFACE | grep "inet " | awk '{print $2}' | cut -d/ -f1)
+
+# PREROUTING rules to forward port 80 and 443 from host to metallb IP via HOST_IFACE
+sudo iptables -t nat -A PREROUTING -i $HOST_IFACE -d $HOST_IP -p tcp --dport 80 -j DNAT --to-destination $LB_IP:80
+sudo iptables -t nat -A PREROUTING -i $HOST_IFACE -d $HOST_IP -p tcp --dport 443 -j DNAT --to-destination $LB_IP:443
+
+# FORWARD rules to allow the traffic to the metallb IP on port 80 and 443
+# Documentation: https://superuser.com/questions/1071656/whats-the-difference-between-iptables-state-and-ctstate
+sudo iptables -A FORWARD -p tcp -i $HOST_IFACE -d $LB_IP --dport 80 -j ACCEPT -m conntrack --ctstate NEW,ESTABLISHED,RELATED
+sudo iptables -A FORWARD -p tcp -i $HOST_IFACE -d $LB_IP --dport 443 -j ACCEPT -m conntrack --ctstate NEW,ESTABLISHED,RELATED
+
+# POSTROUTING rule for SNAT/MASQUERADE (if needed)
+# If your internal server needs to send reply packets back through the gateway, 
+# you may need a Source NAT (SNAT) rule to ensure the return traffic is routed correctly 
+# and doesn't cause asymmetric routing issues. This is typically done if the internal server's gateway is not the Linux router itself.
+# (MASQUERADE) when your public IP address is dynamic.
+# (SNAT) when your public IP address is static.
+sudo iptables -t nat -A POSTROUTING -o $HOST_IFACE -p tcp -d $LB_IP --dport 80 -j MASQUERADE
+sudo iptables -t nat -A POSTROUTING -o $HOST_IFACE -p tcp -d $LB_IP --dport 443 -j MASQUERADE
+
+# List the rules for verification
+printf "************* NAT Table Rules *************\n"
+sudo iptables --list -t nat -v
+printf "\n************* Filter Table Rules *************\n"
+sudo iptables --list -t filter -v
+printf "\n************* Mangle Table Rules *************\n"
+sudo iptables --list -t mangle -v
+```

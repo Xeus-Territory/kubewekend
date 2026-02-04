@@ -19,37 +19,36 @@ networking:
   # API SERVER
   ###################################
   # For security reasons, need to keep this option default (default = "127.0.0.1")
-  apiServerAddress: {{ cluster.networking.apiServer.address }}
+  apiServerAddress: {{ kindCluster.networking.apiServer.address }}
   # By default the API server listens on a random open port.
   # You may choose a specific port but probably don't need to in most cases.
   # Using a random port makes it easier to spin up multiple clusters.
-  apiServerPort: {{ cluster.networking.apiServer.port }}
-
+  apiServerPort: {{ kindCluster.networking.apiServer.port }}
   # POD SUBNET
   ###################################
   # Configuration subnet assign when turn on pod
   # By default, kind uses 10.244.0.0/16
-  podSubnet: {{ cluster.networking.podSubnet }}
+  podSubnet: {{ kindCluster.networking.podSubnet }}
 
   # SERVICE SUBNET
   ###################################
   # Configuration subnet for services, help you expose the service
   # By default, kind uses 10.96.0.0/16
-  serviceSubnet: {{ cluster.networking.serviceSubnet }}
+  serviceSubnet: {{ kindCluster.networking.serviceSubnet }}
 
   # DEFAULT CNI
   ###################################
   # Configuration CNI (Container Network Interface) for Kubernetes Cluster
   # Kind ships us with multiple CNI like kindnetd
   # But we don't want to use that, be stay calm, disable now and manually setup cillium
-  disableDefaultCNI: {{ cluster.networking.disableDefaultCNI }}
+  disableDefaultCNI: {{ kindCluster.networking.disableDefaultCNI }}
 
   # kube-proxy MODE
   ###################################
   # Kind offer us many proxy mode, include iptables, nftables (v1.31+), ipvs
   # Behind the scenes: https://gist.github.com/aojea/f9ca1a51e2afd03621744c95bfdab5b8
   # To disable, set mode to `none`. One more, default option will be `iptables`
-  kubeProxyMode: {{ cluster.networking.kubeProxyMode }}
+  kubeProxyMode: {{ kindCluster.networking.kubeProxyMode }}
 
 # Set the role for your node
 nodes:
@@ -62,11 +61,11 @@ nodes:
 - role: control-plane
   # Use can specify the version of Kubernetes cluster of kind, use image
   # Find docker version at: https://hub.docker.com/r/kindest/node/
-  image: {{ cluster.image }}
+  image: {{ kindCluster.image }}
 #- role: worker
 #  # Use can specify the version of Kubernetes cluster of kind, use image
 #  # Find docker version at: https://hub.docker.com/r/kindest/node/
-#  image: {{ cluster.image }}
+#  image: {{  kindCluster.image }}
 
   # Extra Mounts
   ########################################
@@ -90,7 +89,15 @@ nodes:
   #   hostPort: 80
   #   # optional: set the bind address on the host
   #   # 0.0.0.0 is the current default
-  #   listenAddress: "127.0.0.1"
+  #   listenAddress: "0.0.0.0"
+  #   # optional: set the protocol to one of TCP, UDP, SCTP.
+  #   # TCP is the default
+  #   protocol: TCP
+  # - containerPort: 443
+  #   hostPort: 443
+  #   # optional: set the bind address on the host
+  #   # 0.0.0.0 is the current default
+  #   listenAddress: "0.0.0.0"
   #   # optional: set the protocol to one of TCP, UDP, SCTP.
   #   # TCP is the default
   #   protocol: TCP

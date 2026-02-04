@@ -38,14 +38,24 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.command }}
+          command: {{- include "common.tplvalues.render" (dict "value" .Values.command "context" $) | nindent 12 }}
+          {{- end }}
+          {{- if .Values.runtimeArgs }}
+          args: {{- include "common.tplvalues.render" (dict "value" .Values.runtimeArgs "context" $) | nindent 12 }}
+          {{- end }}
+          {{- with .Values.env }}
+          env: {{ include "common.keyvalues.render" . | nindent 12 }}  
+          {{- end }}          
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
-          livenessProbe:
-            {{- toYaml .Values.livenessProbe | nindent 12 }}
-          readinessProbe:
-            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          {{- if .Values.probesOverride -}}
+          {{- toYaml .Values.probesOverride | nindent 10 }}
+          {{- else -}}
+          {{- include "common.probes" . | nindent 10 }}
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- with .Values.volumeMounts }}

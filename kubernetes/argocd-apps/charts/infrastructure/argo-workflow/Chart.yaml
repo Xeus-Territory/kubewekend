@@ -1,0 +1,9 @@
+apiVersion: v2
+name: argocd-workflows
+version: 1.0.0
+dependencies:
+  - name: argo-workflows
+    repository: https://argoproj.github.io/argo-helm
+    condition: workflows.enabled
+    alias: workflows
+    version: 0.45.28

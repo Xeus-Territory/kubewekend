@@ -2,13 +2,16 @@ Vagrant.configure("2") do |config|
   # # Handle multiple machine in one block of Vagrantfile
   # # https://developer.hashicorp.com/vagrant/docs/multi-machine
   config.vm.define "k8s-master-machine", primary: true do |config|
-    config.vm.box = "ubuntu/focal64"
+    config.vm.box = "ubuntu/jammy64"
     config.vm.hostname = "k8s-master-machine"
     config.vm.communicator = "ssh"
     # Default enable 2222 for ssh communication (Add id: "ssh" to disable default)
     # https://realguess.net/2015/10/06/overriding-the-default-forwarded-ssh-port-in-vagrant/
     config.vm.network "forwarded_port", guest: 22, host: 6996, protocol: "tcp", id: "ssh", host_ip: "127.0.0.1"
-    config.vm.box_check_update = false
+    # Add the bridge network for let these machines can communicate each others
+    # With Linux, Private Network will set by default in range: 192.168.56.0/21 (192.168.56.1 - 192.168.63.255)
+    # Read more the documentation at: https://www.virtualbox.org/manual/ch06.html#network_hostonly 
+    config.vm.network "private_network", ip: "192.168.56.99"
     config.ssh.username = ENV["SSH_USER"]
     config.ssh.private_key_path = ENV["SSH_PRIV_KEY_PATH"]
     config.ssh.port = 6996
@@ -26,6 +29,13 @@ Vagrant.configure("2") do |config|
       config.memory = 2048
       config.cpus = 2
     end
+
+    # # Resize disk for primary storage
+    # # Documentation: https://developer.hashicorp.com/vagrant/docs/disks/usage#resizing-your-primary-disk
+    # config.vm.disk :disk, size: "50GB", primary: true
+    # # Add one more disk 10GB for node, if you require more disk space for testing
+    # # Documentation: https://developer.hashicorp.com/vagrant/docs/disks/usage#attaching-new-hard-disks
+    # config.vm.disk :disk, size: "10GB", name: "extra-disk-master"
   end
 
   # Use to loo[] over VM defination
@@ -34,13 +44,17 @@ Vagrant.configure("2") do |config|
   # Example: vagrant up "/k8s-worker-machine-[1-2]/" --provider=virtualbox
   (1..3).each do |i|
     config.vm.define "k8s-worker-machine-#{i}" do |config|
-      config.vm.box = "ubuntu/focal64"
+      config.vm.box = "ubuntu/jammy64"
       config.vm.hostname = "k8s-worker-machine-#{i}"
       config.vm.communicator = "ssh"
       # Default enable 2222 for ssh communication (Add id: "ssh" to disable default)
       # https://realguess.net/2015/10/06/overriding-the-default-forwarded-ssh-port-in-vagrant/
       # For prevent collisions, use `auto_correct` and `unsable_port_parameter` to guide the port to new one
       config.vm.network "forwarded_port", guest: 22, host: 9669, protocol: "tcp", id: "ssh", host_ip: "127.0.0.1", auto_correct: true
+      # Add the bridge network for let these machines can communicate each others
+      # With Linux, Private Network will set by default in range: 192.168.56.0/21 (192.168.56.1 - 192.168.63.255)
+      # Read more the documentation at: https://www.virtualbox.org/manual/ch06.html#network_hostonly 
+      config.vm.network "private_network", ip: "192.168.56.10#{i}"
       config.vm.usable_port_range = 9669..9671
       config.vm.box_check_update = false
       config.ssh.username = ENV["SSH_USER"]
@@ -58,10 +72,18 @@ Vagrant.configure("2") do |config|
         config.memory = 1024
         config.cpus = 1
       end
+
+      # # Resize disk for primary storage
+      # # Documentation: https://developer.hashicorp.com/vagrant/docs/disks/usage#resizing-your-primary-disk
+      # config.vm.disk :disk, size: "50GB", primary: true
+      # # Add one more disk 10GB for node, if you require more disk space for testing
+      # # Documentation: https://developer.hashicorp.com/vagrant/docs/disks/usage#attaching-new-hard-disks
+      # config.vm.disk :disk, size: "10GB", name: "extra-disk-worker-#{i}"
     end
   end
 
   # Initialize the shell command to configuration
+  # Documentation: https://developer.hashicorp.com/vagrant/docs/provisioning/shell
   $configScript = <<-'SHELL'
   sudo -i
   sudo apt update && sudo apt install curl git -y
