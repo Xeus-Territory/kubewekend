@@ -1,2 +1,7 @@
+remote_theme: pages-themes/primer@v0.6.0
 plugins:
   - jemoji
+  - jekyll-remote-theme
+
+title: Kubewekend - The K8s Playground
+description: A simple Kubernetes cluster deployment for learning and testing purposes

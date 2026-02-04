@@ -3,7 +3,7 @@
 # Check machine name which running and be ready to add cluster
 listRunningMachine=$(vagrant status | grep -e "running" | awk '{print $1}')
 # Get the actually path of file you exection
-rootProjectLocation=$(dirname -- "$(realpath -- "$(dirname -- "$0")")")
+rootProjectLocation=$(dirname -- "$(dirname -- "$(realpath -- "$(dirname -- "$0")")")")
 hostsfileLocation="$rootProjectLocation/ansible/inventories/hosts"
 
 # Flush hosts file

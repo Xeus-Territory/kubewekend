@@ -1,12 +1,278 @@
-cluster:
+kindCluster:
   networking:
     apiServer:
       address: "127.0.0.1"
-      port: 6996
+      port: 6443
     podSubnet: "10.244.0.0/16"
     serviceSubnet: "10.96.0.0/16"
-    disableDefaultCNI: true
-    kubeProxyMode: "iptables"
-  # NOT ENABLE, DEFAULT NEED AT LEAST 1 CONTROL PLANE (UPATE LATER)
-  # role: "control-plane"
+    # NOTE: only one CNI can be used, and it requires for scheduling pods
+    # Supported CNI: calico, flannel, cilium
+    disableDefaultCNI: false # Disable default CNI (kindnetd), when set to true, you need to manually setup CNI like calico, flannel, cilium
+    cni: "cilium" # calico | flannel | cilium if disableDefaultCNI is true
+    kubeProxyMode: "iptables" # iptables | nftables (v1.31+) | ipvs | none
+  # Kubernetes version for kind node image, find more at https://hub.docker.com/r/kindest/node/
+  # Stable Version (Recommended): v1.28.9, v1.28.15, v1.29.14, v1.30.13, v1.31.14, v1.32.11, v1.33.7, v1.34.3 (latest)  
   image: "kindest/node:v1.28.9"
+  loadbalancer:
+    enable: true
+    type: "cloud-provider-kind"  # metallb | cloud-provider-kind | cilium-ipam-lb (requires cilium CNI)
+    ippool:
+      # Only use for metallb, ignore if use cloud-provider-kind or cilium-ipam-lb
+      # For using as subnetmask or cidr range format (NOTE: same network of docker kind (172.18.0.0/16) bridge with VIP)
+      # IF you define another range for kind bridge network, please make sure the ippool is in the same range
+      cidr: "172.18.255.2 - 172.18.255.254" 
+  ingress:
+    enable: true
+    class: "nginx"  # nginx | traefik | cilium | kong
+  apigateway:
+    enable: false
+    crd:
+      # Install GatewayAPI CRD if not present
+      # NOTE: In these situations, you shoudldn't enable this option:
+      # 1. CloudProvider Kind Load Balancer Enabled (Already include GatewayAPI CRD)
+      # 2. Traefik Ingress Controller Enabled (Already include GatewayAPI CRD)
+      install: false
+      version: "v1.2.0"  # Install GatewayAPI CRD if not present, versions: v1.2.0 (Compatible with Cilium API Gateway) | v1.4.1 (Latest)
+    class: "kong" # none | kong | cilium | traefik (traefik-gateway)
+    # NOTE: This feature is only support for Kong API Gateway
+    # Purpose: Setup API Gateway to be internal only (accessible only inside the cluster) combined with LoadBalancer service type
+    # Like Other Ingress in situation only one LoadBalancer IP available for multiple Ingress and API Gateway
+    kong:
+      internalOnly: false # true | false
+      admin: false # true | false Enable Kong Admin API Service (for Kong Manager UI and Kong Admin API access)
+      ingressClass: "nginx" # IngressClass for Kong API Gateway when internalOnly is true
+      internalHostname: "kong-internal.local" # Hostname for Kong API Gateway when internalOnly is true
+  # Forward network ports from host to kind cluster and let's you access services from host machine directly by iptables rules
+  networkForwarding:
+    enable: true
+
+k3sCluster:
+
+utilities:
+  # Test deployment in the cluster after setup complete
+  ingressTestDeployment:
+    enable: true
+    namespace: "default"
+    image: "nginx:latest"
+    host: "ingress.local"
+    port: 80
+    ingressClass: "nginx"
+    type: "ClusterIP"
+  
+  # test deployment settings with API gateway
+  apiGatewayTestDeployment:
+    enable: true
+    namespace: "default"
+    gatewayClass: "kong"
+    port: 80 # Port 8000 if traefik service, port 80 for others service like kong, nginx, etc
+    host: "apigateway.local"
+    path: "/test"
+
+  # Setup Dashboard for the cluster
+  dashboard:
+    enable: false
+    type: "headlamp"  # kubernetes-dashboard | headlamp | rancher
+    namespace: "kubernetes-dashboard"
+    host: "dashboard.local"
+    ingressClass: "nginx"
+    createAdminToken: true
+
+  # Storage solutions for the cluster
+  # NOTE: Only for K3s clusters, with Kind, use local-path-storage by default
+  storage:
+    enable: false
+    type: "longhorn"  # longhorn | rook-ceph | openebs | glusterfs | nfs-subdir-external-provisioner
+
+  # Driver for CSI (Container Storage Interface) support in the cluster
+  # Recommendation: Use for production cluster
+  # Reference: https://kubernetes-csi.github.io/docs/introduction.html
+  csi:
+    nfs: false
+
+  # Certificate Management for the cluster
+  # Recommendation: Use for production cluster
+  certmanager:
+    enable: true
+    namespace: "cert-manager"
+
+  # Setup DNS for the cluster for external domain resolution (AWS Route53, Cloudflare, Google Cloud DNS, etc)
+  # Recommendation: Use for production cluster
+  externalDNS:
+    enable: false
+
+  # Secret Management for the cluster
+  secretManagement:
+    enable: false
+    # Options: vault | openbao
+    # Recommendation: Use for production cluster
+    # NOTE: When you use openbao with latest version, you need to setup Kubernetes Version >= v1.30 for openbao operator compatibility
+    # If you use cluster version < v1.30, please use vault as secret management or openbao chart version v0.6.0 (V2.0.2)
+    type: "vault" # vault | openbao
+    namespace: "vault"
+    host: "vault.local"
+    ingressClass: "nginx"
+    actions:
+      init: true # true | false (NOTE: Run only one time at the first setup)
+      unseal: "auto"  # auto | manual | none
+      savingUnsealKeys: true # Save unseal keys and root token to local file system
+    vault:
+      operator: true
+    openbao:
+      ui: true
+
+  # Utilities extensions for the cluster
+  extensions:
+    enable: false
+    # Used to replicate secrets, configmaps and certificates.
+    reflector:
+      enable: false
+    
+    # Used to auto reload pods when configmap or secret change
+    reloader:
+      enable: false
+
+    # Used to sync external secrets from external secret management systems
+    externalsecrets:
+      enable: false
+
+  # GitOps for the cluster
+  gitops:
+    enable: false
+    type: "flux"  # argocd | flux
+    argocd:
+      sops: false # Enable SOPS support in ArgoCD for encrypted secrets
+      namespace: "argocd"
+      host: "argocd.local"
+      ingressClass: "nginx"
+      argocdImageUpdater: true
+      argocdExtensions: true
+    flux:
+      namespace: "flux-system"
+      ui: true # Enable Flux UI (Weave GitOps) or not
+      ingressClass: "nginx"
+      host: "flux.local"
+    kargo:
+      enable: true
+      namespace: "kargo"
+      ingressClass: "nginx"
+      host: "kargo.local"
+
+  # Workflow for the cluster
+  workflow:
+    enable: false
+    type: "argo-workflows"  # argo-workflows | tekton
+
+  # Rollout management for the cluster
+  rollout:
+    enable: false
+    type: "argo-rollouts"  # argo-rollouts (compatible with argocd) | flagger (compatible with flux)
+
+  # Setup Controller for Scaling functionality in K8s
+  # GitHub: https://github.com/kubernetes/autoscaler
+  # Article: https://www.cloudpilot.ai/en/blog/k8s-autoscaling-comparison/
+  scaling:
+    # Horizontal Pod Autoscaler
+    hpa:
+      enable: false
+      type: "default" # default | keda
+    # Vertical Pod Autoscaler
+    vpa:
+      enable: false
+      type: "default" # default | vpa-controller
+    # Cluster Autoscaler
+    ca:
+      enable: false
+      type: "default" # default | cluster-autoscaler
+
+  # Setup Monitoring and Observability for the cluster with Prometheus and Grafana Stack with various options
+  # Alternative monitoring stacks are also available
+  # coroot: https://coroot.com/
+  # victoriametrics: https://victoriametrics.com/
+
+  monitoring:
+    enable: false
+    type: "prometheus-grafana" # prometheus-grafana | coroot | victoriametrics
+
+    # Setup logging for the cluster
+    logging:
+      enable: false
+      type: "loki"  # efk (not include kibana) | loki
+    
+    # Setup alerting for the cluster
+    alert:
+      enable: false
+      type: "prometheus-alertmanager"  # prometheus-alertmanager | gatus
+      oncall: "email"  # email | slack | pagerduty
+    # APM for the cluster
+    apm:
+      enable: false
+      type: "jaeger"  # jaeger | zipkin | elastic-apm
+    
+    # Tracing for the cluster
+    tracing:
+      enable: false
+      type: "opentelemetry"  # opentelemetry | tempo
+
+    # Profiler for the cluster
+    profiler:
+      enable: false
+      type: "pyroscope"  # pyroscope | skywalking
+
+  # Backup and Restore for the cluster
+  backupRestore:
+    enable: false
+    type: "velero"  # velero | trilio
+
+  # Setup service mesh for the cluster
+  # Documentation: 
+  # Article comparison of service mesh: https://mkdev.me/posts/the-best-service-mesh-linkerd-vs-kuma-vs-istio-vs-consul-connect-comparison-cilium-and-osm-on-top
+  serviceMesh:
+    enable: false
+    type: "istio"  # istio | linkerd | cilium (require cilium CRD)| kong (require kong CRD)
+
+  # Setup security for the cluster
+  security:
+    policy:
+      enable: false
+      type: "opa-gatekeeper"  # opa-gatekeeper | kyverno
+    rbac:
+      enable: false
+      type: "rbac-manager"  # rbac-manager | kube-rbac-proxy
+    inteligence:
+      enable: false
+      type: "falco"  # falco | trivy | tetragon | kubearmor | tracee
+
+  # Setup Global Load Balancer for the cluster with k8gb
+  # Recommendation: Use for production cluster with multi-cluster setup
+  glb:
+    enable: false
+
+  # Chaos engineering for the cluster
+  chaosEngineering:
+    enable: false
+    type: "litmus"  # litmus | chaos-mesh
+
+  # Testing and Troubleshooting tools for the cluster
+  benchmarking:
+    enable: false
+    type: "kube-bench"
+
+  # Customize scheduler for the cluster
+  scheduler:
+    enable: false
+    type: "koordinator"  # volcano | descheduler | koordinator
+
+  # Setup IDP (Internal Development Platform) integration for the cluster
+  idp:
+    enable: false
+    type: "backstage"  # backstage | devtron | kuberix
+
+  # Developer tools for the cluster
+  developerTools:
+    enable: false
+    type: "tilt"  # tilt | skaffold
+
+  # Kubernetes Development Environment
+  kde:
+    enable: false
+    type: "devspace"  # devspace | garden.io
