@@ -116,3 +116,23 @@ startupProbe: {{ toYaml $probes.startupProbe | nindent 2 }}
 {{- end }}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Setup Vault Annotations for your application
+*/}}
+{{- define "common.vault.annotations" -}}
+{{- $vault := .Values.vault -}}
+{{- if $vault.enabled -}}
+vault.hashicorp.com/agent-inject: "true"
+vault.hashicorp.com/agent-pre-populate-only: 'true'
+vault.hashicorp.com/auth-path: {{ $vault.config.authPath }}
+vault.hashicorp.com/namespace: {{ $vault.config.namespace }}
+vault.hashicorp.com/role: {{ $vault.config.role }}
+vault.hashicorp.com/service: {{ $vault.config.serviceServer }}
+{{- if $vault.template }}
+{{ printf "vault.hashicorp.com/agent-inject-secret-%s: %s" $vault.template.name $vault.config.path }}
+{{ printf "vault.hashicorp.com/agent-inject-template-%s: |-" $vault.template.name -}}
+{{ trim $vault.template.content | nindent 2 }}
+{{- end }}
+{{- end }}
+{{- end -}}

@@ -1,3 +1,4 @@
+{{- if .Values.service.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -5,7 +6,11 @@ metadata:
   labels:
     {{- include "common.labels" . | nindent 4 }}
 spec:
+  {{- if and .Values.service.type (not .Values.service.headless ) }}
   type: {{ .Values.service.type }}
+  {{- else }}
+  clusterIP: None
+  {{- end }}
   ports:
     - port: {{ .Values.service.port }}
       targetPort: http
@@ -13,3 +18,5 @@ spec:
       name: http
   selector:
     {{- include "common.selectorLabels" . | nindent 4 }}
+  
+{{- end }}

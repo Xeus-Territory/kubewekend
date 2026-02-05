@@ -19,6 +19,12 @@ spec:
       annotations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if and ( empty .Values.podAnnotations) ( include "common.vault.annotations" . ) }}
+      annotations:
+        {{- include "common.vault.annotations" . | nindent 8 }}
+      {{- else }}
+        {{- include "common.vault.annotations" . | nindent 8 }}
+      {{- end }}
       labels:
         {{- include "common.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}
@@ -46,11 +52,13 @@ spec:
           {{- end }}
           {{- with .Values.env }}
           env: {{ include "common.keyvalues.render" . | nindent 12 }}  
-          {{- end }}          
+          {{- end }}
+          {{- if .Values.service.enabled }}          
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
+          {{- end }}
           {{- if .Values.probesOverride -}}
           {{- toYaml .Values.probesOverride | nindent 10 }}
           {{- else -}}
