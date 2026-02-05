@@ -9,21 +9,20 @@ imagePullSecrets: []
 command: ["/bin/sh", "-c"]
 runtimeArgs: ["yarn run dev"]
 service:
+  enabled: true
   port: 3000
-volumeMounts:
-  - mountPath: /vault/secrets/
-    name: secret-vault
-    readOnly: true
-volumes:
-  - name: secret-vault
-    configMap:
-      name: secret-vault
-      items:
-        - key: config.env
-          path: config.env
+  headless: false
+volumeMounts: []
+volumes: []
 serviceAccount:
   create: true
-  name: nlp-sandbox
+  name: kubewekend-sc
+resources:
+  limits:
+    memory: 128Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
 rbac:
   create: false
 probes:
@@ -37,5 +36,37 @@ probes:
       path: /
       port: http
 ingress:
-  enabled: false
+  enabled: true
+  className: "nginx"
+  hosts:
+    - host: "todo.local"
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
 testConnection: false
+pdb:
+  create: true
+  minAvailable: 1
+  maxUnavailable: 0
+podAnnotations:
+  test-annotation: "true"
+vault:
+  enabled: false
+  # These value are only required when `template.type = annotation`
+  config:
+    path: "secret/data/project" # vault secret path
+    role: "vault-role"        # vault k8s auth role
+    serviceServer: "https://vault.svc.cluster.local:8200" # vault server address
+    namespace: "default" # vault namespace
+    # Auth method to use for Vault Agent sidecar
+    # Options: kubernetes | token | etc (see https://developer.hashicorp.com/vault/docs/auth)
+    authPath: "auth/kubernetes" # default kubernetes
+  template:
+    name: "config.env" # file name to store the secret data
+    # Export file format following the contents rendering with vault values
+    content: |
+      {{ with secret "secret/data/project" }}
+      {{- range $key, $value := .Data.data }}
+      export {{ $key }}={{ $value }}
+      {{- end }}
+      {{- end }}
