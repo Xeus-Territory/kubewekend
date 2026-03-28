@@ -1,0 +1,318 @@
+---
+- name: Playbook to setup K3s Cluster
+  vars:
+    cluster_name: "{{ host_name }}"
+  hosts: "{{ host_name }}"
+  # Distinguish between master and worker node with group name in inventory file
+  tasks:
+    - name: Install common libraries, and dependencies for your host
+      tags: install_common
+      # Help to do inline script and multiple line
+      # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/shell_module.html
+      ansible.builtin.shell: |
+        # Update package index and install dependencies
+        sudo apt update
+        sudo apt install -y apt-transport-https ca-certificates curl gpg wget bash-completion socat unzip jq
+
+        # Install kubectl
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x ./kubectl
+        sudo mv ./kubectl /usr/local/bin/kubectl
+
+        # Install helm
+        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+        # Add bash-completion into ~/.bashrc
+        echo 'source /etc/bash_completion' >>~/.bashrc
+        kubectl completion bash | sudo tee /etc/bash_completion.d/kubectl >/dev/null
+        helm completion bash | sudo tee /etc/bash_completion.d/helm >/dev/null
+
+        # Add the alias and kubectl with couple of useful options
+        echo 'export KUBE_EDITOR="nano"' >>~/.bashrc
+        echo 'alias k="kubectl"' >> ~/.bashrc
+        echo 'alias kgp="kubectl get pods"' >> ~/.bashrc
+        echo 'alias kn="kubectl config set-context --current --namespace"' >> ~/.bashrc
+        echo 'alias kaf="kubectl apply -f "' >> ~/.bashrc
+        echo 'alias kr="kubectl run --dry-run=client -o yaml "' >> ~/.bashrc
+        echo 'alias krcp="k resource-capacity -p --util"' >> ~/.bashrc
+        echo 'alias krca="k resource-capacity -a"' >> ~/.bashrc
+
+        # Install vault
+        wget https://releases.hashicorp.com/vault/1.18.5/vault_1.18.5_linux_amd64.zip && \
+          unzip -p vault_1.18.5_linux_amd64.zip vault > vault && \
+          chmod +x vault && sudo mv vault /usr/local/bin && \
+          rm -rf vault_1.18.5_linux_amd64.zip
+      changed_when: false
+      args:
+        executable: /bin/bash
+      register: shell_output
+
+    - name: Log output of common libraries installation
+      ansible.builtin.debug:
+        msg: "{{ shell_output.stdout_lines }}"
+      tags: install_common
+
+    - name: Access Master Vars files
+      tags: setup_k3s, remove_k3s
+      # Use `include_vars` to handling to task to import
+      # host_vars base on conditional
+      # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/include_vars_module.html
+      ansible.builtin.include_vars:
+        file: "./inventories/host_vars/master.yaml"
+      # `when` conditional inside the ansible which help handle configuration,
+      # and give the flexible to dynamic tasks on ansible
+      # https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_conditionals.html
+      when: cluster_name is search("master")
+
+    - name: Access Worker Vars files
+      tags: setup_k3s, remove_k3s
+      ansible.builtin.include_vars:
+        file: "./inventories/host_vars/worker.yaml"
+      when: cluster_name is search("worker")
+
+    # Setup K3s Master Node with configuration from host_vars/master.yaml
+    - name: Setup K3s Master Node
+      tags: setup_k3s
+      block:
+        - name: Create the directory for K3s configuration
+          ansible.builtin.shell:
+            sudo mkdir -p /etc/rancher/k3s
+            sudo mkdir -p /etc/rancher/k3s/config.yaml.d
+          become: true
+
+        - name: Copy template configuration for K3s Master Node
+          vars:
+            role: "master"
+          ansible.builtin.template:
+            src: "./templates/k3s-config.yaml.j2"
+            dest: "/etc/rancher/k3s/config.yaml"
+            owner: root
+            mode: "0644"
+          become: true
+
+        - name: Install K3s Master Node (Standalone Architecture)
+          ansible.builtin.shell: |
+            # Add additional configuration for standalone architecture master node
+            echo "write-kubeconfig-mode: \"0644\"" | sudo tee -a /etc/rancher/k3s/config.yaml
+            echo "node-ip: {{ hostvars[cluster_name]['node_ip'] }}" | sudo tee -a /etc/rancher/k3s/config.yaml
+            if [ "{{ k3sCluster.cni.type }}" != "flannel" ]; then
+              echo "flannel-backend: none" | sudo tee -a /etc/rancher/k3s/config.yaml
+              echo "disable-network-policy: true" | sudo tee -a /etc/rancher/k3s/config.yaml
+            fi
+
+            # Install K3s with configuration from host_vars/master.yaml
+            curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3sCluster.version }} INSTALL_K3S_EXEC="server" sh -s - 
+
+          register: install_registration_node
+
+        - name: Log output of K3s Master Node installation with standalone architecture
+          ansible.builtin.debug:
+            msg: "{{ install_registration_node.stdout_lines }}"
+
+        - name: Save the K3s token for worker nodes to join the cluster to the local file
+          ansible.builtin.fetch:
+            src: "/var/lib/rancher/k3s/server/node-token"
+            dest: "./k3s_token.txt"
+            flat: yes
+          become: true
+
+        - name: Save the K3s kubeconfig for ansible used
+          ansible.builtin.shell: |
+            mkdir -p ~/.kube
+            sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+            sudo chown $(id -u):$(id -g) ~/.kube/config
+      
+      when: cluster_name is search("master")
+
+    # Setup K3s Worker Node with configuration from host_vars/worker.yaml
+    - name: Setup K3s Worker Node
+      tags: setup_k3s
+      block:
+        - name: Create the directory for K3s configuration
+          ansible.builtin.shell:
+            sudo mkdir -p /etc/rancher/k3s
+            sudo mkdir -p /etc/rancher/k3s/config.yaml.d
+          become: true
+
+        - name: Copy template configuration for K3s Worker Node
+          vars:
+            role: "worker"
+          ansible.builtin.template:
+            src: "./templates/k3s-config.yaml.j2"
+            dest: "/etc/rancher/k3s/config.yaml"
+            owner: root
+            mode: "0644"
+          become: true
+
+        - name: Load the K3s token from the control node (previously fetched)
+          ansible.builtin.slurp:
+            src: "./k3s_token.txt"
+          delegate_to: localhost
+          register: k3s_token_content
+
+        - name: Install K3s Worker Node
+          vars:
+            # Logic: Use master_registration if provided, otherwise pick the first host from the 'master' group,
+            # and finally fallback to 'k8s-master-machine' if neither exists.
+            registration_node: "{{ master_registration | default(groups['master'] | first | default('k8s-master-machine')) }}"
+          ansible.builtin.shell: |
+            # Add additional configuration for dynamic registration
+            echo "server: https://{{ hostvars[registration_node]['node_ip'] }}:6443" | sudo tee -a /etc/rancher/k3s/config.yaml
+            echo "token: {{ k3s_token_content.content | b64decode | trim }}" | sudo tee -a /etc/rancher/k3s/config.yaml
+            echo "node-ip: {{ hostvars[cluster_name]['node_ip'] }}" | sudo tee -a /etc/rancher/k3s/config.yaml
+
+            # Install K3s with configuration from host_vars/worker.yaml
+            curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3sCluster.version }} INSTALL_K3S_EXEC="agent" sh -s - 
+          register: install_worker_node
+
+        - name: Log output of K3s Worker Node installation
+          ansible.builtin.debug:
+            msg: "{{ install_worker_node.stdout_lines }}"
+      when: cluster_name is search("worker")
+
+    # Setup K3s Load Balancer for Master Node
+    - name: Setup K3s Load Balancer for Master Node
+      when: cluster_name is search("master") and k3sCluster.loadBalancer.enable == false
+      tags: setup_k3s
+      block:
+        # Documentation: https://metallb.io/
+        # Usage: https://metallb.io/usage/
+        # L2 Advertisement: https://metallb.io/configuration/_advanced_l2_configuration/
+        - name: Install MetalLB Load Balancer for K3s cluster
+          tags: setup_k3s
+          when: k3sCluster.loadBalancer.type | default('servicelb') == 'metallb'
+          ansible.builtin.shell: |-
+            helm repo add metallb https://metallb.github.io/metallb
+            helm repo update
+            helm upgrade --install metallb metallb/metallb \
+              --namespace kube-system --create-namespace --version 0.15.3 --wait
+            cat <<EOF | kubectl apply -f -
+            apiVersion: metallb.io/v1beta1
+            kind: IPAddressPool
+            metadata:
+              name: k3s-loadbalancer-ippool
+              namespace: kube-system
+            spec:
+              addresses:
+              - {{ k3sCluster.loadBalancer.ippool.cidr }}
+            ---
+            apiVersion: metallb.io/v1beta1
+            kind: L2Advertisement
+            metadata:
+              name: k3s-loadbalancer-l2adv
+              namespace: kube-system
+            spec:
+              ipAddressPools:
+              - k3s-loadbalancer-ippool
+            EOF
+          register: metallb_log
+          changed_when: false
+        
+        - name: Log the results of Install MetalLB Load Balancer for K3s cluster
+          tags: setup_k3s
+          ansible.builtin.debug:
+            msg: "{{ metallb_log.stdout_lines }}"
+          when: k3sCluster.loadBalancer.type | default('servicelb') == 'metallb'
+
+    # Setup K3s Custom CNI for Master Node when flannel CNI is disabled, and use other CNI like calico or cilium
+    - name: Setup K3s Custom CNI for Master Node
+      when: cluster_name is search("master") and k3sCluster.cni.type != "flannel"
+      tags: setup_k3s
+      block:
+        - name: Install K3s with Calico CNI
+          when: k3sCluster.cni.type == "calico"
+          ansible.builtin.shell: |
+            # Calico Stable Version at: https://docs.projectcalico.org/manifests/calico.yaml
+            # GitHub Release: https://github.com/projectcalico/calico/releases
+            kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+          register: install_master_calico_cni
+          changed_when: false
+
+        - name: Log output of K3s Master Node installation with Calico CNI
+          ansible.builtin.debug:
+            msg: "{{ install_master_calico_cni.stdout_lines }}"
+          when: k3sCluster.cni.type == "calico"
+
+        - name: Install K3s with Cilium CNI
+          when: k3sCluster.cni.type == "cilium"
+          ansible.builtin.shell: |
+            helm repo add cilium https://helm.cilium.io/
+            helm repo update
+            helm upgrade --install cilium cilium/cilium --version 1.18.5 --wait \
+              --namespace kube-system \
+              --set operator.replicas=1 \
+              --set hubble.enabled=true \
+              --set hubble.relay.enabled=true \
+              --set hubble.ui.enabled=true \
+              --set ipam.mode=cluster-pool
+          register: install_master_cilium_cni
+          changed_when: false
+
+        - name: Log output of K3s Master Node installation with Cilium CNI
+          ansible.builtin.debug:
+            msg: "{{ install_master_cilium_cni.stdout_lines }}"
+          when: k3sCluster.cni.type == "cilium"
+    
+
+    # Setup K3s Ingress Controller for Master Node
+    - name: Setup K3s Traefik Ingress Controller
+      when: cluster_name is search("master") and k3sCluster.ingress.enable | default(true)
+      block:
+        - name: Install Traefik Ingress Controller for Master Node
+          tags: setup_k3s 
+          when:  k3sCluster.ingress.class | default('traefik') == 'traefik'
+          ansible.builtin.shell: |-
+            helm repo add traefik https://helm.traefik.io/traefik
+            helm repo update
+            helm upgrade --install traefik traefik/traefik --namespace kube-system --version 38.0.0 --wait \
+              --reuse-values \
+              --set providers.kubernetesGateway.enabled=false \
+              --set gateway.enabled=false
+          register: traefik_log
+          changed_when: false
+          become_user: vagrant
+
+        - name: Log the results of Install Traefik Ingress Controller for Master Node
+          tags: setup_k3s
+          ansible.builtin.debug:
+            msg: "{{ traefik_log.stdout_lines }}"
+          when: k3sCluster.ingress.class | default('traefik') == 'traefik'
+
+        - name: Setup Traefik Dashboard
+          tags: setup_k3s
+          when: k3sCluster.ingress.dashboard.enable | default(false) and k3sCluster.ingress.class | default('traefik') == 'traefik'
+          vars:
+            dashboard_host: "{{ k3sCluster.ingress.dashboard.host | default('dashboard.traefik.local') }}"
+          ansible.builtin.shell: |-
+            helm upgrade --install traefik traefik/traefik --namespace kube-system --version 38.0.0 --wait \
+              --reuse-values \
+              --set ingressRoute.dashboard.enabled=true \
+              --set ingressRoute.dashboard.matchRule='Host(`{{ dashboard_host }}`)' \
+              --set ingressRoute.dashboard.entryPoints={web} \
+          register: traefik_dashboard_log
+          changed_when: false
+          become_user: vagrant
+
+        - name: Log the results of Setup Traefik Dashboard
+          tags: setup_k3s
+          ansible.builtin.debug:
+            msg: "{{ traefik_dashboard_log.stdout_lines }}"
+          when: k3sCluster.ingress.dashboard.enable | default(false) and k3sCluster.ingress.class | default('traefik') == 'traefik'
+
+        - name: Setup Traefik Gateway
+          tags: setup_k3s
+          when: k3sCluster.ingress.gateway.enable | default(false) and k3sCluster.ingress.class | default('traefik') == 'traefik'
+          ansible.builtin.shell: |-
+            helm upgrade --install traefik traefik/traefik --namespace kube-system --version 38.0.0 --wait \
+              --reuse-values \
+              --set providers.kubernetesGateway.enabled=true \
+              --set gateway.enabled=true
+          register: traefik_gateway_log
+          changed_when: false
+          become_user: vagrant
+
+        - name: Log the results of Setup Traefik Gateway
+          tags: setup_k3s
+          ansible.builtin.debug:
+            msg: "{{ traefik_gateway_log.stdout_lines }}"
+          when: k3sCluster.ingress.gateway.enable | default(false) and k3sCluster.ingress.class | default('traefik') == 'traefik'

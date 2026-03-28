@@ -1,2 +1,19 @@
 k3sCluster:
-  replicas: 1
+  ################### NOTICE ####################################################
+  ## This configuration is setup for agent node, including
+  ## 1. Join worker node to master node as fixed registration address
+  ## Read more at: https://docs.k3s.io/architecture#fixed-registration-address-for-agent-nodes
+  ## Agent configuration at: https://docs.k3s.io/cli/agent
+  ###############################################################################
+
+  # Kubernetes version for k3s, find more at https://github.com/k3s-io/k3s/releases
+  # Stable Version (Recommended): v1.28.9+k3s1, v1.32.13+k3s1, v1.33.9+k3s1, v1.34.5+k3s1, v1.35.2+k3s1 (latest)
+  version: "v1.34.5+k3s1"
+
+  # Add additional SANs for the API server certificate, default is "localhost" and "127.0.0.1"
+  tlsSANs: []
+  # Registering and starting kubelet with set of labels
+  nodeLabels:
+    - "svccontroller.k3s.cattle.io/enablelb=false"
+  # Registering kubelet with set of taints
+  nodeTaints: []
