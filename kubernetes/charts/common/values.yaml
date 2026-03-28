@@ -75,10 +75,14 @@ podSecurityContext: {}
 
 # -- This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
 service:
+  # -- Enable service creation
+  enabled: true
   # -- This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
   type: ClusterIP
   # -- This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
   port: 80
+  # -- Set this to true to create a headless service
+  headless: false
 
 # -- This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
 ingress:
@@ -193,3 +197,34 @@ rbac:
 
 # -- To enable/disable the testconnection for deployment
 testConnection: false
+
+# -- Setup Pod Disruption Budget for your application
+# More information can be found here: https://kubernetes.io/docs/concepts/workloads/pods/disruptions/
+pdb:
+  create: false
+  minAvailable: 1
+  maxUnavailable: 0
+
+# -- Setup Vault Agent sidecar for injecting secrets into your application
+# More information can be found here: https://developer.hashicorp.com/vault/docs/deploy/kubernetes/injector
+# More annotation with Vault Injector Configuration here: https://developer.hashicorp.com/vault/docs/deploy/kubernetes/injector/annotations
+vault:
+  enabled: false
+  # These value are only required when `template.type = annotation`
+  config:
+    path: "secret/data/project" # vault secret path
+    role: "vault-role"        # vault k8s auth role
+    serviceServer: "https://vault.svc.cluster.local:8200" # vault server address
+    namespace: "default" # vault namespace
+    # Auth method to use for Vault Agent sidecar
+    # Options: kubernetes | token | etc (see https://developer.hashicorp.com/vault/docs/auth)
+    authPath: "auth/kubernetes" # default kubernetes
+  template:
+    name: "config.env" # file name to store the secret data
+    # Export file format following the contents rendering with vault values
+    content: |
+      {{ with secret "secret/data/project" }}
+      {{- range $key, $value := .Data.data }}
+      export {{ $key }}={{ $value }}
+      {{- end }}
+      {{- end }}

@@ -1,0 +1,421 @@
+---
+# =============================================================================
+# K3s High Availability Playbook
+# Architecture: https://docs.k3s.io/architecture#high-availability-k3s
+#
+# This playbook provisions a production-ready K3s HA cluster with two
+# supported datastore backends (configured via ha_master.yaml):
+#
+#   etcd     – embedded etcd, no external dependency; odd-member quorum (3+)
+#              https://docs.k3s.io/datastore/ha-embedded
+#   postgres – external PostgreSQL; every server connects to the same DSN
+#              https://docs.k3s.io/datastore/ha
+#
+# Agent (worker) nodes can be added on demand for either backend.
+#
+# Required inventory groups (see inventories/hosts):
+#   ha_master_init  – exactly 1 node: bootstraps the embedded etcd cluster
+#   ha_master_join  – 2+ nodes: additional control-plane servers joining init
+#   ha_master       – meta-group (children: ha_master_init + ha_master_join)
+#   ha_worker       – any number of agent nodes
+#   ha_all          – meta-group (children: ha_master + ha_worker)
+#
+# Tags:
+#   install_common  – install OS packages, kubectl, helm, vault on all nodes
+#   setup_k3s       – provision / join the K3s cluster
+#   remove_k3s      – uninstall K3s from all nodes
+#
+# Usage:
+#   Full setup:       ansible-playbook -i ./inventories/hosts --tags="setup_k3s"    k3s-ha-playbook.yaml
+#   Install deps:     ansible-playbook -i ./inventories/hosts --tags="install_common" k3s-ha-playbook.yaml
+#   Teardown:         ansible-playbook -i ./inventories/hosts --tags="remove_k3s"    k3s-ha-playbook.yaml
+# =============================================================================
+
+
+# ---------------------------------------------------------------------------
+# Play 1 – Install common libraries and dependencies on every HA node
+# ---------------------------------------------------------------------------
+- name: Install common libraries and dependencies on all HA nodes
+  hosts: ha_master_init
+  tasks:
+    - name: Install common libraries, and dependencies for your host
+      tags: install_common
+      # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/shell_module.html
+      ansible.builtin.shell: |
+        # Update package index and install system dependencies
+        sudo apt update
+        sudo apt install -y apt-transport-https ca-certificates curl gpg wget bash-completion socat unzip jq
+
+        # Install kubectl
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x ./kubectl
+        sudo mv ./kubectl /usr/local/bin/kubectl
+
+        # Install helm
+        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+        # Enable bash-completion for kubectl and helm
+        echo 'source /etc/bash_completion' >>~/.bashrc
+        kubectl completion bash | sudo tee /etc/bash_completion.d/kubectl >/dev/null
+        helm completion bash | sudo tee /etc/bash_completion.d/helm >/dev/null
+
+        # Useful kubectl aliases
+        echo 'export KUBE_EDITOR="nano"' >>~/.bashrc
+        echo 'alias k="kubectl"' >>~/.bashrc
+        echo 'alias kgp="kubectl get pods"' >>~/.bashrc
+        echo 'alias kn="kubectl config set-context --current --namespace"' >>~/.bashrc
+        echo 'alias kaf="kubectl apply -f "' >>~/.bashrc
+        echo 'alias kr="kubectl run --dry-run=client -o yaml "' >>~/.bashrc
+        echo 'alias krcp="k resource-capacity -p --util"' >>~/.bashrc
+        echo 'alias krca="k resource-capacity -a"' >>~/.bashrc
+
+        # Install vault CLI
+        wget https://releases.hashicorp.com/vault/1.18.5/vault_1.18.5_linux_amd64.zip && \
+          unzip -p vault_1.18.5_linux_amd64.zip vault > vault && \
+          chmod +x vault && sudo mv vault /usr/local/bin && \
+          rm -rf vault_1.18.5_linux_amd64.zip
+      changed_when: false
+      args:
+        executable: /bin/bash
+      register: install_output
+
+    - name: Log output of common libraries installation
+      tags: install_common
+      ansible.builtin.debug:
+        msg: "{{ install_output.stdout_lines }}"
+
+
+# ---------------------------------------------------------------------------
+# Play 2 – Bootstrap the HA cluster on the init master (--cluster-init)
+#
+# This is the first server to start.  It writes the embedded etcd data
+# directory and generates the cluster join token that all other nodes use.
+# Read more: https://docs.k3s.io/datastore/ha-embedded
+# ---------------------------------------------------------------------------
+- name: Setup K3s HA Master Init Node (cluster-init)
+  hosts: ha_master_init
+  tasks:
+    - name: Include HA master vars
+      tags: setup_k3s, remove_k3s
+      ansible.builtin.include_vars:
+        file: "./inventories/host_vars/master.yaml"
+
+    # --- Setup block --------------------------------------------------------
+    - name: Setup K3s HA Master Init Node
+      tags: setup_k3s
+      block:
+        - name: Create directories for K3s configuration
+          ansible.builtin.shell: |
+            sudo mkdir -p /etc/rancher/k3s
+            sudo mkdir -p /etc/rancher/k3s/config.yaml.d
+          become: true
+
+        - name: Copy K3s config template to init master
+          vars:
+            role: "master"
+          ansible.builtin.template:
+            src: "./templates/k3s-config.yaml.j2"
+            dest: "/etc/rancher/k3s/config.yaml"
+            owner: root
+            mode: "0644"
+          become: true
+
+        - name: Install K3s HA Master Init Node (embedded etcd — cluster-init)
+          # --cluster-init bootstraps a new embedded etcd cluster.
+          # Used only when dataStorage type is "etcd".
+          # https://docs.k3s.io/datastore/ha-embedded
+          when: k3sCluster.highAvailability.dataStorage.externalDatabase.type | default('etcd') == 'etcd'
+          ansible.builtin.shell: |
+            echo "write-kubeconfig-mode: \"0644\"" | sudo tee -a /etc/rancher/k3s/config.yaml
+            echo "node-ip: {{ hostvars[inventory_hostname]['node_ip'] }}" | sudo tee -a /etc/rancher/k3s/config.yaml
+            echo "cluster-init: true" | sudo tee -a /etc/rancher/k3s/config.yaml
+
+            curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3sCluster.version }} INSTALL_K3S_EXEC="server" sh -s - \
+              --disable traefik
+
+          register: install_init_node_etcd
+
+        - name: Log output of K3s HA Master Init Node installation (embedded etcd)
+          when: k3sCluster.highAvailability.dataStorage.externalDatabase.type | default('etcd') == 'etcd'
+          ansible.builtin.debug:
+            msg: "{{ install_init_node_etcd.stdout_lines }}"
+
+        - name: Install K3s HA Master Init Node (external PostgreSQL datastore)
+          # With an external database, --cluster-init is not used.
+          # Every server node connects independently to the same PostgreSQL DSN.
+          # https://docs.k3s.io/datastore/ha
+          when: k3sCluster.highAvailability.dataStorage.externalDatabase.type == 'postgres'
+          vars:
+            _pg: "{{ k3sCluster.highAvailability.dataStorage.externalDatabase }}"
+            _pg_dsn: "postgres://{{ _pg.user }}:{{ _pg.password }}@{{ _pg.host }}:{{ _pg.port }}/{{ _pg.database }}?sslmode={{ _pg.sslmode | default('disable') }}"
+          ansible.builtin.shell: |
+            echo "write-kubeconfig-mode: \"0644\"" | sudo tee -a /etc/rancher/k3s/config.yaml
+            echo "node-ip: {{ hostvars[inventory_hostname]['node_ip'] }}" | sudo tee -a /etc/rancher/k3s/config.yaml
+            echo "datastore-endpoint: {{ _pg_dsn }}" | sudo tee -a /etc/rancher/k3s/config.yaml
+
+            curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3sCluster.version }} INSTALL_K3S_EXEC="server" sh -s - \
+              --disable traefik
+          register: install_init_node_pg
+
+        - name: Log output of K3s HA Master Init Node installation (PostgreSQL)
+          when: k3sCluster.highAvailability.dataStorage.externalDatabase.type == 'postgres'
+          ansible.builtin.debug:
+            msg: "{{ install_init_node_pg.stdout_lines }}"
+
+        - name: Wait for K3s API server to be ready on init master
+          # Ensure the token file exists before fetching it
+          ansible.builtin.wait_for:
+            path: /var/lib/rancher/k3s/server/node-token
+            state: present
+            timeout: 120
+          become: true
+
+        - name: Fetch K3s cluster token to the Ansible controller
+          # This token is shared by all joining masters and all worker agents.
+          # https://docs.k3s.io/cli/server#cluster-options
+          ansible.builtin.fetch:
+            src: "/var/lib/rancher/k3s/server/node-token"
+            dest: "./k3s_token.txt"
+            flat: yes
+          become: true
+
+        - name: Save K3s kubeconfig for Ansible use
+          ansible.builtin.shell: |
+            mkdir -p ~/.kube
+            sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+            sudo chown $(id -u):$(id -g) ~/.kube/config
+          register: save_kubeconfig
+
+        - name: Log output of kubeconfig save
+          ansible.builtin.debug:
+            msg: "{{ save_kubeconfig.stdout_lines }}"
+
+# ---------------------------------------------------------------------------
+# Play 3 – Join additional control-plane servers to the HA cluster
+#
+# Each join master connects to the init master's API and etcd endpoint.
+# Nodes are joined one at a time (serial: 1) to maintain etcd quorum
+# stability while the cluster is growing.
+# Read more: https://docs.k3s.io/datastore/ha-embedded#existing-clusters
+# ---------------------------------------------------------------------------
+- name: Setup K3s HA Master Join Nodes
+  hosts: ha_master_join
+  # Join one server at a time — prevents split-brain during etcd membership changes
+  serial: 1
+  tasks:
+    - name: Include HA master vars
+      tags: setup_k3s, remove_k3s
+      ansible.builtin.include_vars:
+        file: "./inventories/host_vars/master.yaml"
+
+    # --- Setup block --------------------------------------------------------
+    - name: Setup K3s HA Master Join Node
+      tags: setup_k3s
+      block:
+        - name: Create directories for K3s configuration
+          ansible.builtin.shell: |
+            sudo mkdir -p /etc/rancher/k3s
+            sudo mkdir -p /etc/rancher/k3s/config.yaml.d
+          become: true
+
+        - name: Copy K3s config template to join master
+          vars:
+            role: "master"
+          ansible.builtin.template:
+            src: "./templates/k3s-config.yaml.j2"
+            dest: "/etc/rancher/k3s/config.yaml"
+            owner: root
+            mode: "0644"
+          become: true
+
+        - name: Load the K3s token from Ansible controller (fetched from init master)
+          ansible.builtin.slurp:
+            src: "./k3s_token.txt"
+          delegate_to: localhost
+          register: k3s_token_content
+
+        - name: Wait for init master API server to be accessible (embedded etcd only)
+          # With etcd, join nodes point --server at the init master for etcd peer discovery.
+          # With postgres, each server connects independently to the DB — no wait needed.
+          when: k3sCluster.highAvailability.dataStorage.externalDatabase.type | default('etcd') == 'etcd'
+          ansible.builtin.wait_for:
+            host: "{{ hostvars[groups['ha_master_init'][0]]['node_ip'] }}"
+            port: 6443
+            delay: 5
+            timeout: 180
+          delegate_to: localhost
+
+        - name: Install K3s HA Master Join Node (embedded etcd — join cluster)
+          # --server points to the init master for etcd cluster membership.
+          # https://docs.k3s.io/datastore/ha-embedded#existing-clusters
+          when: k3sCluster.highAvailability.dataStorage.externalDatabase.type | default('etcd') == 'etcd'
+          ansible.builtin.shell: |
+            echo "server: https://{{ hostvars[groups['ha_master_init'][0]]['node_ip'] }}:6443" | sudo tee -a /etc/rancher/k3s/config.yaml
+            echo "token: {{ k3s_token_content.content | b64decode | trim }}" | sudo tee -a /etc/rancher/k3s/config.yaml
+            echo "node-ip: {{ hostvars[inventory_hostname]['node_ip'] }}" | sudo tee -a /etc/rancher/k3s/config.yaml
+
+            curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3sCluster.version }} INSTALL_K3S_EXEC="server" sh -s - \
+              --disable traefik
+          register: install_join_node_etcd
+
+        - name: Log output of K3s HA Master Join Node installation (embedded etcd)
+          when: k3sCluster.highAvailability.dataStorage.externalDatabase.type | default('etcd') == 'etcd'
+          ansible.builtin.debug:
+            msg: "{{ install_join_node_etcd.stdout_lines }}"
+
+        - name: Install K3s HA Master Join Node (external PostgreSQL datastore)
+          # With postgres, every server uses the same datastore-endpoint.
+          # No --server flag pointing to another K3s node is required.
+          # https://docs.k3s.io/datastore/ha
+          when: k3sCluster.highAvailability.dataStorage.externalDatabase.type == 'postgres'
+          vars:
+            _pg: "{{ k3sCluster.highAvailability.dataStorage.externalDatabase }}"
+            _pg_dsn: "postgres://{{ _pg.user }}:{{ _pg.password }}@{{ _pg.host }}:{{ _pg.port }}/{{ _pg.database }}?sslmode={{ _pg.sslmode | default('disable') }}"
+          ansible.builtin.shell: |
+            echo "token: {{ k3s_token_content.content | b64decode | trim }}" | sudo tee -a /etc/rancher/k3s/config.yaml
+            echo "node-ip: {{ hostvars[inventory_hostname]['node_ip'] }}" | sudo tee -a /etc/rancher/k3s/config.yaml
+            echo "datastore-endpoint: {{ _pg_dsn }}" | sudo tee -a /etc/rancher/k3s/config.yaml
+
+            curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3sCluster.version }} INSTALL_K3S_EXEC="server" sh -s - \
+              --disable traefik
+          register: install_join_node_pg
+
+        - name: Log output of K3s HA Master Join Node installation (PostgreSQL)
+          when: k3sCluster.highAvailability.dataStorage.externalDatabase.type == 'postgres'
+          ansible.builtin.debug:
+            msg: "{{ install_join_node_pg.stdout_lines }}"
+
+# ---------------------------------------------------------------------------
+# Play 4 – Join worker / agent nodes
+#
+# Agents connect to the fixed registration address, which is the init master
+# IP by default.  For true HA resilience, replace the init master IP with a
+# VIP or load balancer endpoint (e.g. kube-vip, HAProxy) that fronts all
+# control-plane nodes.
+# Read more: https://docs.k3s.io/architecture#fixed-registration-address-for-agent-nodes
+# ---------------------------------------------------------------------------
+- name: Setup K3s HA Worker Nodes
+  hosts: ha_worker
+  tasks:
+    - name: Include HA worker vars
+      tags: setup_k3s, remove_k3s
+      ansible.builtin.include_vars:
+        file: "./inventories/host_vars/worker.yaml"
+
+    # --- Setup block --------------------------------------------------------
+    - name: Setup K3s HA Worker Node
+      tags: setup_k3s
+      block:
+        - name: Create directories for K3s configuration
+          ansible.builtin.shell: |
+            sudo mkdir -p /etc/rancher/k3s
+            sudo mkdir -p /etc/rancher/k3s/config.yaml.d
+          become: true
+
+        - name: Copy K3s config template to worker node
+          vars:
+            role: "worker"
+          ansible.builtin.template:
+            src: "./templates/k3s-config.yaml.j2"
+            dest: "/etc/rancher/k3s/config.yaml"
+            owner: root
+            mode: "0644"
+          become: true
+
+        - name: Load the K3s token from Ansible controller (fetched from init master)
+          ansible.builtin.slurp:
+            src: "./k3s_token.txt"
+          delegate_to: localhost
+          register: k3s_token_content
+
+        - name: Install K3s HA Worker Node (agent)
+          # Workers use the init master as the fixed registration address.
+          # Swap the IP below for a VIP / LB endpoint if clusterLB is enabled.
+          ansible.builtin.shell: |
+            echo "server: https://{{ hostvars[groups['ha_master_init'][0]]['node_ip'] }}:6443" | sudo tee -a /etc/rancher/k3s/config.yaml
+            echo "token: {{ k3s_token_content.content | b64decode | trim }}" | sudo tee -a /etc/rancher/k3s/config.yaml
+            echo "node-ip: {{ hostvars[inventory_hostname]['node_ip'] }}" | sudo tee -a /etc/rancher/k3s/config.yaml
+
+            curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3sCluster.version }} INSTALL_K3S_EXEC="agent" sh -s -
+          register: install_worker_node
+
+        - name: Log output of K3s HA Worker Node installation
+          ansible.builtin.debug:
+            msg: "{{ install_worker_node.stdout_lines }}"
+
+# ---------------------------------------------------------------------------
+# Play 5 – Setup Traefik Ingress Controller (runs once on the init master)
+#
+# K3s is installed with --disable traefik so we control the exact Traefik
+# version via Helm.  Running from the init master ensures kubectl / helm
+# have a valid kubeconfig after Play 2.
+# Read more: https://docs.k3s.io/networking/networking-services#traefik-ingress-controller
+# ---------------------------------------------------------------------------
+- name: Setup K3s Traefik Ingress Controller on HA Cluster
+  hosts: ha_master_init
+  tasks:
+    - name: Include HA master vars
+      tags: setup_k3s
+      ansible.builtin.include_vars:
+        file: "./inventories/host_vars/master.yaml"
+
+    - name: Setup Traefik on HA Cluster
+      block:
+        - name: Install Traefik Ingress Controller
+          tags: setup_k3s
+          when: k3sCluster.ingress.class | default('traefik') == 'traefik'
+          ansible.builtin.shell: |-
+            helm repo add traefik https://helm.traefik.io/traefik
+            helm repo update
+            helm upgrade --install traefik traefik/traefik --namespace kube-system --version 38.0.0 --wait \
+              --reuse-values \
+              --set providers.kubernetesGateway.enabled=false \
+              --set gateway.enabled=false
+          register: traefik_log
+          changed_when: false
+          become_user: vagrant
+
+        - name: Log results of Traefik installation
+          tags: setup_k3s
+          ansible.builtin.debug:
+            msg: "{{ traefik_log.stdout_lines }}"
+          when: k3sCluster.ingress.class | default('traefik') == 'traefik'
+
+        - name: Setup Traefik Dashboard
+          tags: setup_k3s
+          when: k3sCluster.ingress.dashboard.enable | default(false) and k3sCluster.ingress.class | default('traefik') == 'traefik'
+          vars:
+            dashboard_host: "{{ k3sCluster.ingress.dashboard.host | default('dashboard.traefik.local') }}"
+          ansible.builtin.shell: |-
+            helm upgrade --install traefik traefik/traefik --namespace kube-system --version 38.0.0 --wait \
+              --reuse-values \
+              --set ingressRoute.dashboard.enabled=true \
+              --set ingressRoute.dashboard.matchRule='Host(`{{ dashboard_host }}`)' \
+              --set ingressRoute.dashboard.entryPoints={web} \
+          register: traefik_dashboard_log
+          changed_when: false
+          become_user: vagrant
+
+        - name: Log results of Traefik Dashboard setup
+          tags: setup_k3s
+          ansible.builtin.debug:
+            msg: "{{ traefik_dashboard_log.stdout_lines }}"
+          when: k3sCluster.ingress.dashboard.enable | default(false) and k3sCluster.ingress.class | default('traefik') == 'traefik'
+
+        - name: Setup Traefik Gateway
+          tags: setup_k3s
+          when: k3sCluster.ingress.gateway.enable | default(false) and k3sCluster.ingress.class | default('traefik') == 'traefik'
+          ansible.builtin.shell: |-
+            helm upgrade --install traefik traefik/traefik --namespace kube-system --version 38.0.0 --wait \
+              --reuse-values \
+              --set providers.kubernetesGateway.enabled=true \
+              --set gateway.enabled=true
+          register: traefik_gateway_log
+          changed_when: false
+          become_user: vagrant
+
+        - name: Log results of Traefik Gateway setup
+          tags: setup_k3s
+          ansible.builtin.debug:
+            msg: "{{ traefik_gateway_log.stdout_lines }}"
+          when: k3sCluster.ingress.gateway.enable | default(false) and k3sCluster.ingress.class | default('traefik') == 'traefik'

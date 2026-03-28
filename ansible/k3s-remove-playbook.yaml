@@ -1,0 +1,21 @@
+---
+# Playbook for remove K3s Cluster, targeting all nodes in the cluster with `standalone-all` group
+- name: Playbook to remove K3s Cluster from all nodes
+  hosts: standalone-all
+  tasks:
+    - name: Uninstall K3s from all nodes
+      tags: remove_k3s
+      ansible.builtin.shell: |
+          # Uninstall K3s with the official uninstall script
+          {
+              bash /usr/local/bin/k3s-uninstall.sh > /dev/null 2>&1 && echo "K3s uninstalled successfully on master node"
+          } || {
+              bash /usr/local/bin/k3s-agent-uninstall.sh > /dev/null  2>&1 && echo "K3s uninstalled successfully on worker node"
+          }
+      become: true
+      register: uninstall_output
+
+    - name: Log output of K3s uninstallation
+      ansible.builtin.debug:
+          msg: "{{ uninstall_output.stdout_lines }}"
+      tags: remove_k3s

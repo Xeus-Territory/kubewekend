@@ -15,8 +15,10 @@
 - [Kubewekend 👨‍🚀🚀☁️🌕](#kubewekend-️)
   - [Usage](#usage)
     - [Requirements tools](#requirements-tools)
+    - [Kubewekend CLI (`setup.sh`)](#kubewekend-cli-setupsh)
     - [Step by step](#step-by-step)
       - [Setup Host with Vagrant](#setup-host-with-vagrant)
+      - [Ansible Inventory — `hosts` File](#ansible-inventory--hosts-file)
       - [Setup K8s Cluster and Utilities Features](#setup-k8s-cluster-and-utilities-features)
     - [Helm Chart](#helm-chart)
     - [Troubleshoot](#troubleshoot)
@@ -40,17 +42,59 @@
 >
 > Supported K8s Distribution with Kubewekend
 
-| Kubewekend Cluster Distribution | Local | VM  | VPS Remote |
-| ------------------------------- | ----- | --- | ---------- |
-| Kind (K8s in Docker)            | ✅     | ✅   | ⏳          |
-| K3s                             | 🚧    | 🚧  | 🚧         |
-| RKE2                            | 🚧    | 🚧  | 🚧         |
+| Kubewekend Cluster Distribution        | Local | VM  | VPS Remote |
+| -------------------------------------- | ----- | --- | ---------- |
+| Kind (K8s in Docker)                   | ✅     | ✅   | ✅          |
+| K3s Standalone                         | ✅     | ✅   | ✅          |
+| K3s High Availability (HA)             | 🚧    | ✅   | ✅          |
+| RKE2                                   | 🚧    | 🚧  | 🚧         |
 
 ### Requirements tools
 
-  - Install [virtualbox](https://www.virtualbox.org/wiki/Downloads)
-  - Install [vagrant](https://developer.hashicorp.com/vagrant/docs/installation)
-  - Install [ansible](https://docs.ansible.com/projects/ansible/latest/installation_guide/intro_installation.html#pipx-install)
+| Tool | Required | Purpose |
+|------|----------|---------|
+| [VirtualBox](https://www.virtualbox.org/wiki/Downloads) | Yes\* | VM provider |
+| [Vagrant](https://developer.hashicorp.com/vagrant/docs/installation) | Yes\* | VM provisioning |
+| [Ansible](https://docs.ansible.com/ansible/latest/installation_guide/intro_installation.html) | Yes | Cluster orchestration |
+| [kubectl](https://kubernetes.io/docs/tasks/tools/) | Yes | Kubernetes CLI |
+| [Helm](https://helm.sh/docs/intro/install/) | Yes | Chart management |
+| [Docker](https://docs.docker.com/engine/install/) | Optional | Required for Kind clusters |
+| [kind](https://kind.sigs.k8s.io/docs/user/quick-start#installation) | Optional | Kind binary (also installed by playbook) |
+
+> \* Vagrant + VirtualBox are required only for local VM workflows. For remote VPS targets, only Ansible + SSH are needed.
+
+### Kubewekend CLI (`setup.sh`)
+
+> [!TIP]
+>
+> All cluster operations are unified under a single CLI. Run it from the project root — no need to invoke `ansible-playbook` or `vagrant` directly.
+
+```bash
+# Show all available commands
+./scripts/setup.sh help
+
+# Check prerequisites
+./scripts/setup.sh env check
+
+# Show subcommand help
+./scripts/setup.sh <command> help
+```
+
+| Command | Purpose |
+|---------|----------|
+| `env` | Check tools, initialise `.env` |
+| `vagrant` | VM lifecycle — up, halt, destroy, ssh |
+| `inventory` | Generate/inspect Ansible inventory, set remote VPS |
+| `kind` | Kind cluster — setup, destroy, utilities |
+| `k3s` | K3s cluster — standalone, HA, destroy, utilities |
+| `network` | VirtualBox NAT forwarding (hook-up / return) |
+| `config` | View / edit `master.yaml` and `worker.yaml` |
+| `status` | Project-wide status dashboard |
+| `quickstart` | Guided end-to-end workflows |
+
+See [scripts/README.md](./scripts/README.md) for the full CLI reference.
+
+---
 
 ### Step by step
 
@@ -60,20 +104,45 @@
 >
 > Read more at [Kubewekend Session 1: Build up your host with Vagrant](https://wiki.xeusnguyen.xyz/Tech-Second-Brain/Personal/Kubewekend/Kubewekend-Session-1)
 
-
-1. Location on the root of project
-2. Up your experiment with `vagrant` and `virtualbox` by
+1. Position yourself at the project root.
+2. Bring up your VMs with the CLI:
 
 ```bash
-# Use can use another provider: https://developer.hashicorp.com/vagrant/docs/providers
-# Provision only master
-vagrant up k8s-master-machine --provider=virtualbox
+# Provision only the master node
+./scripts/setup.sh vagrant up k8s-master-machine
 
-# Provision 1 master and 1 worker
-vagrant up k8s-master-machine k8s-worker-machine-1 --provider=virtualbox
+# Provision master + one worker (K3s standalone / Kind)
+./scripts/setup.sh vagrant up k8s-master-machine k8s-worker-machine-1
 
-# You can provision more worker with regex pattern
-vagrant up "/k8s-worker-machine-[2-3]/" --provider=virtualbox
+# Provision master + multiple workers (K3s HA)
+./scripts/setup.sh vagrant up k8s-master-machine k8s-worker-machine-1 k8s-worker-machine-2
+```
+
+> [!NOTE]
+>
+> You can also use `vagrant` directly with `--provider=virtualbox`. The CLI wraps it for convenience and ensures you stay in the project root.
+
+#### Ansible Inventory — `hosts` File
+
+> [!IMPORTANT]
+>
+> The inventory file at [`ansible/inventories/hosts`](./ansible/inventories/hosts) is split into **two sections**. Make sure the right section is populated before running a playbook.
+
+| Section | Group | Used by |
+|---------|-------|---------|
+| **SECTION 1**: Standalone | `standalone-masters`, `standalone-workers` | `kind-playbook.yaml`, `k3s-playbook.yaml` |
+| **SECTION 2**: HA | `ha_master_init`, `ha_master_join`, `ha_worker` | `k3s-ha-playbook.yaml` |
+
+Generate the inventory automatically from running Vagrant VMs:
+
+```bash
+./scripts/setup.sh inventory generate
+
+# Or ping all known hosts to verify connectivity
+./scripts/setup.sh inventory ping
+
+# For a remote (non-Vagrant) VPS target
+./scripts/setup.sh inventory set-remote
 ```
 
 #### Setup K8s Cluster and Utilities Features
@@ -81,43 +150,108 @@ vagrant up "/k8s-worker-machine-[2-3]/" --provider=virtualbox
 > [!NOTE]
 >
 > After the upgrade 12/2025 and 01/2026, Ansible Playbooks are already rebuilt for multiple concepts which allow you configure a lots of stuff
-> with your Kind cluster to test and experiment K8s features
-> 
-> For more information, you can see what are implementing via table belows
+> with your Kind or K3s cluster to test and experiment K8s features
+>
+> For more information, you can see what are implementing via table below
 
-|                            Name of Task                            | Description                                                                                                                                       |          Playbook           | Tags              | State |
-| :----------------------------------------------------------------: | ------------------------------------------------------------------------------------------------------------------------------------------------- | :-------------------------: | ----------------- | ----- |
-|                  Install Common Kubewekend Tools                   | Install common libraries,kind and dependencies for your host                                                                                      |     kind-playbook.yaml      | install_common    | ✅     |
-|                         Setup Kind Cluster                         | Create Kind Cluster with mounting kind-config base on template to ansible host                                                                    |     kind-playbook.yaml      | setup_kind        | ✅     |
-|                      Setup Kind Network (CNI)                      | Setup network for Kind Cluster in the situation disableDefaultCNI is true (Options: Calico, Flannel or Cilium)                                    |     kind-playbook.yaml      | setup_kind        | ✅     |
-|                Setup Load Balancer for Kind cluster                | Setup Load Balancer for Kind Cluster for external accessing services as type LoadBalancer (Options: metallb, cloud-provider-kind, cilium-ipam-lb) |     kind-playbook.yaml      | setup_kind        | ✅     |
-|             Setup Ingress Controller for Kind cluster              | Setup Ingress Controller for Kind Cluster (Options: NGINX, Traefik, Cilium or Kong)                                                               |     kind-playbook.yaml      | setup_kind        | ✅     |
-|                 Setup GatewayAPI for Kind cluster                  | Setup GatewayAPI for Kind Cluster (Options: Kong, Cilium or Traefik)                                                                              |     kind-playbook.yaml      | setup_kind        | ✅     |
-| Setup Network Forwarding for port 80/443 from home to Kind cluster | Setup Network Forwarding for Kind Cluster (from host to kind cluster) with forwarding rules by socat                                              |     kind-playbook.yaml      | setup_kind        | ✅     |
-|                        Remove Kind cluster                         | Remove the Kind cluster and related component when you want to destroy the cluster                                                                |     kind-playbook.yaml      | setup_kind        | ✅     |
-|            Ingress test deployment in side the cluster             | Ingress test deployment in side the cluster                                                                                                       | k8s-utilities-playbook.yaml | ingress_test      | ✅     |
-|          API Gateway test deployment in side the cluster           | API Gateway test deployment in side the cluster                                                                                                   | k8s-utilities-playbook.yaml | apigateway_test   | ✅     |
-|                 Setup cert-manager for the cluster                 | Setup cert-manager for the cluster                                                                                                                | k8s-utilities-playbook.yaml | certmanager       | ✅     |
-|                  Setup Dashboard for the cluster                   | Setup Dashboard for the cluster                                                                                                                   | k8s-utilities-playbook.yaml | dashboard         | ✅     |
-|              Setup Secret Management for the cluster               | Setup Secret Management for the cluster                                                                                                           | k8s-utilities-playbook.yaml | secret_management | ✅     |
-|                Setup K8s Extensions for the cluster                | Setup K8s Extensions for the cluster                                                                                                              | k8s-utilities-playbook.yaml | k8s_extensions    | ✅     |
-|                    Setup GitOps for the cluster                    | Setup GitOps for the cluster                                                                                                                      | k8s-utilities-playbook.yaml | gitops            | ✅     |
+**Kind** (`kind-playbook.yaml`)
+
+|                            Name of Task                            | Description                                                                                                                                       | Tags              | State |
+| :----------------------------------------------------------------: | ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ----- |
+|                  Install Common Kubewekend Tools                   | Install common libraries, kind and dependencies for your host                                                                                     | install_common    | ✅     |
+|                         Setup Kind Cluster                         | Create Kind Cluster with mounting kind-config template to ansible host                                                                            | setup_kind        | ✅     |
+|                      Setup Kind Network (CNI)                      | Setup network for Kind Cluster when `disableDefaultCNI: true` (Options: Calico, Flannel, Cilium)                                                  | setup_kind        | ✅     |
+|                Setup Load Balancer for Kind cluster                | Setup Load Balancer for external `LoadBalancer`-type services (Options: metallb, cloud-provider-kind, cilium-ipam-lb)                             | setup_kind        | ✅     |
+|             Setup Ingress Controller for Kind cluster              | Setup Ingress Controller (Options: NGINX, Traefik, Cilium, Kong)                                                                                  | setup_kind        | ✅     |
+|                 Setup GatewayAPI for Kind cluster                  | Setup Gateway API (Options: Kong, Cilium, Traefik)                                                                                                | setup_kind        | ✅     |
+| Setup Network Forwarding for port 80/443 from host to Kind cluster | Forward host ports 80/443 into Kind cluster via socat                                                                                             | setup_kind        | ✅     |
+|                        Remove Kind cluster                         | Remove the Kind cluster and related components                                                                                                    | remove_kind       | ✅     |
+
+**K3s** (`k3s-playbook.yaml` · `k3s-ha-playbook.yaml`)
+
+|                            Name of Task                            | Description                                                                                                       | Tags                         | State |
+| :----------------------------------------------------------------: | ----------------------------------------------------------------------------------------------------------------- | ---------------------------- | ----- |
+|               Install Common K3s Node Packages                     | Install common libraries and dependencies on the target node                                                      | install_common               | ✅     |
+|             Setup K3s Standalone (master or worker)                | Deploy K3s server (master) or agent (worker) — one node at a time via `--host`                                    | setup_k3s                    | ✅     |
+|             Setup K3s High Availability (HA) Cluster               | Bootstrap etcd init node, join additional control-plane nodes, and attach agents                                  | setup_k3s                    | ✅     |
+|                  Configure CNI (Flannel / Calico / Cilium)                  | Apply CNI manifests post-install based on `k3sCluster.cni.type`                                                   | setup_k3s                    | ✅     |
+|             Setup Load Balancer (ServiceLB / MetalLB)               | Deploy load balancer and configure IP pool from `k3sCluster.loadBalancer`                                         | setup_k3s                    | ✅     |
+|              Setup Ingress + Dashboard + Support API Gateway (Only Traefik)           | Deploy ingress controller and optional dashboard from `k3sCluster.ingress`                                        | setup_k3s                    | ✅     |
+|                       Remove K3s node                              | Uninstall K3s from a target node (server or agent)                                                                | remove_k3s                   | ✅     |
+
+**Utilities** (`k8s-utilities-playbook.yaml`)
+
+|                            Name of Task                            | Description                                                           | Tags              | State |
+| :----------------------------------------------------------------: | --------------------------------------------------------------------- | ----------------- | ----- |
+|            Ingress test deployment inside the cluster              | Deploy a sample workload to validate Ingress routing                  | ingress_test      | ✅     |
+|          API Gateway test deployment inside the cluster            | Deploy a sample workload to validate API Gateway routing              | apigateway_test   | ✅     |
+|                 Setup cert-manager for the cluster                 | Install cert-manager for TLS certificate management                   | certmanager       | ✅     |
+|                  Setup Dashboard for the cluster                   | Install a Kubernetes dashboard (type configured in `utilities`)       | dashboard         | ✅     |
+|              Setup Secret Management for the cluster               | Install Vault or another secret management backend                    | secret_management | ✅     |
+|                Setup K8s Extensions for the cluster                | Install additional Kubernetes extensions                              | k8s_extensions    | ✅     |
+|                    Setup GitOps for the cluster                    | Install ArgoCD or Flux for GitOps workflows                           | gitops            | ✅     |
 
 > [!IMPORTANT]
 >
-> To making ansible work as requirement when setup Kubewekend, you should refer to inventories with vars file at [master.yaml](./ansible/inventories/host_vars/master.yaml)
+> Before running any playbook, review and adjust the cluster configuration file at [`ansible/inventories/host_vars/master.yaml`](./ansible/inventories/host_vars/master.yaml).
+> Use the CLI to inspect it without opening a text editor:
+>
+> ```bash
+> # Interactive table summary
+> ./scripts/setup.sh config show
+>
+> # Full raw YAML
+> ./scripts/setup.sh config show --raw
+>
+> # Open in $EDITOR
+> ./scripts/setup.sh config edit
+> ```
 
+**Kind cluster** (all-in-one):
 
 ```bash
-# Execution Directory: ./
+# Install common tools + create cluster
+./scripts/setup.sh kind setup
 
-# Setup SSH key for ansible
-bash ./scripts/kind-clusters/operate-kind-cluster.sh
-# Testing the host connection
-ansible -i ./ansible/inventories/hosts all -m ping
-# Execution configuration
-ansible-playbook -i ./ansible/inventories/hosts --extra-vars="host_name=k8s-master-machine" --tags="tags_you_want" ansible/ansible-playbook-you-want.yaml
+# Add utilities after the cluster is up
+./scripts/setup.sh kind utils certmanager ingress_test dashboard
+
+# Tear down
+./scripts/setup.sh kind destroy
 ```
+
+**K3s standalone** (separate master / worker calls):
+
+```bash
+# Master first
+./scripts/setup.sh k3s setup --host k8s-master-machine
+
+# Then each worker
+./scripts/setup.sh k3s setup --host k8s-worker-machine-1
+
+# Add utilities
+./scripts/setup.sh k3s utils certmanager gitops
+
+# Tear down
+./scripts/setup.sh k3s destroy
+```
+
+**K3s HA cluster** (HA section in `hosts` must be populated):
+
+```bash
+# Enable HA in master.yaml first
+./scripts/setup.sh config edit
+
+# Bootstrap all HA nodes at once
+./scripts/setup.sh k3s ha-setup
+```
+
+> [!TIP]
+>
+> Prefer the `--dry-run` flag to preview the exact `ansible-playbook` command that will be executed before committing:
+> ```bash
+> ./scripts/setup.sh k3s setup --host k8s-master-machine --dry-run
+> ```
 
 ### Helm Chart
 
@@ -133,9 +267,9 @@ helm repo add kubewekend https://kubewekend.xeusnguyen.xyz
 2. [VMSetError: VirtualBox can’t enable the AMD-V extension](https://wiki.xeusnguyen.xyz/Tech-Second-Brain/Operation-System/Linux/Awesome-Linux-Troubleshoot#vmseterror-virtualbox-cant-enable-the-amd-v-extension)
 3. Specific `Vagrantfile`
 
-   > [!IMPORTANT]
-   > 
-   > In repositories will be defined some `Vagrantfile` for two type K8s for base and ceph, for specific the Vagrantfile you should specific them via environment variables. Explore more at: [StackOverFlow - Specify Vagrantfile path explicity, if not plugin](https://stackoverflow.com/questions/17308629/specify-vagrantfile-path-explicity-if-not-plugin)
+> [!IMPORTANT]
+> 
+> In repositories will be defined some `Vagrantfile` for two type K8s for base and ceph, for specific the Vagrantfile you should specific them via environment variables. Explore more at: [StackOverFlow - Specify Vagrantfile path explicity, if not plugin](https://stackoverflow.com/questions/17308629/specify-vagrantfile-path-explicity-if-not-plugin)
 
    ```bash
    # Run as usual for base version (Default: Vagrantfile)

@@ -23,9 +23,9 @@ kindCluster:
       cidr: "172.18.255.2 - 172.18.255.254" 
   ingress:
     enable: true
-    class: "nginx"  # nginx | traefik | cilium | kong
+    class: "traefik"  # nginx | traefik | cilium | kong
   apigateway:
-    enable: false
+    enable: true
     crd:
       # Install GatewayAPI CRD if not present
       # NOTE: In these situations, you shoudldn't enable this option:
@@ -33,20 +33,106 @@ kindCluster:
       # 2. Traefik Ingress Controller Enabled (Already include GatewayAPI CRD)
       install: false
       version: "v1.2.0"  # Install GatewayAPI CRD if not present, versions: v1.2.0 (Compatible with Cilium API Gateway) | v1.4.1 (Latest)
-    class: "kong" # none | kong | cilium | traefik (traefik-gateway)
+    class: "traefik" # none | kong | cilium | traefik (traefik-gateway)
     # NOTE: This feature is only support for Kong API Gateway
     # Purpose: Setup API Gateway to be internal only (accessible only inside the cluster) combined with LoadBalancer service type
     # Like Other Ingress in situation only one LoadBalancer IP available for multiple Ingress and API Gateway
     kong:
       internalOnly: false # true | false
       admin: false # true | false Enable Kong Admin API Service (for Kong Manager UI and Kong Admin API access)
-      ingressClass: "nginx" # IngressClass for Kong API Gateway when internalOnly is true
+      ingressClass: "traefik" # IngressClass for Kong API Gateway when internalOnly is true
       internalHostname: "kong-internal.local" # Hostname for Kong API Gateway when internalOnly is true
   # Forward network ports from host to kind cluster and let's you access services from host machine directly by iptables rules
   networkForwarding:
     enable: true
 
 k3sCluster:
+  ################### NOTICE ####################################################
+  ## This configuration is setup for master node, including
+  ## 1. Fix Registration Master
+  ## 2. Sever Master Join to cluster for HA cluster setup
+  ## Read more at: https://docs.k3s.io/architecture#high-availability-k3s
+  ## Server configuration at: https://docs.k3s.io/cli/server
+  ###############################################################################
+
+  # Kubernetes version for k3s, find more at https://github.com/k3s-io/k3s/releases
+  # Stable Version (Recommended): v1.28.9+k3s1, v1.32.13+k3s1, v1.33.9+k3s1, v1.34.5+k3s1, v1.35.2+k3s1 (latest)
+  version: "v1.34.5+k3s1"
+  # Number of control-plane nodes, default is 1, and set to 3 for HA Cluster
+  # NOTE: For HA Cluster, you need to setup an external database like etcd or postgres, and use external load balancer for control-plane nodes
+  # By default, K3s will use etcd when you setup HA cluster with 3 control-plane nodes, and with stanalone embedded SQLite when you setup single control-plane node cluster
+  # Read more at: https://docs.k3s.io/architecture#high-availability-k3s
+  highAvailability:
+    enable: true
+    replicas: 3
+    # Use dataStorage when you want to setup HA cluster
+    # Read more at: ETCD - https://docs.k3s.io/datastore/ha-embedded, Postgres - https://docs.k3s.io/datastore/ha
+    dataStorage:
+      externalDatabase:
+        type: "etcd" # postgres | etcd
+        # Only use for postgres, ignore if you use etcd
+        host: "127.0.0.1"
+        port: 5432
+        user: "postgres"
+        password: "postgres"
+        database: "postgres"
+        sslmode: "require" # disable | require | verify-ca | verify-full
+    # If you setup HA cluster with multiple control-plane nodes, You can setup the cluster load balancer for ensure the API Server high-availability
+    # Read more at: https://docs.k3s.io/datastore/cluster-loadbalancer
+    clusterLB:
+      enable: false # true if your cluster is set to HA
+      type: "HAProxy" # HAProxy | Kube-Vip
+  
+  # Add additional SANs for the API server certificate, default is "localhost" and "127.0.0.1"
+  tlsSANs:
+    - "k3s.local"
+    - "localhost"
+    - "127.0.0.1"
+  # Registering and starting kubelet with set of labels
+  nodeLabels:
+    - "machine-type=cpu"
+  # Registering kubelet with set of taints
+  nodeTaints: []
+  # NOTE: only one CNI can be used, and it requires for scheduling pods
+  # Supported CNI: flannel, calico, cilium
+  # By default, k3s use flannel as CNI with VXLAN Backend, Read more at: https://docs.k3s.io/networking/basic-network-options?cni=Calico#flannel-options
+  # For production cluster, it's recommended to use calico or cilium for better performance and security features
+  # Read more at: https://docs.k3s.io/networking/basic-network-options#custom-cni
+  cni:
+    type: "flannel"  # flannel | calico | cilium
+  loadBalancer:
+    # By default, k3s use embedded load balancer with klipper-lb or ServiceLB, which is a simple load balancer for Kubernetes services of type LoadBalancer
+    # If you want to use more advanced LB, you can consider disabling and use metalLB, kube-vip
+    # Read more at https://docs.k3s.io/networking/networking-services#service-load-balancer
+    # Examples:
+    # Kube-Vip: https://kube-vip.io/docs/usage/k3s/
+    enable: true # false to not setup any service (external) load balancer
+    type: "servicelb" # servicelb (klipper-lb) | metallb
+    ippool:
+      # Only use for metallb, ignore if use kube-vip
+      # For using as subnetmask or cidr range format
+      cidr: "192.168.56.169 - 192.168.56.254" # Make sure the IP pool is in the same network of K3S nodes
+  # Enable Multus CNI for multiple network interfaces in the cluster
+  # Read more at: https://docs.k3s.io/networking/multus-ipams
+  multus: false
+  # If you want to use cloud-provider controller, you can set false for integration
+  # Because k3s is providing embeded CCM for ServiceLB
+  # Read more at: https://docs.k3s.io/networking/networking-services#deploying-an-external-cloud-controller-manager
+  ccm: true
+  # By default, k3s use Traefik as Ingress Controller with default settings, you can disable it and use other ingress controller like nginx, cilium or kong
+  # Read more at: https://docs.k3s.io/networking/networking-services#traefik-ingress-controller
+  # In the situation, you want to custom the traefik ingress, please visit 
+  # 1. Github K3s-Chart: https://github.com/k3s-io/k3s-charts/tree/main/charts/traefik
+  # 2. Documentation: https://docs.k3s.io/add-ons/helm#customizing-packaged-components-with-helmchartconfig
+  # NOTE: Recently, Kubewekend only support Traefik for K3s
+  ingress:
+    enable: true
+    class: "traefik"
+    dashboard:
+      enable: true
+      host: "dashboard.traefik.local"
+    gateway:
+      enable: true
 
 utilities:
   # Test deployment in the cluster after setup complete
@@ -56,15 +142,15 @@ utilities:
     image: "nginx:latest"
     host: "ingress.local"
     port: 80
-    ingressClass: "nginx"
+    ingressClass: "traefik" # traefik | nginx | cilium | kong
     type: "ClusterIP"
   
   # test deployment settings with API gateway
   apiGatewayTestDeployment:
     enable: true
     namespace: "default"
-    gatewayClass: "kong"
-    port: 80 # Port 8000 if traefik service, port 80 for others service like kong, nginx, etc
+    gatewayClass: "traefik" # traefik (traefik-gateway) | kong | cilium
+    port: 8000 # Port 8000 if traefik service, port 80 for others service like kong, nginx, etc
     host: "apigateway.local"
     path: "/test"
 
@@ -240,7 +326,10 @@ utilities:
       type: "rbac-manager"  # rbac-manager | kube-rbac-proxy
     inteligence:
       enable: false
-      type: "falco"  # falco | trivy | tetragon | kubearmor | tracee
+      type: "falco"  # falco | trivy | tetragon
+    identity:
+      enable: false
+      type: "dex"  # dex | keycloak
 
   # Setup Global Load Balancer for the cluster with k8gb
   # Recommendation: Use for production cluster with multi-cluster setup
@@ -265,7 +354,7 @@ utilities:
   # Setup IDP (Internal Development Platform) integration for the cluster
   idp:
     enable: false
-    type: "backstage"  # backstage | devtron | kuberix
+    type: "backstage"  # backstage | port 
 
   # Developer tools for the cluster
   developerTools:
