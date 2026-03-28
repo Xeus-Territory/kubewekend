@@ -8,7 +8,7 @@
   # https://stackoverflow.com/questions/35105615/use-a-default-if-a-variable-is-not-defined
   hosts: "{{ host_name | default('sample-k8s-master') }}"
   tasks:
-    - name: Install common libraries,kind and dependencies for your host
+    - name: Install common libraries, kind and dependencies for your host
       tags: install_common
       # Help to do inline script and multiple line
       # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/shell_module.html
