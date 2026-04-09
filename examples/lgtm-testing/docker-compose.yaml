@@ -1,0 +1,64 @@
+services:
+  # ============================================================
+  # PostgreSQL Database
+  # ============================================================
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: lgtm_testing
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: apppassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appuser -d lgtm_testing"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ============================================================
+  # Backend API (FastAPI + OpenTelemetry + Pyroscope)
+  # ============================================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # Database
+      DATABASE_URL: postgresql://appuser:apppassword@postgres:5432/lgtm_testing
+      # OpenTelemetry - sends to Alloy collector on K8s cluster via port-forward
+      # Port-forward Alloy (NOT Tempo): kubectl port-forward -n monitoring svc/alloy 4317:4317
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://host.docker.internal:4317}
+      OTEL_SERVICE_NAME: lgtm-testing-api
+      OTEL_ENVIRONMENT: development
+      # Metrics export via OTLP (set to true when Alloy/Prometheus accepts OTLP metrics)
+      OTEL_METRICS_ENABLED: ${OTEL_METRICS_ENABLED:-false}
+      # Pyroscope
+      PYROSCOPE_SERVER_ADDRESS: ${PYROSCOPE_SERVER_ADDRESS:-http://host.docker.internal:4040}
+      PYROSCOPE_ENABLED: ${PYROSCOPE_ENABLED:-false}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    labels:
+      app.kubernetes.io/name: lgtm-testing-api
+
+  # ============================================================
+  # Frontend (Nginx + Static HTML)
+  # ============================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

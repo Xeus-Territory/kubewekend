@@ -166,14 +166,18 @@ utilities:
   # Storage solutions for the cluster
   # NOTE: Only for K3s clusters, with Kind, use local-path-storage by default
   storage:
-    enable: false
-    type: "longhorn"  # longhorn | rook-ceph | openebs | glusterfs | nfs-subdir-external-provisioner
-
-  # Driver for CSI (Container Storage Interface) support in the cluster
-  # Recommendation: Use for production cluster
-  # Reference: https://kubernetes-csi.github.io/docs/introduction.html
-  csi:
-    nfs: false
+    enable: true
+    type: "longhorn"  # longhorn
+    namespace: "longhorn"
+    setup:
+      iscsi: true # Enable iSCSI support for Longhorn, which is required for some features like backup and restore, and also for better performance in some cases
+      nfs: false # Enable NFS support for Longhorn, which is required for some features like backup and restore, and also for better performance in some cases
+    # Driver for CSI (Container Storage Interface) support in the cluster
+    # Recommendation: Use for production cluster
+    # Reference: https://kubernetes-csi.github.io/docs/introduction.html
+    csi:
+      # NFS CSI Driver: https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner
+      nfs: false
 
   # Certificate Management for the cluster
   # Recommendation: Use for production cluster
@@ -183,12 +187,19 @@ utilities:
 
   # Setup DNS for the cluster for external domain resolution (AWS Route53, Cloudflare, Google Cloud DNS, etc)
   # Recommendation: Use for production cluster
-  externalDNS:
+  dns:
+    enable: true
+    type: "external-dns"  # external-dns (with cloud provider DNS like AWS Route53, Cloudflare, etc)
+
+  # Setup Global Load Balancer for the cluster with k8gb
+  # Recommendation: Use for production cluster with multi-cluster setup, automatic failover and global traffic management requirements
+  glb:
     enable: false
+    type: "k8gb"  # k8gb
 
   # Secret Management for the cluster
   secretManagement:
-    enable: false
+    enable: true
     # Options: vault | openbao
     # Recommendation: Use for production cluster
     # NOTE: When you use openbao with latest version, you need to setup Kubernetes Version >= v1.30 for openbao operator compatibility
@@ -196,7 +207,7 @@ utilities:
     type: "vault" # vault | openbao
     namespace: "vault"
     host: "vault.local"
-    ingressClass: "nginx"
+    ingressClass: "traefik"
     actions:
       init: true # true | false (NOTE: Run only one time at the first setup)
       unseal: "auto"  # auto | manual | none
@@ -221,120 +232,302 @@ utilities:
     externalsecrets:
       enable: false
 
+  # Operator for cluster management and automation, with various options for different use cases and requirements
+  # E.g: Database (PostgreSQL, MongoDB), Messaging (RabbitMQ, Kafka), Cache (Redis, Memcached), etc
+  # Read more about Kubernetes Operators at: https://kubernetes.io/docs/concepts/extend-kubernetes/operator/
+  # Find more at: https://operatorhub.io/ or https://artifacthub.io/packages/search?org=operator-framework&sort=relevance&page=1
+  operator:
+    enable: false
+    database:
+      enable: false
+      type: "postgresql"  # postgresql | mongodb
+    search:
+      enable: false
+      type: "elasticsearch"  # elasticsearch | opensearch
+    messaging:
+      enable: false
+      type: "rabbitmq"  # rabbitmq | kafka
+    cache:
+      enable: false
+      type: "redis"  # redis | memcached | valkey
+
   # GitOps for the cluster
   gitops:
-    enable: false
-    type: "flux"  # argocd | flux
+    enable: true
+    type: "argocd"  # argocd | flux
     argocd:
       sops: false # Enable SOPS support in ArgoCD for encrypted secrets
       namespace: "argocd"
       host: "argocd.local"
-      ingressClass: "nginx"
+      ingressClass: "traefik"
       argocdImageUpdater: true
       argocdExtensions: true
     flux:
       namespace: "flux-system"
       ui: true # Enable Flux UI (Weave GitOps) or not
-      ingressClass: "nginx"
+      ingressClass: "traefik"
       host: "flux.local"
     kargo:
-      enable: true
+      enable: false
       namespace: "kargo"
-      ingressClass: "nginx"
+      ingressClass: "traefik"
       host: "kargo.local"
 
-  # Workflow for the cluster
-  workflow:
-    enable: false
-    type: "argo-workflows"  # argo-workflows | tekton
+  # Setup security for the cluster with various options for policy, RBAC, intelligence and identity management
+  # Read more about Kubernetes Security at
+  # 1. Best Practices and Techniques: https://medium.com/@josephsims1/enhancing-kubernetes-security-best-practices-and-techniques-c7eb2540f59b
+  # 2. Kubernetes Security: https://kubernetes.io/docs/concepts/security/
+  # 3. Kubernetes Security (Book): https://ioannisgk.com/wp-content/uploads/2023/12/Kubernetes-Security-and-Observability.pdf
+  # 4. OWASP Kubernetes Security: https://cheatsheetseries.owasp.org/cheatsheets/Kubernetes_Security_Cheat_Sheet.html
+  # 5. Kubernetes Security Tools: https://www.wiz.io/academy/container-security/top-kubernetes-security-tools
+  security:
+    enable: true
+    policyEngine:
+      enable: true
+      type: "kyverno"  # opa-gatekeeper | kyverno
+      namespace: "kyverno" # `kyverno` required for kyverno, opa-gatewaykeepers able to run in any namespace, but recommend `gatekeeper-system`
+    # For Kubernetes Authentication and more about strategy to manage Identity in application
+    # via OAuth Middleware
+    # Read more at: https://www.tremolo.io/post/kubernetes-authentication-comparing-solutions
+    # About Dex case study: https://b-nova.com/en/home/content/dex-the-game-changer-in-app-authentication-see-how-it-works/
+    identity:
+      enable: true
+      type: "dex"  # dex
+      namespace: "dex"
+      host: "dex.local"
+      ingressClass: "traefik"
+    # For Kubernetes Security Intelligence and Runtime Security, including 
+    # tools for vulnerability scanning, runtime security, and intrusion detection
+    # Read more at: 
+    # 1. Kubernetes Runtime Security: https://www.sysdig.com/learn-cloud-native/what-is-runtime-security-in-kubernetes
+    # 2. Best Open-Source Kubernetes Security Tools: https://www.armosec.io/blog/best-open-source-kubernetes-security-tools/
+    # 3. Falco vs. Tetragon: https://medium.com/@mughal.asim/falco-vs-tetragon-a-runtime-security-showdown-for-kubernetes-a0e9fb9f30a0
+    # 4. Falco, Tetragon, KubeArmor, or Tracee? Choosing the Right Security Agent: https://www.youtube.com/watch?v=2FcOeTfmU3M
+    intelligence:
+      enable: false
+      type: "falco"  # falco | tetragon
 
-  # Rollout management for the cluster
-  rollout:
-    enable: false
-    type: "argo-rollouts"  # argo-rollouts (compatible with argocd) | flagger (compatible with flux)
+  # Setup Monitoring and Observability for the cluster with Prometheus and Grafana Stack with various options
+  # Explore more at: https://prometheus-operator.dev/ or https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
+  # Alternative monitoring stacks are also available: coroot (https://coroot.com/) or victoriametrics (https://victoriametrics.com/)
+  #####################################################################################################
+  # To focus on setup fully funnctional monitoring stack, Kubewekend only support LGTM Stack, including:
+  # L (Logging): Loki; G (Visualization): Grafana; T (Tracing): Tempo; M (Metrics): Mimir
+  # Read more about LGTM Stack at: 
+  # 1. https://github.com/daviaraujocc/lgtm-stack
+  # 2. https://drdroid.io/engineering-tools/lgtm-stack-for-observability-a-complete-guide
+  # 3. https://github.com/saidsef/grafana-loki-on-k8s
+  # 4. https://blog.tarazevits.io/a-deep-dive-into-my-self-hosted-grafana-lgtm-stack/
+  # 5. https://hackmd.io/@XeusNguyen/rJk0lunAj
+  # 6. https://oneuptime.com/blog/post/2026-01-21-loki-tempo-traces-correlation/view
+  monitoring:
+    enable: true
+    type: "kube-prometheus-stack" # kube-prometheus-stack (Prometheus + Grafana)
+    namespace: "monitoring"
+    config:
+      # Prometheus
+      prometheus:
+        enable: true
+        storageClassName: "longhorn"
+        size: "5Gi"
+      # Grafana
+      grafana:
+        enable: true
+        ingress:
+          enable: true
+          ingressClass: "traefik"
+          host: "grafana.local"
+        persistence:
+          enable: true
+          storageClassName: "longhorn"
+          size: "1Gi"
+        operator: true # Enable Grafana Operator for better management of Grafana instances and dashboards
+      scraping:
+        enable: true # Enable all scraping for the cluster
+        kubeApiServer: true
+        kubelet: true
+        kubeControllerManager: true
+        coreDns: true # Either coreDns or kubeDns enabled
+        kubeDns: true
+        kubeEtcd: true
+        kubeScheduler: false
+        kubeProxy: false
+
+    # APM for the cluster as Observability agent collector for Metrics, Logs, Traces and several stuff of Application
+    apm:
+      enable: true
+      type: "alloy" # alloy (compatible with OpenTelemetry Collector)
+      namespace: "monitoring"
+      config:
+        clusterName: "kubeweekend" # Cluster name for labeling and identification in monitoring and observability tools
+        collected:
+          logs:
+            enable: true
+          traces:
+            enable: true
+          profiles:
+            enable: false
+            # NOTE: eBPF require privileged SecurityContext for Alloy container to run with root permissions, 
+            # and also specific PID to collect host-level profiling data
+            # For normal usage, it's recommended to use "scrape" mode, but for complex analysis the leaking or performance issue 
+            # in the cluster, you can use "ebpf" mode for better visibility into the cluster performance and behavior
+            pyroscope: "scrape" # scrape | ebpf 
+
+    # Setup logging for the cluster
+    # Alternative logging solutions are also available Fluentd/FluentBit, Filebeat, ELK, EFK, ...
+    logging:
+      enable: true
+      type: "loki"  # loki
+      namespace: "monitoring"
+      config:
+        # With Alloy APM as collector, you can change the promtail legacy to alloy for better integration
+        # But Loki also able to collect logs with promtail, fluentbit, fluentd, filebeat, etc
+        collector:
+          enable: false
+          type: "promtail" # promtail | fluentbit
+        deploymentMode: "SingleBinary"
+        msgSize:
+          server:
+            recv: 41943040 # 40MB (In bytes)
+            send: 41943040 # 40MB (In bytes)
+          client:
+            recv: 104857600 # 100MB (In bytes)
+            send: 104857600 # 100MB (In bytes)
+        auth_enabled: false
+        # Loki require object storage for storaging chunks and rulers
+        # but for testing purpose, you can use local storage with emptyDir or hostPath, 
+        # but it's not recommended for production cluster
+        storage:
+          type: "filesystem" # filesystem
+          persistence:
+            enable: true
+            storageClassName: "longhorn"
+            size: "5Gi"
+        # Enable tracing for Loki, which is useful for debugging and performance analysis of Loki itself, 
+        # and also for better integration with Tempo and other tracing solutions in the cluster
+        tracing: true
+        # Enable pattern_ingester
+        pattern_ingester: false
+        # ruler
+        ruler:
+          enable: false
+          persistence:
+            enable: true
+            storageClassName: "longhorn"
+            size: "1Gi"
+    
+    # Setup alerting/On-call for the cluster
+    # Alternative alerting like Gatus (https://github.com/TwiN/gatus)
+    alertmanager:
+      enable: true
+      config:
+        notification: "slack" # slack | email
+        oncall:
+          enable: false
+          type: "pagerduty"  # pagerduty
+        persistence:
+          storageClassName: "longhorn"
+          size: "1Gi"
+    
+    # Tracing for the cluster
+    # Alternative solutions are also available OpenTelemetry Collector with various exporters (Jaeger, Zipkin, etc)
+    # Explore more about Tempo Link with Log and Profile in Grafana
+    # Traces in Explore: https://grafana.com/docs/grafana/latest/visualizations/explore/trace-integration/
+    # Traces to Profiles: https://grafana.com/docs/pyroscope/latest/configure-client/trace-span-profiles/
+    # Traces to Logs: 
+    tracing:
+      enable: true
+      type: "tempo" # tempo
+      namespace: "monitoring"
+      config:
+        persistence:
+          enable: true
+          storageClassName: "longhorn"
+          size: "5Gi"
+        msgSize:
+          server:
+            recv: 16777216 # 16MB (In bytes)
+            send: 16777216 # 16MB (In bytes)
+
+    # Profiling for the cluster
+    # Alternative solutions are also available skywalking (https://skywalking.apache.org/))
+    profiling:
+      enable: true
+      type: "pyroscope"  # pyroscope
+      namespace: "monitoring"
+      config:
+        persistence:
+          enable: true
+          storageClassName: "longhorn"
+          size: "5Gi"
+
+  # Setup service mesh for the cluster, with various options for different use cases and requirements
+  # Note: Kubewekend only support Istio for service mesh setup
+  # Alternative service mesh solutions are also available Linkerd, Cilium Service Mesh, Kong Mesh, Open Service Mesh (OSM), etc
+  # Read more about article comparison between service mesh
+  # https://mkdev.me/posts/the-best-service-mesh-linkerd-vs-kuma-vs-istio-vs-consul-connect-comparison-cilium-and-osm-on-top
+  serviceMesh:
+    enable: true
+    type: "istio"  # istio
+
+  # Setup IDP (Internal Development Platform) integration for the cluster
+  # An Internal Developer Platform (IDP) is built by a platform team to build golden paths and enable developer self-service
+  # Read more at: https://internaldeveloperplatform.org/what-is-an-internal-developer-platform/
+  # Youtube Video and Trend:
+  # 1. What is an Internal Developer Platform? - https://www.youtube.com/watch?v=w7hPRaPIKlU
+  # 2. Internal Developer Platform (IDP) - https://www.youtube.com/playlist?list=PLyicRj904Z9_50dH2eD5prLZ8b9A-fdgt
+  idp:
+    enable: true
+    # Portal for the cluster, which is the entry point for developers to access the cluster and its resources,
+    # and also provide features like application catalog, developer dashboard, etc
+    # Read more at: https://internaldeveloperplatform.org/developer-portals/
+    # Open-source options: Backstage (https://backstage.io/) or explore at: https://backstage.io/docs/overview/what-is-backstage
+    portal:
+      enable: true
+      type: "backstage"  # backstage
+      namespace: "backstage"
+      host: "backstage.local"
+      ingressClass: "traefik"
+    # Platform Orchestrators are the center piece of any Internal Developer Platform. A Platform Orchestrator enables Dynamic Configuration Management
+    # Read more at: https://internaldeveloperplatform.org/platform-orchestrators/
+    # Open-source options: KusionStack (https://kusionstack.io/), Humanitec (https://humanitec.com/)
+    orchestrator:
+      enable: false
+    # Security plane for the cluster
+    # Read more at: https://internaldeveloperplatform.org/security/
+    # Open-source options: Snyk (https://snyk.io/), Falco (https://falco.org/), Trivy (https://github.com/aquasecurity/trivy)
+    security:
+      enable: false
+    # Database for the cluster, used for IDP and other components in the cluster
+    # Read more at: https://internaldeveloperplatform.org/databases/
+    # Open-source options: Aiven (https://aiven.io/), CloudnativePG (https://cloudnative-pg.io/)
+    database:
+      enable: false
 
   # Setup Controller for Scaling functionality in K8s
   # GitHub: https://github.com/kubernetes/autoscaler
   # Article: https://www.cloudpilot.ai/en/blog/k8s-autoscaling-comparison/
   scaling:
     # Horizontal Pod Autoscaler
+    # Default Kubernetes HPA: https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/
     hpa:
       enable: false
-      type: "default" # default | keda
+      type: "keda" # keda | karpenter
     # Vertical Pod Autoscaler
+    # Default Kubernetes VPA: https://kubernetes.io/docs/concepts/workloads/autoscaling/vertical-pod-autoscale/
     vpa:
       enable: false
       type: "default" # default | vpa-controller
-    # Cluster Autoscaler
+    # Cluster Autoscaler (Support for cloud provider autoscaler and cluster-autoscaler)
+    # Node Autoscaler: https://kubernetes.io/docs/concepts/cluster-administration/node-autoscaling/
     ca:
       enable: false
       type: "default" # default | cluster-autoscaler
-
-  # Setup Monitoring and Observability for the cluster with Prometheus and Grafana Stack with various options
-  # Alternative monitoring stacks are also available
-  # coroot: https://coroot.com/
-  # victoriametrics: https://victoriametrics.com/
-
-  monitoring:
-    enable: false
-    type: "prometheus-grafana" # prometheus-grafana | coroot | victoriametrics
-
-    # Setup logging for the cluster
-    logging:
-      enable: false
-      type: "loki"  # efk (not include kibana) | loki
-    
-    # Setup alerting for the cluster
-    alert:
-      enable: false
-      type: "prometheus-alertmanager"  # prometheus-alertmanager | gatus
-      oncall: "email"  # email | slack | pagerduty
-    # APM for the cluster
-    apm:
-      enable: false
-      type: "jaeger"  # jaeger | zipkin | elastic-apm
-    
-    # Tracing for the cluster
-    tracing:
-      enable: false
-      type: "opentelemetry"  # opentelemetry | tempo
-
-    # Profiler for the cluster
-    profiler:
-      enable: false
-      type: "pyroscope"  # pyroscope | skywalking
 
   # Backup and Restore for the cluster
   backupRestore:
     enable: false
     type: "velero"  # velero | trilio
-
-  # Setup service mesh for the cluster
-  # Documentation: 
-  # Article comparison of service mesh: https://mkdev.me/posts/the-best-service-mesh-linkerd-vs-kuma-vs-istio-vs-consul-connect-comparison-cilium-and-osm-on-top
-  serviceMesh:
-    enable: false
-    type: "istio"  # istio | linkerd | cilium (require cilium CRD)| kong (require kong CRD)
-
-  # Setup security for the cluster
-  security:
-    policy:
-      enable: false
-      type: "opa-gatekeeper"  # opa-gatekeeper | kyverno
-    rbac:
-      enable: false
-      type: "rbac-manager"  # rbac-manager | kube-rbac-proxy
-    inteligence:
-      enable: false
-      type: "falco"  # falco | trivy | tetragon
-    identity:
-      enable: false
-      type: "dex"  # dex | keycloak
-
-  # Setup Global Load Balancer for the cluster with k8gb
-  # Recommendation: Use for production cluster with multi-cluster setup
-  glb:
-    enable: false
 
   # Chaos engineering for the cluster
   chaosEngineering:
@@ -351,11 +544,6 @@ utilities:
     enable: false
     type: "koordinator"  # volcano | descheduler | koordinator
 
-  # Setup IDP (Internal Development Platform) integration for the cluster
-  idp:
-    enable: false
-    type: "backstage"  # backstage | port 
-
   # Developer tools for the cluster
   developerTools:
     enable: false
@@ -365,3 +553,18 @@ utilities:
   kde:
     enable: false
     type: "devspace"  # devspace | garden.io
+
+  # Workflow for the cluster
+  workflow:
+    enable: false
+    type: "argo-workflows"  # argo-workflows | tekton
+
+  # Rollout management for the cluster
+  rollout:
+    enable: false
+    type: "argo-rollouts"  # argo-rollouts (compatible with argocd) | flagger (compatible with flux)
+
+  # GPU Support for the cluster
+  gpu:
+    enable: false
+    type: "gpu-operator"  # gpu-operator | HAMi | vgpu-device-manager | KAI Scheduler

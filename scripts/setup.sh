@@ -463,10 +463,15 @@ AVAILABLE UTILITY TAGS
   ingress_test          Deploy test ingress workload
   apigateway_test       Deploy test API gateway workload
   certmanager           Install cert-manager
-  dashboard             Install K8s dashboard
-  secret_management     Install Vault/OpenBao
-  k8s_extensions        Install reflector, reloader, external-secrets
-  gitops                Install ArgoCD or Flux
+  dashboard             Install K8s dashboard (kubernetes-dashboard / headlamp / rancher)
+  storage               Install Longhorn distributed block storage (iSCSI / NFS)
+  secret_management     Install Vault or OpenBao (auto-unseal, Vault Operator)
+  k8s_extensions        Install Reflector, Reloader, External Secrets Operator
+  gitops                Install ArgoCD (Image Updater + Extensions) or Flux + Kargo
+  security              Install Kyverno / OPA Gatekeeper + Dex identity provider
+  idp                   Install Backstage Internal Developer Portal
+  monitoring            Install LGTM stack: kube-prometheus-stack + Alloy + Loki + Tempo + Pyroscope
+  service_mesh          Install Istio service mesh
 
 EXAMPLES
   # Full Kind cluster setup on master
@@ -480,6 +485,15 @@ EXAMPLES
 
   # Install cert-manager + dashboard
   ./scripts/setup.sh kind utils certmanager dashboard
+
+  # Install full LGTM observability stack
+  ./scripts/setup.sh kind utils monitoring
+
+  # Install security policy engine + IDP portal
+  ./scripts/setup.sh kind utils security idp
+
+  # Install storage + secret management
+  ./scripts/setup.sh kind utils storage secret_management
 
   # Dry run to see what ansible would execute
   ./scripts/setup.sh kind setup --dry-run
@@ -567,10 +581,16 @@ kind_utils() {
     if [[ ${#ANSIBLE_TAGS[@]} -eq 0 ]]; then
         error "Specify at least one utility tag."
         echo ""
-        echo "Available tags: ingress_test, apigateway_test, certmanager, dashboard,"
-        echo "                secret_management, k8s_extensions, gitops"
+        echo "Available tags:"
+        echo "  Test:        ingress_test, apigateway_test"
+        echo "  Cluster:     certmanager, dashboard, storage, secret_management, k8s_extensions"
+        echo "  GitOps:      gitops"
+        echo "  Security:    security, idp"
+        echo "  Observ.:     monitoring"
+        echo "  Networking:  service_mesh"
         echo ""
-        echo "Example: ./scripts/setup.sh kind utils certmanager dashboard"
+        echo "Example: ./scripts/setup.sh kind utils certmanager monitoring"
+        echo "         ./scripts/setup.sh kind utils security idp gitops"
         return 1
     fi
 
@@ -701,10 +721,16 @@ k3s_utils() {
     if [[ ${#ANSIBLE_TAGS[@]} -eq 0 ]]; then
         error "Specify at least one utility tag."
         echo ""
-        echo "Available tags: ingress_test, apigateway_test, certmanager, dashboard,"
-        echo "                secret_management, k8s_extensions, gitops"
+        echo "Available tags:"
+        echo "  Test:        ingress_test, apigateway_test"
+        echo "  Cluster:     certmanager, dashboard, storage, secret_management, k8s_extensions"
+        echo "  GitOps:      gitops"
+        echo "  Security:    security, idp"
+        echo "  Observ.:     monitoring"
+        echo "  Networking:  service_mesh"
         echo ""
-        echo "Example: ./scripts/setup.sh k3s utils certmanager dashboard"
+        echo "Example: ./scripts/setup.sh k3s utils certmanager monitoring"
+        echo "         ./scripts/setup.sh k3s utils security idp gitops"
         return 1
     fi
 
@@ -1209,37 +1235,65 @@ config_show_master() {
     # ---- UTILITIES ----------------------------------------------------------
     _sec "UTILITIES"
 
-    local u_ing u_gw u_cm u_dash u_sec u_git u_ext
-    u_ing=$( echo "$util" | _ysub "ingressTestDeployment"    2)
-    u_gw=$(  echo "$util" | _ysub "apiGatewayTestDeployment" 2)
-    u_cm=$(  echo "$util" | _ysub "certmanager"              2)
-    u_dash=$(echo "$util" | _ysub "dashboard"                2)
-    u_sec=$( echo "$util" | _ysub "secretManagement"         2)
-    u_git=$( echo "$util" | _ysub "gitops"                   2)
-    u_ext=$( echo "$util" | _ysub "extensions"               2)
+    local u_ing u_gw u_cm u_dash u_stor u_sec u_git u_ext u_security u_idp u_mon u_svcmesh
+    u_ing=$(     echo "$util" | _ysub "ingressTestDeployment"    2)
+    u_gw=$(      echo "$util" | _ysub "apiGatewayTestDeployment" 2)
+    u_cm=$(      echo "$util" | _ysub "certmanager"              2)
+    u_dash=$(    echo "$util" | _ysub "dashboard"                2)
+    u_stor=$(    echo "$util" | _ysub "storage"                  2)
+    u_sec=$(     echo "$util" | _ysub "secretManagement"         2)
+    u_git=$(     echo "$util" | _ysub "gitops"                   2)
+    u_ext=$(     echo "$util" | _ysub "extensions"               2)
+    u_security=$(echo "$util" | _ysub "security"                 2)
+    u_idp=$(     echo "$util" | _ysub "idp"                      2)
+    u_mon=$(     echo "$util" | _ysub "monitoring"               2)
+    u_svcmesh=$( echo "$util" | _ysub "serviceMesh"              2)
 
     local ing_en2 ing_host gw_en gw_host cm_en
-    local dash_en2 dash_type sec_en sec_type git_en git_type ext_en
-    ing_en2=$(  echo "$u_ing"  | _yval "enable")
-    ing_host=$( echo "$u_ing"  | _yval "host")
-    gw_en=$(    echo "$u_gw"   | _yval "enable")
-    gw_host=$(  echo "$u_gw"   | _yval "host")
-    cm_en=$(    echo "$u_cm"   | _yval "enable")
-    dash_en2=$( echo "$u_dash" | _yval "enable")
-    dash_type=$(echo "$u_dash" | _yval "type")
-    sec_en=$(   echo "$u_sec"  | _yval "enable")
-    sec_type=$( echo "$u_sec"  | _yval "type")
-    git_en=$(   echo "$u_git"  | _yval "enable")
-    git_type=$( echo "$u_git"  | _yval "type")
-    ext_en=$(   echo "$u_ext"  | _yval "enable")
+    local dash_en2 dash_type stor_en stor_type sec_en sec_type git_en git_type ext_en
+    local security_en policy_type idp_en idp_type mon_en mon_type svcmesh_en svcmesh_type
+    ing_en2=$(    echo "$u_ing"      | _yval "enable")
+    ing_host=$(   echo "$u_ing"      | _yval "host")
+    gw_en=$(      echo "$u_gw"       | _yval "enable")
+    gw_host=$(    echo "$u_gw"       | _yval "host")
+    cm_en=$(      echo "$u_cm"       | _yval "enable")
+    dash_en2=$(   echo "$u_dash"     | _yval "enable")
+    dash_type=$(  echo "$u_dash"     | _yval "type")
+    stor_en=$(    echo "$u_stor"     | _yval "enable")
+    stor_type=$(  echo "$u_stor"     | _yval "type")
+    sec_en=$(     echo "$u_sec"      | _yval "enable")
+    sec_type=$(   echo "$u_sec"      | _yval "type")
+    git_en=$(     echo "$u_git"      | _yval "enable")
+    git_type=$(   echo "$u_git"      | _yval "type")
+    ext_en=$(     echo "$u_ext"      | _yval "enable")
+    security_en=$(echo "$u_security" | _yval "enable")
+    policy_type=$(echo "$u_security" | _ysub "policyEngine" 4 | _yval "type")
+    idp_en=$(     echo "$u_idp"      | _yval "enable")
+    idp_type=$(   echo "$u_idp"      | _ysub "portal" 4 | _yval "type")
+    mon_en=$(     echo "$u_mon"      | _yval "enable")
+    mon_type=$(   echo "$u_mon"      | _yval "type")
+    svcmesh_en=$( echo "$u_svcmesh"  | _yval "enable")
+    svcmesh_type=$(echo "$u_svcmesh" | _yval "type")
 
+    _sec "UTILITIES — TEST DEPLOYMENTS"
     _row "Ingress Test"       "$(_badge "$ing_en2"  "$ing_host")"
     _row "API Gateway Test"   "$(_badge "$gw_en"    "$gw_host")"
+
+    _sec "UTILITIES — CLUSTER SERVICES"
     _row "Cert-Manager"       "$(_badge "$cm_en")"
     _row "Dashboard"          "$(_badge "$dash_en2" "$dash_type")"
+    _row "Storage"            "$(_badge "$stor_en"  "$stor_type")"
     _row "Secret Management"  "$(_badge "$sec_en"   "$sec_type")"
-    _row "GitOps"             "$(_badge "$git_en"   "$git_type")"
     _row "Extensions"         "$(_badge "$ext_en")"
+
+    _sec "UTILITIES — GITOPS & SECURITY"
+    _row "GitOps"             "$(_badge "$git_en"   "$git_type")"
+    _row "Security"           "$(_badge "$security_en" "policy: $policy_type")"
+    _row "IDP Portal"         "$(_badge "$idp_en"   "$idp_type")"
+
+    _sec "UTILITIES — OBSERVABILITY & NETWORKING"
+    _row "Monitoring (LGTM)"  "$(_badge "$mon_en"     "$mon_type")"
+    _row "Service Mesh"       "$(_badge "$svcmesh_en" "$svcmesh_type")"
 
     echo ""
     printf "  ${YELLOW}Tip:${NC} use --raw to see the full file, or 'config edit' to modify.\n\n"
