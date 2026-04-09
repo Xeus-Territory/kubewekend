@@ -1,0 +1,9 @@
+# Override for running inside Kubernetes (with port-forward to Alloy)
+# Usage: docker compose -f docker-compose.yaml -f docker-compose.k8s.yaml up
+services:
+  backend:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy.monitoring.svc.cluster.local:4317
+      OTEL_ENVIRONMENT: kubernetes
+      PYROSCOPE_SERVER_ADDRESS: http://pyroscope.monitoring.svc.cluster.local:4040
+      PYROSCOPE_ENABLED: "true"

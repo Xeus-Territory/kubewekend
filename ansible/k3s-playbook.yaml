@@ -2,6 +2,7 @@
 - name: Playbook to setup K3s Cluster
   vars:
     cluster_name: "{{ host_name }}"
+    user: "{{ ansible_user_id }}"
   hosts: "{{ host_name }}"
   # Distinguish between master and worker node with group name in inventory file
   tasks:
@@ -75,7 +76,7 @@
       tags: setup_k3s
       block:
         - name: Create the directory for K3s configuration
-          ansible.builtin.shell:
+          ansible.builtin.shell: |
             sudo mkdir -p /etc/rancher/k3s
             sudo mkdir -p /etc/rancher/k3s/config.yaml.d
           become: true
@@ -102,7 +103,7 @@
 
             # Install K3s with configuration from host_vars/master.yaml
             curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3sCluster.version }} INSTALL_K3S_EXEC="server" sh -s - 
-
+          become: true
           register: install_registration_node
 
         - name: Log output of K3s Master Node installation with standalone architecture
@@ -121,6 +122,7 @@
             mkdir -p ~/.kube
             sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
             sudo chown $(id -u):$(id -g) ~/.kube/config
+          become: true
       
       when: cluster_name is search("master")
 
@@ -129,7 +131,7 @@
       tags: setup_k3s
       block:
         - name: Create the directory for K3s configuration
-          ansible.builtin.shell:
+          ansible.builtin.shell: |
             sudo mkdir -p /etc/rancher/k3s
             sudo mkdir -p /etc/rancher/k3s/config.yaml.d
           become: true
@@ -288,7 +290,7 @@
               --reuse-values \
               --set ingressRoute.dashboard.enabled=true \
               --set ingressRoute.dashboard.matchRule='Host(`{{ dashboard_host }}`)' \
-              --set ingressRoute.dashboard.entryPoints={web} \
+              --set ingressRoute.dashboard.entryPoints={web}
           register: traefik_dashboard_log
           changed_when: false
           become_user: vagrant

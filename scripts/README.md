@@ -27,6 +27,7 @@
     - [3. K3s on Remote VPS](#3-k3s-on-remote-vps)
     - [4. K3s High-Availability (HA)](#4-k3s-high-availability-ha)
     - [5. Kind on Localhost (No Vagrant)](#5-kind-on-localhost-no-vagrant)
+    - [6. LGTM Observability Stack + Testing Application](#6-lgtm-observability-stack--testing-application)
   - [Available Utility Tags](#available-utility-tags)
   - [Project Structure](#project-structure)
   - [Configuration Files](#configuration-files)
@@ -405,6 +406,61 @@ kubectl cluster-info --context kind-kubewekend
 ./scripts/setup.sh kind destroy
 ```
 
+### 6. LGTM Observability Stack + Testing Application
+
+Deploy the full LGTM observability stack (Prometheus + Grafana + Loki + Tempo + Pyroscope) and then run the bundled demo application to exercise traces, logs, metrics, and profiling together.
+
+```bash
+# 1. Spin up a cluster (Kind example)
+./scripts/setup.sh vagrant up k8s-master-machine
+./scripts/setup.sh inventory generate
+./scripts/setup.sh kind setup
+
+# 2. Install cert-manager first (required by kube-prometheus-stack CRDs)
+./scripts/setup.sh kind utils certmanager
+
+# 3. Deploy the full monitoring stack
+#    Installs: kube-prometheus-stack, Alloy APM, Loki, Tempo, Pyroscope
+./scripts/setup.sh kind utils monitoring
+
+# 4. Build and deploy the LGTM demo application
+docker build -t lgtm-testing-backend:latest examples/lgtm-testing/backend
+docker build -t lgtm-testing-frontend:latest examples/lgtm-testing/frontend
+
+kubectl apply -f examples/lgtm-testing/k8s/namespace.yaml
+kubectl apply -f examples/lgtm-testing/k8s/postgres.yaml
+kubectl apply -f examples/lgtm-testing/k8s/backend.yaml
+kubectl apply -f examples/lgtm-testing/k8s/frontend.yaml
+kubectl -n lgtm-testing wait --for=condition=ready pod \
+  -l app.kubernetes.io/part-of=lgtm-testing --timeout=120s
+
+# 5. Seed test data
+kubectl -n lgtm-testing exec -it deploy/lgtm-testing-backend -- \
+  curl -s -X POST http://localhost:8000/api/seed/
+
+# 6. Generate traffic for each observability scenario
+# Normal traces
+kubectl -n lgtm-testing exec -it deploy/lgtm-testing-backend -- \
+  curl -s http://localhost:8000/api/todos/?owner_id=1
+
+# Auth failures → error spans in Tempo
+kubectl -n lgtm-testing exec -it deploy/lgtm-testing-backend -- \
+  curl -s -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","password":"WRONG"}'
+
+# CPU flamegraph → Pyroscope
+kubectl -n lgtm-testing exec -it deploy/lgtm-testing-backend -- \
+  curl -s "http://localhost:8000/api/bottleneck/cpu-intensive?iterations=500000"
+
+# 7. Open Grafana and explore (correlate Traces ↔ Logs ↔ Profiles)
+#    Grafana is exposed via Ingress at grafana.local (configure in master.yaml)
+echo "Access Grafana at: http://grafana.local"
+echo "Data sources: Prometheus, Loki, Tempo, Pyroscope"
+```
+
+> See [`examples/lgtm-testing/README.md`](../examples/lgtm-testing/README.md) for the full test scenario guide and custom metric reference.
+
 ---
 
 ## Available Utility Tags
@@ -416,16 +472,25 @@ Used with `kind utils <tags...>` or `k3s utils <tags...>`:
 | `ingress_test` | Deploy test nginx with ingress | `k8s-utilities-playbook.yaml` |
 | `apigateway_test` | Deploy API Gateway test with weighted routing | `k8s-utilities-playbook.yaml` |
 | `certmanager` | Install cert-manager (v1.19.2) | `k8s-utilities-playbook.yaml` |
-| `dashboard` | Install K8s dashboard (kubernetes-dashboard / headlamp / rancher) | `k8s-utilities-playbook.yaml` |
-| `secret_management` | Install Vault (v0.32.0) or OpenBao | `k8s-utilities-playbook.yaml` |
-| `k8s_extensions` | Install reflector, reloader, external-secrets | `k8s-utilities-playbook.yaml` |
-| `gitops` | Install ArgoCD (v9.1.3) or Flux (v2.7.5) | `k8s-utilities-playbook.yaml` |
+| `dashboard` | Install K8s dashboard (`kubernetes-dashboard` / `headlamp` / `rancher`) | `k8s-utilities-playbook.yaml` |
+| `storage` | Install Longhorn distributed block storage (v1.11.0) with optional iSCSI and NFS support | `k8s-utilities-playbook.yaml` |
+| `secret_management` | Install Vault (v0.32.0) or OpenBao with auto-unseal, Vault Operator, and key persistence | `k8s-utilities-playbook.yaml` |
+| `k8s_extensions` | Install Reflector, Reloader, External Secrets Operator | `k8s-utilities-playbook.yaml` |
+| `gitops` | Install ArgoCD (v9.1.3) with Image Updater + Extensions, or Flux (v2.7.5) with Weave GitOps UI and Kargo | `k8s-utilities-playbook.yaml` |
+| `security` | Install policy engine (Kyverno v3.7.1 or OPA Gatekeeper v3.22.0) and Dex identity provider (v0.24.0) | `k8s-utilities-playbook.yaml` |
+| `idp` | Install Backstage Internal Developer Portal (v2.6.3) | `k8s-utilities-playbook.yaml` |
+| `monitoring` | Install full LGTM stack: kube-prometheus-stack (v82.16.0), Alloy APM (v1.7.0), Loki (v9.5.1), Tempo (v1.26.7), Pyroscope (v1.19.2) | `k8s-utilities-playbook.yaml` |
+| `service_mesh` | Install Istio service mesh (v1.29.1) | `k8s-utilities-playbook.yaml` |
 
 Multiple tags can be combined:
 
 ```bash
 ./scripts/setup.sh kind utils certmanager dashboard gitops
 ./scripts/setup.sh k3s utils ingress_test apigateway_test k8s_extensions
+# Full observability stack
+./scripts/setup.sh kind utils monitoring
+# Security + IDP
+./scripts/setup.sh k3s utils security idp
 ```
 
 ---
@@ -447,7 +512,7 @@ ansible/
 ├── k3s-ha-playbook.yaml          # K3s HA setup (embedded etcd / external postgres)
 ├── k3s-remove-playbook.yaml      # K3s teardown
 ├── kind-playbook.yaml            # Kind setup (CNI, LB, ingress, gateway)
-├── k8s-utilities-playbook.yaml   # Post-cluster utilities (cert-manager, vault, gitops, etc.)
+├── k8s-utilities-playbook.yaml   # Post-cluster utilities (cert-manager, vault, monitoring, gitops, etc.)
 ├── inventories/
 │   ├── hosts                     # Ansible inventory (auto-generated or manual)
 │   └── host_vars/
@@ -456,8 +521,23 @@ ansible/
 └── templates/
     ├── k3s-config.yaml.j2
     ├── kind-config.yaml.j2
+    ├── kube-prometheus-stack-values.yaml.j2
+    ├── alloy-values.yaml.j2
+    ├── loki-values.yaml.j2
+    ├── tempo-values.yaml.j2
+    ├── pyroscope-values.yaml.j2
+    ├── longhorn-iscsi-installation.yaml.j2
+    ├── longhorn-nfs-installation.yaml.j2
     ├── ingress-test-deployment.yaml.j2
     └── apigateway-test-deployment.yaml.j2
+
+examples/
+└── lgtm-testing/                 # Full-stack LGTM observability demo app
+    ├── backend/                  # FastAPI + OpenTelemetry + Pyroscope
+    ├── frontend/                 # Nginx + HTML test dashboard
+    ├── k8s/                      # Kubernetes manifests (namespace, postgres, backend, frontend)
+    ├── docker-compose.yaml       # Local development (all services)
+    └── docker-compose.k8s.yaml   # K8s-oriented compose variant
 ```
 
 ---
@@ -490,8 +570,27 @@ k3sCluster.highAvailability.enable: false # true for HA
 
 # Utilities
 utilities.certmanager.enable: true
-utilities.gitops.type: "flux"             # argocd | flux
-utilities.dashboard.type: "headlamp"      # kubernetes-dashboard | headlamp | rancher
+utilities.storage.enable: true           # Longhorn distributed storage
+utilities.storage.type: "longhorn"
+utilities.gitops.type: "argocd"          # argocd | flux
+utilities.dashboard.type: "headlamp"     # kubernetes-dashboard | headlamp | rancher
+utilities.secretManagement.type: "vault" # vault | openbao
+utilities.security.policyEngine.type: "kyverno"  # kyverno | opa-gatekeeper
+utilities.security.identity.type: "dex"
+utilities.idp.portal.type: "backstage"
+
+# Monitoring (LGTM stack)
+utilities.monitoring.enable: true
+utilities.monitoring.type: "kube-prometheus-stack"
+utilities.monitoring.apm.enable: true          # Alloy APM collector
+utilities.monitoring.logging.enable: true      # Loki log aggregation
+utilities.monitoring.tracing.enable: true      # Tempo distributed tracing
+utilities.monitoring.profiling.enable: true    # Pyroscope continuous profiling
+utilities.monitoring.apm.config.clusterName: "kubeweekend"
+
+# Service Mesh
+utilities.serviceMesh.enable: true
+utilities.serviceMesh.type: "istio"
 ```
 
 ---

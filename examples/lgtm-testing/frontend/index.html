@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LGTM Testing Dashboard</title>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --surface: #181b23;
+            --border: #2a2e3a;
+            --text: #e4e6eb;
+            --text-muted: #8b8fa3;
+            --primary: #3b82f6;
+            --success: #22c55e;
+            --error: #ef4444;
+            --warning: #f59e0b;
+            --purple: #a855f7;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        h1 { font-size: 1.8rem; margin-bottom: 8px; }
+        h2 { font-size: 1.2rem; margin-bottom: 12px; color: var(--text-muted); }
+        h3 { font-size: 1rem; margin-bottom: 8px; }
+        .subtitle { color: var(--text-muted); margin-bottom: 24px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .badge { padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+        .badge-normal { background: #22c55e22; color: var(--success); }
+        .badge-error { background: #ef444422; color: var(--error); }
+        .badge-perf { background: #f59e0b22; color: var(--warning); }
+        .badge-profile { background: #a855f722; color: var(--purple); }
+        button { padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; font-size: 0.85rem; transition: all 0.2s; }
+        button:hover { border-color: var(--primary); background: #3b82f615; }
+        button.primary { background: var(--primary); border-color: var(--primary); color: white; }
+        button.primary:hover { background: #2563eb; }
+        button.danger { border-color: var(--error); color: var(--error); }
+        button.danger:hover { background: #ef444415; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+        input, select { padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.85rem; width: 100%; }
+        .form-group { margin-bottom: 12px; }
+        label { display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px; }
+        .log { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; max-height: 300px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; line-height: 1.8; }
+        .log-entry { padding: 2px 0; border-bottom: 1px solid var(--border); }
+        .log-entry.success { color: var(--success); }
+        .log-entry.error { color: var(--error); }
+        .log-entry.warn { color: var(--warning); }
+        .log-entry .timestamp { color: var(--text-muted); }
+        .todo-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+        .todo-item input[type="checkbox"] { width: auto; }
+        .todo-item.completed span { text-decoration: line-through; color: var(--text-muted); }
+        .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+        .stat { text-align: center; padding: 8px; background: var(--bg); border-radius: 8px; }
+        .stat-value { font-size: 1.4rem; font-weight: 700; }
+        .stat-label { font-size: 0.7rem; color: var(--text-muted); }
+        .api-url { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+        .api-url input { flex: 1; }
+        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.6s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .section-title { font-size: 1.1rem; font-weight: 600; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 LGTM Stack Testing Dashboard</h1>
+        <p class="subtitle">Reproduce monitoring scenarios: Logs • Grafana • Tempo • Metrics (+ Pyroscope profiling)</p>
+
+        <div class="api-url">
+            <label style="white-space:nowrap">API URL:</label>
+            <input type="text" id="apiUrl" value="http://localhost:8000" />
+            <button onclick="checkHealth()" class="primary">Connect</button>
+            <span id="healthStatus"></span>
+        </div>
+
+        <!-- Init & Seed -->
+        <div class="card" style="margin-bottom: 16px;">
+            <div class="card-header">
+                <h3>⚡ Quick Setup</h3>
+                <div class="btn-group">
+                    <button onclick="seedData()" class="primary">Seed Test Data</button>
+                </div>
+            </div>
+            <p style="font-size:0.85rem; color:var(--text-muted)">Seed creates 3 users (alice/bob/charlie), todos, and orders. Charlie's account is locked for auth error testing.</p>
+        </div>
+
+        <div class="grid">
+            <!-- Scenario 1: Normal Usage -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>📋 Normal Usage: Todos</h3>
+                    <span class="badge badge-normal">TRACES</span>
+                </div>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">
+                    Clean request → DB → response traces. Each operation creates spans visible in Tempo.
+                </p>
+                <div class="form-group">
+                    <label>New Todo Title</label>
+                    <input type="text" id="todoTitle" placeholder="Buy groceries..." />
+                </div>
+                <div class="btn-group" style="margin-bottom:12px">
+                    <button onclick="createTodo()">Create Todo</button>
+                    <button onclick="listTodos()">List Todos</button>
+                </div>
+                <div id="todoList"></div>
+            </div>
+
+            <!-- Scenario 2: Auth Errors -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>🔐 Auth Error Scenarios</h3>
+                    <span class="badge badge-error">LOG→TRACE→PROFILE</span>
+                </div>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">
+                    Test login failures. Errors are traced with span events, logged with trace_id, and profiled.
+                </p>
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" id="loginUser" value="alice" />
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="loginPass" value="password123" />
+                </div>
+                <div class="btn-group" style="margin-bottom:8px">
+                    <button onclick="doLogin()" class="primary">Login (Normal)</button>
+                    <button onclick="doLoginWrongPass()" class="danger">Wrong Password</button>
+                    <button onclick="doLoginNoUser()" class="danger">Unknown User</button>
+                    <button onclick="doLoginLocked()" class="danger">Locked Account</button>
+                </div>
+                <div id="authResult" class="log" style="margin-top:8px; max-height:150px;"></div>
+            </div>
+
+            <!-- Scenario 3: Bottleneck Performance -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>🐌 Bottleneck: Slow Queries</h3>
+                    <span class="badge badge-perf">TRACE + PROFILE</span>
+                </div>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">
+                    N+1 query problem and slow cascading operations. Visible as long trace waterfalls in Tempo.
+                </p>
+                <div class="btn-group" style="margin-bottom:8px">
+                    <button onclick="createTestOrders()">Create 5 Orders</button>
+                    <button onclick="slowReport()" class="danger">Run Slow Report (N+1)</button>
+                    <button onclick="slowCascade()" class="danger">Slow Cascade</button>
+                </div>
+                <div id="bottleneckResult" class="log" style="margin-top:8px; max-height:150px;"></div>
+            </div>
+
+            <!-- Scenario 4: CPU Profiling -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>🔥 CPU Intensive (Profiling)</h3>
+                    <span class="badge badge-profile">PYROSCOPE</span>
+                </div>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">
+                    Heavy computation visible in Pyroscope flamegraphs. Shows hash computation + fibonacci hotspots.
+                </p>
+                <div class="form-group">
+                    <label>Iterations (higher = slower)</label>
+                    <input type="number" id="cpuIterations" value="500000" min="10000" max="5000000" step="100000" />
+                </div>
+                <button onclick="cpuIntensive()" class="danger">🔥 Run CPU Intensive</button>
+                <div id="cpuResult" class="log" style="margin-top:8px; max-height:150px;"></div>
+            </div>
+        </div>
+
+        <!-- Activity Log -->
+        <div class="section-title">📊 Activity Log</div>
+        <div class="card">
+            <div class="card-header">
+                <h3>Request/Response Log</h3>
+                <button onclick="clearLog()">Clear</button>
+            </div>
+            <div id="activityLog" class="log"></div>
+        </div>
+
+        <!-- Monitoring Concepts Reference -->
+        <div class="section-title">📖 Monitoring Concepts Reference</div>
+        <div class="grid">
+            <div class="card">
+                <h3>📈 Metrics (Prometheus)</h3>
+                <ul style="font-size:0.82rem; color:var(--text-muted); padding-left:18px;">
+                    <li><b>Counter</b>: http_requests_total, auth_attempts_total, db_operations_total</li>
+                    <li><b>Histogram</b>: http_request_duration_seconds, db_query_duration_seconds</li>
+                    <li><b>UpDownCounter</b>: active_connections, active_db_sessions</li>
+                </ul>
+            </div>
+            <div class="card">
+                <h3>🔗 Trace → Log → Profile Correlation</h3>
+                <ul style="font-size:0.82rem; color:var(--text-muted); padding-left:18px;">
+                    <li>Every log includes <code>trace_id</code> and <code>span_id</code></li>
+                    <li>Grafana links: Trace → Logs (by trace_id) → Profile (by time range)</li>
+                    <li>Error spans have events with failure reason details</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const $ = id => document.getElementById(id);
+        const API = () => $('apiUrl').value.replace(/\/$/, '');
+
+        function logEntry(msg, type = 'info') {
+            const log = $('activityLog');
+            const time = new Date().toLocaleTimeString();
+            const div = document.createElement('div');
+            div.className = `log-entry ${type}`;
+            div.innerHTML = `<span class="timestamp">[${time}]</span> ${msg}`;
+            log.prepend(div);
+        }
+
+        function clearLog() { $('activityLog').innerHTML = ''; }
+
+        async function api(method, path, body = null) {
+            const url = `${API()}${path}`;
+            logEntry(`→ ${method} ${path}`, 'info');
+            const start = performance.now();
+            try {
+                const opts = { method, headers: { 'Content-Type': 'application/json' } };
+                if (body) opts.body = JSON.stringify(body);
+                const res = await fetch(url, opts);
+                const duration = (performance.now() - start).toFixed(0);
+                const data = await res.json();
+                if (res.ok) {
+                    logEntry(`← ${res.status} (${duration}ms) ${path}`, 'success');
+                } else {
+                    logEntry(`← ${res.status} (${duration}ms) ${path}: ${data.detail || JSON.stringify(data)}`, 'error');
+                }
+                return { ok: res.ok, status: res.status, data };
+            } catch (e) {
+                logEntry(`✗ ${method} ${path}: ${e.message}`, 'error');
+                return { ok: false, status: 0, data: { detail: e.message } };
+            }
+        }
+
+        async function checkHealth() {
+            const res = await api('GET', '/health');
+            $('healthStatus').innerHTML = res.ok
+                ? '<span style="color:var(--success)">● Connected</span>'
+                : '<span style="color:var(--error)">● Disconnected</span>';
+        }
+
+        async function seedData() {
+            const res = await api('POST', '/api/seed/');
+            if (res.ok) logEntry(`Seeded: ${res.data.users} users, ${res.data.todos} todos, ${res.data.orders} orders`, 'success');
+        }
+
+        // --- Todos ---
+        async function listTodos() {
+            const res = await api('GET', '/api/todos/?owner_id=1');
+            if (!res.ok) return;
+            const list = $('todoList');
+            list.innerHTML = '';
+            res.data.forEach(t => {
+                const div = document.createElement('div');
+                div.className = `todo-item ${t.completed ? 'completed' : ''}`;
+                div.innerHTML = `<input type="checkbox" ${t.completed ? 'checked' : ''} onchange="toggleTodo(${t.id}, this.checked)"> <span>${t.title}</span>`;
+                list.appendChild(div);
+            });
+        }
+
+        async function createTodo() {
+            const title = $('todoTitle').value.trim();
+            if (!title) return;
+            await api('POST', '/api/todos/?owner_id=1', { title });
+            $('todoTitle').value = '';
+            await listTodos();
+        }
+
+        async function toggleTodo(id, completed) {
+            await api('PUT', `/api/todos/${id}`, { completed });
+        }
+
+        // --- Auth ---
+        function showAuth(msg, type) {
+            const el = $('authResult');
+            const div = document.createElement('div');
+            div.className = `log-entry ${type}`;
+            div.innerHTML = `<span class="timestamp">[${new Date().toLocaleTimeString()}]</span> ${msg}`;
+            el.prepend(div);
+        }
+
+        async function doLogin() {
+            const res = await api('POST', '/api/auth/login', {
+                username: $('loginUser').value,
+                password: $('loginPass').value,
+            });
+            showAuth(res.ok ? `✓ Login success: ${res.data.user?.username}` : `✗ ${res.data.detail}`, res.ok ? 'success' : 'error');
+        }
+
+        async function doLoginWrongPass() {
+            const res = await api('POST', '/api/auth/login', { username: 'alice', password: 'WRONG_PASSWORD' });
+            showAuth(`✗ Wrong password: ${res.data.detail} (status: ${res.status})`, 'error');
+        }
+
+        async function doLoginNoUser() {
+            const res = await api('POST', '/api/auth/login', { username: 'nonexistent_user_xyz', password: 'whatever' });
+            showAuth(`✗ Unknown user: ${res.data.detail} (status: ${res.status})`, 'error');
+        }
+
+        async function doLoginLocked() {
+            const res = await api('POST', '/api/auth/login', { username: 'charlie', password: 'password789' });
+            showAuth(`✗ Locked account: ${res.data.detail} (status: ${res.status})`, 'error');
+        }
+
+        // --- Bottleneck ---
+        function showBottleneck(msg, type) {
+            const el = $('bottleneckResult');
+            const div = document.createElement('div');
+            div.className = `log-entry ${type}`;
+            div.innerHTML = `<span class="timestamp">[${new Date().toLocaleTimeString()}]</span> ${msg}`;
+            el.prepend(div);
+        }
+
+        async function createTestOrders() {
+            const products = ['Laptop', 'Keyboard', 'Mouse', 'Monitor', 'Headphones'];
+            for (const p of products) {
+                await api('POST', '/api/bottleneck/orders?user_id=1', {
+                    product_name: p,
+                    quantity: Math.ceil(Math.random() * 3),
+                    price: (Math.random() * 500 + 20).toFixed(2),
+                });
+            }
+            showBottleneck('Created 5 test orders', 'success');
+        }
+
+        async function slowReport() {
+            showBottleneck('Running slow report (N+1 queries)...', 'warn');
+            const res = await api('GET', '/api/bottleneck/slow-report?user_id=1');
+            if (res.ok) {
+                showBottleneck(`Report: ${res.data.total_orders} orders, $${res.data.total_revenue} revenue, ${JSON.stringify(res.data.orders_by_status)}`, 'success');
+            }
+        }
+
+        async function slowCascade() {
+            showBottleneck('Running slow cascade (4 chained operations)...', 'warn');
+            const res = await api('GET', '/api/bottleneck/slow-cascade');
+            if (res.ok) {
+                showBottleneck(`Cascade completed in ${res.data.duration_ms}ms`, 'success');
+            }
+        }
+
+        // --- CPU ---
+        function showCpu(msg, type) {
+            const el = $('cpuResult');
+            const div = document.createElement('div');
+            div.className = `log-entry ${type}`;
+            div.innerHTML = `<span class="timestamp">[${new Date().toLocaleTimeString()}]</span> ${msg}`;
+            el.prepend(div);
+        }
+
+        async function cpuIntensive() {
+            const iters = $('cpuIterations').value;
+            showCpu(`Running ${iters} iterations...`, 'warn');
+            const res = await api('GET', `/api/bottleneck/cpu-intensive?iterations=${iters}`);
+            if (res.ok) {
+                showCpu(`Completed in ${res.data.duration_ms}ms (hash: ${res.data.result_hash})`, 'success');
+            }
+        }
+
+        // Auto-check health on load
+        window.addEventListener('load', checkHealth);
+    </script>
+</body>
+</html>

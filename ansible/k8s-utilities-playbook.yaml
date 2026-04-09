@@ -2,7 +2,7 @@
 - name: "Kubernetes Cluster Utilities Playbook"
   vars:
     cluster_name: "{{ host_name }}"
-    user: "vagrant"
+    user: "{{ ansible_user_id }}"
   # To fix lint issues: when you not set host_name, use default func of jinja2 to handle
   # https://stackoverflow.com/questions/35105615/use-a-default-if-a-variable-is-not-defined
   hosts: "{{ host_name | default('sample-k8s-master') }}"
@@ -178,6 +178,72 @@
             msg: "{{ rancher_dashboard_result.stdout_lines }}"
           changed_when: false
           when: utilities.dashboard.type == "rancher" and utilities.certmanager.enable
+
+    - name: "Setup Storage for the cluster"
+      tags: storage
+      when: utilities.storage.enable | default(false)
+      block:
+        - name: "Copy template for Longhorn Storage iSCSI setup to remote host"
+          when: utilities.storage.type == "longhorn" and utilities.storage.setup.iscsi | default(false)
+          ansible.builtin.template:
+            src: "longhorn-iscsi-installation.yaml.j2"
+            dest: "/home/{{ user }}/longhorn-iscsi-installation.yaml"
+            mode: "0644"
+          changed_when: false
+       
+        - name: "Copy template for Longhorn Storage NFS setup to remote host"
+          when: utilities.storage.type == "longhorn" and utilities.storage.setup.nfs | default(false)
+          ansible.builtin.template:
+            src: "longhorn-nfs-installation.yaml.j2"
+            dest: "/home/{{ user }}/longhorn-nfs-installation.yaml"
+            mode: "0644"
+          changed_when: false
+        
+        - name: "Create Longhorn Storage with iSCSI support"
+          when: utilities.storage.type == "longhorn" and utilities.storage.setup.iscsi | default(false)
+          ansible.builtin.shell: |
+            kubectl create namespace {{ utilities.storage.namespace }}
+            kubectl apply -f /home/{{ user }}/longhorn-iscsi-installation.yaml
+          changed_when: false
+          register: longhorn_iscsi_storage_result
+
+        - name: "Display Longhorn Storage with iSCSI support result"
+          ansible.builtin.debug:
+            msg: "{{ longhorn_iscsi_storage_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.storage.type == "longhorn" and utilities.storage.setup.iscsi | default(false)
+
+        - name: "Create Longhorn Storage with NFS support"
+          when: utilities.storage.type == "longhorn" and utilities.storage.setup.nfs | default(false)
+          ansible.builtin.shell: |
+            kubectl create namespace {{ utilities.storage.namespace }}
+            kubectl apply -f /home/{{ user }}/longhorn-nfs-installation.yaml
+          changed_when: false
+          register: longhorn_nfs_storage_result
+
+        - name: "Display Longhorn Storage with NFS support result"
+          ansible.builtin.debug:
+            msg: "{{ longhorn_nfs_storage_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.storage.type == "longhorn" and utilities.storage.setup.nfs | default(false)
+
+        - name: "Setup Longhorn Storage for the cluster"
+          when: utilities.storage.type == "longhorn"
+          ansible.builtin.shell: |
+            helm repo add longhorn https://charts.longhorn.io
+            helm repo update
+            helm upgrade --install longhorn longhorn/longhorn \
+              --namespace {{ utilities.storage.namespace }} --create-namespace --version 1.11.0 --wait \
+              --set longhornUI.replicas=1
+
+          changed_when: false
+          register: longhorn_storage_result
+
+        - name: "Display Longhorn Storage result"
+          ansible.builtin.debug:
+            msg: "{{ longhorn_storage_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.storage.type == "longhorn"
 
     - name: "Setup Secret Management for the cluster"
       tags: secret_management
@@ -523,3 +589,260 @@
             msg: "{{ kargo_gitops_result.stdout_lines }}"
           changed_when: false
           when: utilities.gitops.kargo.enable | default(false)
+
+    # Security features for the cluster
+    - name: "Setup security features for the cluster"
+      tags: security
+      when: utilities.security.enable | default(false)
+      block:
+        # Setup Policy Engine for the cluster with OPA Gatekeeper (https://open-policy-agent.github.io/gatekeeper/website/docs/)
+        # Reference: https://open-policy-agent.github.io/gatekeeper/website/docs/install
+        - name: "Setup Policy Engine with OPA Gatekeeper for the cluster"
+          when: utilities.security.policyEngine.enable | default(false) and utilities.security.policyEngine.type == "opa-gatekeeper"
+          ansible.builtin.shell: |
+            helm repo add gatekeeper https://open-policy-agent.github.io/gatekeeper/charts
+            helm repo update
+            helm upgrade --install gatekeeper gatekeeper/gatekeeper \
+              --namespace {{ utilities.security.policyEngine.namespace }} --create-namespace --version 3.22.0 --wait \
+              --set replicas=1
+          changed_when: false
+          register: opa_gatekeeper_policy_engine_result
+
+        - name: "Display Policy Engine with OPA Gatekeeper result"
+          ansible.builtin.debug:
+            msg: "{{ opa_gatekeeper_policy_engine_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.security.policyEngine.enable | default(false) and utilities.security.policyEngine.type == "opa-gatekeeper"
+
+        # Setup Policy Engine for the cluster with Kyverno (https://kyverno.io/docs/introduction/)
+        # Reference: https://kyverno.io/docs/installation/installation/
+        - name: "Setup Policy Engine with Kyverno for the cluster"
+          when: utilities.security.policyEngine.enable | default(false) and utilities.security.policyEngine.type == "kyverno"
+          ansible.builtin.shell: |
+            helm repo add kyverno https://kyverno.github.io/kyverno/
+            helm repo update
+            helm upgrade --install kyverno kyverno/kyverno \
+              --namespace {{ utilities.security.policyEngine.namespace }} --create-namespace --version 3.7.1 --wait
+          changed_when: false
+          register: kyverno_policy_engine_result
+
+        - name: "Display Policy Engine with Kyverno result"
+          ansible.builtin.debug:
+            msg: "{{ kyverno_policy_engine_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.security.policyEngine.enable | default(false) and utilities.security.policyEngine.type == "kyverno"
+
+        # Setup Identity and Access Management for the cluster with Dex (https://dexidp.io/)"
+        - name: "Setup Identity and Access Management with Dex for the cluster"
+          when: utilities.security.identity.enable | default(false) and utilities.security.identity.type == "dex"
+          ansible.builtin.shell: |
+            helm repo add dex https://charts.dexidp.io
+            helm repo update
+            helm upgrade --install dex dex/dex \
+              --namespace {{ utilities.security.identity.namespace }} --create-namespace --version 0.24.0 --wait \
+              --set config.issuer="https://{{ utilities.security.identity.host }}" \
+              --set config.storage.type="kubernetes" \
+              --set config.storage.config.inCluster=true \
+              --set config.enablePasswordDB=true \
+              --set ingress.enabled=true \
+              --set ingress.ingressClassName={{ utilities.security.identity.ingressClass }} \
+              --set ingress.hosts[0].host={{ utilities.security.identity.host }} \
+              --set ingress.hosts[0].paths[0].path=/ \
+              --set ingress.hosts[0].paths[0].pathType="ImplementationSpecific" \
+          changed_when: false
+          register: dex_identity_result
+
+        - name: "Display Identity and Access Management with Dex result"
+          ansible.builtin.debug:
+            msg: "{{ dex_identity_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.security.identity.enable | default(false) and utilities.security.identity.type == "dex"
+
+    # Setup IDP Integration for the cluster
+    - name: "Setup IDP Integration for the cluster"
+      tags: idp
+      when: utilities.idp.enable | default(false)
+      block:
+        # Setup IDP integration with Backstage (https://backstage.io/)
+        - name: "Setup IDP integration with Backstage for the cluster (Required PostgreSQL for Backend)"
+          when: utilities.idp.portal.type == "backstage"
+          ansible.builtin.shell: |
+            helm repo add backstage https://backstage.github.io/charts
+            helm repo update
+            helm upgrade --install backstage backstage/backstage \
+              --namespace {{ utilities.idp.portal.namespace }} --create-namespace --version 2.6.3 --wait \
+              --set ingress.enabled=true \
+              --set ingress.className={{ utilities.idp.portal.ingressClass }} \
+              --set ingress.host={{ utilities.idp.portal.host }} \
+              --set backstage.appConfig.app.baseUrl="http://{{ utilities.idp.portal.host }}" \
+              --set backstage.appConfig.organization.name="Kubewekend" \
+              --set backstage.appConfig.backend.baseUrl="http://{{ utilities.idp.portal.host }}" \
+              --set backstage.appConfig.backend.cors.origin="http://{{ utilities.idp.portal.host }}"
+          changed_when: false
+          register: backstage_idp_result
+
+        - name: "Display IDP integration with Backstage result"
+          ansible.builtin.debug:
+            msg: "{{ backstage_idp_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.idp.portal.type == "backstage"
+
+    # Setup Monitoring for the cluster
+    - name: "Setup Monitoring for the cluster"
+      tags: monitoring
+      when: utilities.monitoring.enable | default(false)
+      block:
+        # Copy template for values.yaml to remote host
+        - name: "Copy template for Prometheus Stack values.yaml to remote host"
+          when: utilities.monitoring.type == "kube-prometheus-stack"
+          ansible.builtin.template:
+            src: "kube-prometheus-stack-values.yaml.j2"
+            dest: "/home/{{ user }}/kube-prometheus-stack-values.yaml"
+            mode: "0644"
+          changed_when: false
+          register: kube_prometheus_stack_values_result
+
+        - name: "Setup Prometheus Stack for the cluster"
+          when: utilities.monitoring.type == "kube-prometheus-stack"
+          ansible.builtin.shell: |
+            helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+            helm repo update
+            helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+              --namespace {{ utilities.monitoring.namespace }} --create-namespace --version 82.16.0 --wait \
+              -f /home/{{ user }}/kube-prometheus-stack-values.yaml
+          changed_when: false
+          register: kube_prometheus_stack_result
+
+        - name: "Display Prometheus Stack result"
+          ansible.builtin.debug:
+            msg: "{{ kube_prometheus_stack_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.monitoring.type == "kube-prometheus-stack"
+
+        - name: "Copy template for Alloy APM values.yaml to remote host"
+          when: utilities.monitoring.apm.enable | default(false)
+          ansible.builtin.template:
+            src: "alloy-values.yaml.j2"
+            dest: "/home/{{ user }}/alloy-values.yaml"
+            mode: "0644"
+          changed_when: false
+          register: alloy_apm_values_result
+
+        - name: "Setup APM with Alloy for the cluster"
+          when: utilities.monitoring.apm.enable | default(false)
+          ansible.builtin.shell: |
+            helm repo add grafana https://grafana.github.io/helm-charts
+            helm repo update
+            helm upgrade --install alloy grafana/alloy \
+              --namespace {{ utilities.monitoring.apm.namespace }} --create-namespace --version 1.7.0 --wait \
+              -f /home/{{ user }}/alloy-values.yaml
+          changed_when: false
+          register: alloy_apm_result
+
+        - name: "Display APM with Alloy result"
+          ansible.builtin.debug:
+            msg: "{{ alloy_apm_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.monitoring.apm.enable | default(false)
+
+        - name: "Copy template for Loki values.yaml to remote host"
+          when: utilities.monitoring.logging.enable | default(false)
+          ansible.builtin.template:
+            src: "loki-values.yaml.j2"
+            dest: "/home/{{ user }}/loki-values.yaml"
+            mode: "0644"
+          changed_when: false
+          register: loki_log_management_values_result
+
+        - name: "Setup Log Management with Loki for the cluster"
+          when: utilities.monitoring.logging.enable | default(false)
+          ansible.builtin.shell: |
+            helm repo add grafana-community https://grafana-community.github.io/helm-charts
+            helm repo update
+            helm upgrade --install loki grafana-community/loki \
+              --namespace {{ utilities.monitoring.logging.namespace }} --create-namespace --version 9.5.1 --wait \
+              -f /home/{{ user }}/loki-values.yaml
+          changed_when: false
+          register: loki_log_management_result
+
+        - name: "Display Log Management with Loki result"
+          ansible.builtin.debug:
+            msg: "{{ loki_log_management_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.monitoring.logging.enable | default(false)
+
+        - name: "Copy template for Tempo values.yaml to remote host"
+          when: utilities.monitoring.tracing.enable | default(false)
+          ansible.builtin.template:
+            src: "tempo-values.yaml.j2"
+            dest: "/home/{{ user }}/tempo-values.yaml"
+            mode: "0644"
+          changed_when: false
+          register: tempo_tracing_values_result
+
+        - name: "Setup Tracing with Tempo for the cluster"
+          when: utilities.monitoring.tracing.enable | default(false)
+          ansible.builtin.shell: |
+            helm repo add grafana-community https://grafana-community.github.io/helm-charts
+            helm repo update
+            helm upgrade --install tempo grafana-community/tempo \
+              --namespace {{ utilities.monitoring.tracing.namespace }} --create-namespace --version 1.26.7 --wait \
+              -f /home/{{ user }}/tempo-values.yaml
+          changed_when: false
+          register: tempo_tracing_result
+
+        - name: "Display Tracing with Tempo result"
+          ansible.builtin.debug:
+            msg: "{{ tempo_tracing_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.monitoring.tracing.enable | default(false)
+
+        - name: "Copy template for Pyroscope values.yaml to remote host"
+          when: utilities.monitoring.profiling.enable | default(false)
+          ansible.builtin.template:
+            src: "pyroscope-values.yaml.j2"
+            dest: "/home/{{ user }}/pyroscope-values.yaml"
+            mode: "0644"
+          changed_when: false
+          register: pyroscope_profiling_values_result
+
+        - name: "Setup Profiling with Pyroscope for the cluster"
+          when: utilities.monitoring.profiling.enable | default(false)
+          ansible.builtin.shell: |
+            helm repo add grafana https://grafana.github.io/helm-charts
+            helm repo update
+            helm upgrade --install pyroscope grafana/pyroscope \
+              --namespace {{ utilities.monitoring.profiling.namespace }} --create-namespace --version 1.19.2 --wait \
+              -f /home/{{ user }}/pyroscope-values.yaml
+          changed_when: false
+          register: pyroscope_profiling_result
+
+        - name: "Display Profiling with Pyroscope result"
+          ansible.builtin.debug:
+            msg: "{{ pyroscope_profiling_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.monitoring.profiling.enable | default(false)
+
+    # Setup Service Mesh for the cluster
+    - name: "Setup Service Mesh for the cluster"
+      tags: service_mesh
+      when: utilities.serviceMesh.enable | default(false)
+      block:
+        - name: "Install Service Mesh components with Istio"
+          when: utilities.serviceMesh.type == "istio"
+          ansible.builtin.shell: |
+            helm repo add istio https://istio-release.storage.googleapis.com/charts
+            helm repo update
+            helm upgrade --install istio-base istio/base \
+              --namespace istio-system --create-namespace --version 1.29.1 --wait \
+              --set defaultRevision=default
+            helm upgrade --install istiod istio/istiod \
+              --namespace istio-system --version 1.29.1 --wait
+          changed_when: false
+          register: istio_service_mesh_result
+
+        - name: "Display Istio Service Mesh result"
+          ansible.builtin.debug:
+            msg: "{{ istio_service_mesh_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.serviceMesh.type == "istio"

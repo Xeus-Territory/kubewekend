@@ -1,0 +1,684 @@
+#jinja2: lstrip_blocks: True, trim_blocks: True
+crds:
+  # -- Whether to install CRDs for monitoring.
+  create: true
+## Various Alloy settings. For backwards compatibility with the grafana-agent
+## chart, this field may also be called "agent". Naming this field "agent" is
+## deprecated and will be removed in a future release.
+alloy:
+  configMap:
+    # -- Create a new ConfigMap for the config file.
+    create: true
+    # -- Content to assign to the new ConfigMap.  This is passed into `tpl` allowing for templating from values.
+    content: |
+      // `discovery.kubernetes` allows you to find scrape targets from Kubernetes resources (if not set, this one will configure by default)
+      // It watches cluster state and ensures targets are continually synced with what is currently running in your cluster.
+      // Explore more at: https://grafana.com/docs/alloy/latest/reference/components/discovery/discovery.kubernetes/
+      discovery.kubernetes "pods" {
+        role = "pod"
+        // Restrict to pods on the node to reduce cpu & memory usage
+        selectors {
+          role = "pod"
+          field = "spec.nodeName=" + coalesce(sys.env("HOSTNAME"), constants.hostname)
+        }
+      }
+
+      discovery.kubernetes "services" {
+        role = "service"
+      }
+
+      discovery.kubernetes "nodes" {
+        role = "node"
+      }
+
+      discovery.kubernetes "endpoints" {
+        role = "endpoints"
+      }
+
+      discovery.kubernetes "endpointslices" {
+        role = "endpointslice"
+      }
+
+      discovery.kubernetes "ingress" {
+        role = "ingress"
+      }
+
+      {% if utilities.monitoring.apm.config.collected.logs.enable %}
+      // Logging - Setup collect and forwards logs from Alloy to Loki
+      // Explore more at:
+      // Meta-Monitoring: https://grafana.com/docs/alloy/latest/collect/metamonitoring/#meta-monitoring-logs
+      // Kubernetes Logs: https://grafana.com/docs/alloy/latest/collect/logs-in-kubernetes/
+      // Configuration-Block (logging): https://grafana.com/docs/alloy/latest/reference/config-blocks/logging/
+      // Components: https://grafana.com/docs/alloy/latest/reference/components/loki/
+      
+      logging {
+        level = "info"
+        format = "json"
+
+      }
+
+      loki.write "loki" {
+        endpoint {
+          url = "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+        }
+      }
+
+      // Collect Syslog for nodes (requires host mount of /var/log and running with elevated permissions)
+      // local.file_match discovers files on the local filesystem using glob patterns and the doublestar library. It returns an array of file paths.
+      // Explore more at: https://grafana.com/docs/alloy/latest/reference/components/local/local.file_match/
+      local.file_match "node_logs" {
+        path_targets = [{
+            // Monitor syslog to scrape node-logs
+            __path__  = "/var/log/syslog",
+            job       = "node/syslog",
+            node_name = sys.env("HOSTNAME"),
+            cluster   = "{{ utilities.monitoring.apm.config.clusterName | default("kubeweekend") }}",
+        }]
+      }
+      
+      // loki.source.file reads log entries from files and forwards them to other loki.* components.
+      // You can specify multiple loki.source.file components by giving them different labels.
+      loki.source.file "node_logs" {
+        targets    = local.file_match.node_logs.targets
+        forward_to = [loki.write.loki.receiver]
+      }
+
+      // Collect pod logs for all pods (requires host mount of /var/log and running with elevated permissions)
+      // `discovery.relabel` rewrites the label set of the input targets by applying one or more relabeling rules.
+      // If no rules are defined, then the input targets are exported as-is.
+      // Explore more at: https://grafana.com/docs/alloy/latest/reference/components/discovery/discovery.relabel/
+      discovery.relabel "pod_logs" {
+        targets = discovery.kubernetes.pods.targets
+
+        // Label creation - "namespace" field from "__meta_kubernetes_namespace"
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          action = "replace"
+          target_label = "namespace"
+        }
+
+        // Label creation - "pod" field from "__meta_kubernetes_pod_name"
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          action = "replace"
+          target_label = "pod"
+        }
+
+        // Label creation - "container" field from "__meta_kubernetes_pod_container_name"
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          action = "replace"
+          target_label = "container"
+        }
+
+        // Label creation -  "app" field from "__meta_kubernetes_pod_label_app_kubernetes_io_name"
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+          action = "replace"
+          target_label = "app"
+        }
+
+        // Label creation -  "job" field from "__meta_kubernetes_namespace" and "__meta_kubernetes_pod_container_name"
+        // Concatenate values __meta_kubernetes_namespace/__meta_kubernetes_pod_container_name
+        rule {
+          source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_container_name"]
+          action = "replace"
+          target_label = "job"
+          separator = "/"
+          replacement = "$1"
+        }
+
+        // Label creation - "__path__" field from "__meta_kubernetes_pod_uid" and "__meta_kubernetes_pod_container_name"
+        // Concatenate values __meta_kubernetes_pod_uid/__meta_kubernetes_pod_container_name.log
+        rule {
+          source_labels = ["__meta_kubernetes_pod_uid", "__meta_kubernetes_pod_container_name"]
+          action = "replace"
+          target_label = "__path__"
+          separator = "/"
+          replacement = "/var/log/pods/*$1/*.log"
+        }
+
+        // Label creation -  "container_runtime" field from "__meta_kubernetes_pod_container_id"
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_id"]
+          action = "replace"
+          target_label = "container_runtime"
+          regex = `^(\S+):\/\/.+$`
+          replacement = "$1"
+        }
+      }
+
+      // loki.source.kubernetes tails logs from Kubernetes containers using the Kubernetes API.
+      // Explore more at: https://grafana.com/docs/alloy/latest/reference/components/loki/loki.source.kubernetes/
+      loki.source.kubernetes "pod_logs" {
+        targets    = discovery.relabel.pod_logs.output
+        forward_to = [loki.process.pod_logs.receiver]
+      }
+
+      // loki.process receives log entries from other Loki components, applies one or more processing stages,
+      // and forwards the results to the list of receivers in the component's arguments.
+      // Explore more at: https://grafana.com/docs/alloy/latest/reference/components/loki/loki.process/
+      loki.process "pod_logs" {
+        stage.static_labels {
+            values = {
+              cluster = "{{ utilities.monitoring.apm.config.clusterName | default("kubeweekend") }}",
+            }
+        }
+
+        forward_to = [loki.write.loki.receiver]
+      }
+
+      // Collect cluster events (requires running with elevated permissions)
+      // loki.source.kubernetes_events tails events from the Kubernetes API and converts them
+      // into log lines to forward to other Loki components.
+      loki.source.kubernetes_events "cluster_events" {
+        job_name   = "integrations/kubernetes/eventhandler"
+        log_format = "logfmt"
+        forward_to = [
+          loki.process.cluster_events.receiver,
+        ]
+      }
+
+      // loki.process receives log entries from other loki components, applies one or more processing stages,
+      // and forwards the results to the list of receivers in the component's arguments.
+      loki.process "cluster_events" {
+        forward_to = [loki.write.loki.receiver]
+
+        stage.static_labels {
+          values = {
+            cluster = "{{ utilities.monitoring.apm.config.clusterName | default("kubeweekend") }}",
+          }
+        }
+
+        stage.labels {
+          values = {
+            kubernetes_cluster_events = "job",
+          }
+        }
+      }
+      {% endif %}
+
+      {% if utilities.monitoring.apm.config.collected.traces.enable %}
+      // Tracing - Setup to receive traces from OpenTelemetry Collector and forward to Tempo. You can also forward to Loki for logging
+      // , Prometheus for metrics, or Pyroscope for profiling to explore full pipeline observability with Grafana Alloy.
+      // Explore more at:
+      // Meta-Monitoring: https://grafana.com/docs/alloy/latest/collect/metamonitoring/#meta-monitoring-traces
+      // OpenTelemetry data: https://grafana.com/docs/alloy/latest/collect/opentelemetry-data/
+      // OpenTelemetry data and forward to LGTM Stack: https://grafana.com/docs/alloy/latest/collect/opentelemetry-to-lgtm-stack/
+      // Setup up for tracing: https://grafana.com/docs/tempo/latest/set-up-for-tracing/
+      // Instrument for tracing: https://grafana.com/docs/tempo/latest/set-up-for-tracing/instrument-send/about-instrumentation/
+      // Grafana Alloy and Tempo: https://grafana.com/docs/tempo/latest/set-up-for-tracing/instrument-send/set-up-collector/grafana-alloy/
+      // Components: https://grafana.com/docs/alloy/latest/reference/components/otelcol/
+
+      tracing {
+        sampling_fraction = 0.1
+      }
+
+      // `otelcol.exporter.oltp` accepts telemetry data from other otelcol components and writes them over the network using the OTLP gRPC protocol.
+      // Explore more at: https://grafana.com/docs/alloy/latest/reference/components/otelcol/otelcol.exporter.otlp/
+      // Define an OTLP gRPC exporter to send all received traces to GET.
+      // The unique label 'tempo' is added to uniquely identify this exporter.
+      otelcol.exporter.otlp "tempo" {
+        client {
+          endpoint = "tempo.monitoring.svc.cluster.local:4317"
+          tls {
+            insecure = true
+            insecure_skip_verify = true
+          }
+        }
+      }
+
+      // `otelcol.exporter.otlphttp` accepts telemetry data from other otelcol components and 
+      // writes them over the network using the OTLP HTTP protocol.
+      // Explore more at: https://grafana.com/docs/alloy/latest/reference/components/otelcol/otelcol.exporter.otlphttp/
+      otelcol.exporter.otlphttp "tempo" {
+        client {
+          endpoint = "http://tempo.monitoring.svc.cluster.local:4318"
+          tls {
+            insecure = true
+            insecure_skip_verify = true
+          }
+        }
+
+      }
+
+      // `otelcol.exporter.loki` accepts OTLP-formatted logs from other otelcol components, 
+      // converts them to Loki-formatted log entries, and forwards them to loki components.
+      // Explore more at: https://grafana.com/docs/alloy/latest/reference/components/otelcol/otelcol.exporter.loki/
+      // otelcol.exporter.loki "loki" {
+      //  forward_to = [loki.process.pod_logs.receiver]
+      // }
+
+      // `otelcol.exporter.prometheus` accepts OTLP-formatted metrics from other otelcol components, converts metrics 
+      // to Prometheus-formatted metrics, and forwards the resulting metrics to prometheus components.
+      // Explore more at: https://grafana.com/docs/alloy/latest/reference/components/otelcol/otelcol.exporter.prometheus/
+      // otelcol.exporter.prometheus "prometheus" {
+      //  forward_to = [prometheus.remote_write.prometheus.receiver]
+      // }
+      
+      // `prometheus.remote_write` collects metrics sent from other components into a Write-Ahead Log (WAL) and forwards 
+      // them over the network to a series of user-supplied endpoints. Metrics are sent over the network using the Prometheus Remote Write protocol.
+      // Explore more at: https://grafana.com/docs/alloy/latest/reference/components/prometheus/prometheus.remote_write/
+      // Explore Prometheus HTTP API for remote write: https://prometheus.io/docs/prometheus/latest/querying/api/#remote-write-receiver
+      // If you want to use Mimir, you can explore at https://grafana.com/docs/mimir/latest/references/http-api/#remote-write
+      // prometheus.remote_write "prometheus" {
+      //  endpoint {
+      //    url = "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090/api/v1/write"
+      //  }
+      // }
+
+      // `otelcol.receiver.otlp` accepts OTLP-formatted data over the network and forwards it to other otelcol.* components.
+      // Explore more at: https://grafana.com/docs/alloy/latest/reference/components/otelcol/otelcol.receiver.otlp/
+      otelcol.receiver.otlp "otlp_receiver" {
+        // Listen on all available bindable addresses on port 4317 (which is the
+        // default OTLP gRPC port) for the OTLP protocol
+        grpc {
+          endpoint = "0.0.0.0:4317"
+          // By default this value will be false
+          include_metadata = true
+        }
+        // Listen on all available bindable addresses on port 4318 for OTLP over HTTP
+        http {
+          endpoint = "0.0.0.0:4318"
+          // By default this value will be false
+          include_metadata = true
+        }
+        // Output straight to the OTLP gRPC exporter. We would usually do some processing
+        // first, most likely batch processing, but for this example we pass it straight
+        // through.
+        output {
+          traces = [otelcol.processor.k8sattributes.otel_k8sattributes.input]
+          // logs = [otelcol.processor.k8sattributes.otel_k8sattributes.input]
+          // metrics = [otelcol.processor.k8sattributes.otel_k8sattributes.input]
+        }
+      }
+
+      // `otelcol.processor.k8sattributes` accepts telemetry data from other otelcol components 
+      // and adds Kubernetes metadata to the resource attributes of spans, logs, or metrics.
+      // Explore more at: https://grafana.com/docs/alloy/latest/reference/components/otelcol/otelcol.processor.k8sattributes/
+      otelcol.processor.k8sattributes "otel_k8sattributes" {
+        wait_for_metadata = true
+        // Issue: https://github.com/grafana/alloy/issues/2640#issuecomment-2698231302, https://github.com/grafana/alloy/issues/2640#issuecomment-2821019766
+        extract {
+          metadata = [
+            "k8s.deployment.name",
+            "k8s.namespace.name",
+            "k8s.node.name",
+            "k8s.pod.name",
+            "k8s.pod.uid",
+            "k8s.pod.start_time",
+          ]
+        }
+        output {
+          traces = [otelcol.processor.batch.otel.input]
+          // logs = [otelcol.processor.batch.otel.input]
+          // metrics = [otelcol.processor.batch.otel.input]
+        }
+      }
+
+      // `otelcol.processor.batch` accepts telemetry data from other otelcol components and places them into batches. 
+      // Batching improves the compression of data and reduces the number of outgoing network requests required to transmit data. 
+      // This processor supports both size and time based batching.
+      // Explore more at: https://grafana.com/docs/alloy/latest/reference/components/otelcol/otelcol.processor.batch/
+      otelcol.processor.batch "otel" {
+        timeout = "5s"
+        send_batch_size = 100
+        send_batch_max_size = 150
+        output {
+          traces = [otelcol.exporter.otlp.tempo.input, otelcol.exporter.otlphttp.tempo.input]
+          // logs = [otelcol.exporter.loki.loki.input]
+          // metrics = [otelcol.exporter.prometheus.prometheus.input]
+        }
+      }
+      {% endif %}
+
+      {% if utilities.monitoring.apm.config.collected.profiles.enable %}
+      // Pyroscope - Setup to receive profiles from instrumented applications and forward to Pyroscope.
+      // Explore more at:
+      // Grafana Alloy and Pyroscope: https://grafana.com/docs/pyroscope/latest/configure-client/grafana-alloy/
+      // Opt 1 (Require `pyroscope.receive_http`): Receive SDK profiles component in Alloy receives profiles from applications instrumented with Pyroscope SDKs.
+      // --> Example: https://grafana.com/docs/pyroscope/latest/configure-client/grafana-alloy/receive_profiles/
+      // Opt 2 (Require `pyroscope.scrape`): Setting up with pprof scrape targets In pull mode, the collector, Grafana Alloy, periodically 
+      // retrieves profiles from Golang applications, specifically targeting the /debug/pprof/* endpoints.
+      // --> Example: https://grafana.com/docs/pyroscope/latest/configure-client/grafana-alloy/go_pull/
+      // Opt 3 (Require `pyroscope.ebpf`): Setting up on Kubernetes with eBPF (Auto-Instrumentation)
+      // --> Example 1: https://grafana.com/docs/pyroscope/latest/configure-client/grafana-alloy/ebpf/setup-kubernetes/
+      // --> Example 2: https://github.com/grafana/pyroscope/tree/main/examples/grafana-alloy-auto-instrumentation/ebpf/kubernetes
+      // Components: https://grafana.com/docs/alloy/latest/reference/components/pyroscope/
+
+      {% if utilities.monitoring.apm.config.collected.profiles.pyroscope == "ebpf" %}
+      discovery.relabel "profiler_pods" {
+        targets = discovery.kubernetes.pods.targets
+        rule {
+          action = "drop"
+          regex = "Succeeded|Failed|Pending|Completed"
+          source_labels = ["__meta_kubernetes_pod_phase"]
+        }
+        rule {
+          action = "replace"
+          regex = "(.*)@(.*)"
+          replacement = "ebpf/${1}/${2}"
+          separator = "@"
+          source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_container_name"]
+          target_label = "service_name"
+        }
+        rule {
+          action = "labelmap"
+          regex = "__meta_kubernetes_pod_label_(.+)"
+        }
+        rule {
+          action = "replace"
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label = "namespace"
+        }
+        rule {
+          action = "replace"
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label = "pod"
+        }
+        rule {
+          action = "replace"
+          source_labels = ["__meta_kubernetes_pod_node_name"]
+          target_label = "node"
+        }
+        rule {
+          action = "replace"
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label = "container"
+        }
+      }
+
+      // `pyroscope.ebpf` configures an eBPF profiling job for the current host. The collected 
+      // performance profiles are forwarded to the list of receivers passed in forward_to.
+      // NOTE: Requires SecurityContext with priviledge permissions to run eBPF (root), with specific PID
+      // Support only for: 
+      // Explore more at: https://grafana.com/docs/alloy/latest/reference/components/pyroscope/pyroscope.ebpf/
+      pyroscope.ebpf "profiler_pods" {
+        forward_to = [pyroscope.write.pyroscope.receiver]
+        targets = discovery.relabel.profiler_pods.output
+      }
+      {% endif %}
+
+      {% if utilities.monitoring.apm.config.collected.profiles.pyroscope == "scrape" %}
+      // `pyroscope.scrape` collects `pprof` (https://github.com/google/pprof) performance profiles for a given set of HTTP targets.
+      // Support only for: Golang (Natively), C/C++ (binutils), Rust (pprof-rs), Zig, Python (py-spy), ...
+      // Explore more at: https://grafana.com/docs/alloy/latest/reference/components/pyroscope/pyroscope.scrape/
+      // Refer: https://github.com/saidsef/grafana-loki-on-k8s/blob/main/deployment/pyroscope/cm.yml
+
+      discovery.relabel "profiler_pods" {
+        targets = concat(discovery.kubernetes.pods.targets)
+        rule {
+          action        = "drop"
+          source_labels = ["__meta_kubernetes_pod_phase"]
+          regex         = "Pending|Succeeded|Failed|Completed"
+        }
+        rule {
+          action = "labelmap"
+          regex  = "__meta_kubernetes_pod_label_(.+)"
+        }
+        rule {
+          action        = "replace"
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          action        = "replace"
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          action        = "replace"
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+      }
+
+      discovery.relabel "kubernetes_pods_memory_default_name" {
+        targets = concat(discovery.relabel.profiler_pods.output)
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_profiles_grafana_com_memory_scrape"]
+          action        = "keep"
+          regex         = "true"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_profiles_grafana_com_memory_port_name"]
+          action        = "keep"
+          regex         = ""
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_profiles_grafana_com_memory_scheme"]
+          action        = "replace"
+          regex         = "(https?)"
+          target_label  = "__scheme__"
+          replacement   = "$1"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_profiles_grafana_com_memory_path"]
+          action        = "replace"
+          regex         = "(.+)"
+          target_label  = "__profile_path__"
+          replacement   = "$1"
+        }
+        rule {
+          source_labels = ["__address__", "__meta_kubernetes_pod_annotation_profiles_grafana_com_memory_port"]
+          action        = "replace"
+          regex         = "(.+?)(?::\\d+)?;(\\d+)"
+          target_label  = "__address__"
+          replacement   = "$1:$2"
+        }
+      }
+
+      discovery.relabel "kubernetes_pods_memory_custom_name" {
+        targets = concat(discovery.relabel.profiler_pods.output)
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_profiles_grafana_com_memory_scrape"]
+          action        = "keep"
+          regex         = "true"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_profiles_grafana_com_memory_port_name"]
+          action        = "drop"
+          regex         = ""
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_port_name"]
+          target_label  = "__meta_kubernetes_pod_annotation_profiles_grafana_com_memory_port_name"
+          action        = "keepequal"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_profiles_grafana_com_memory_scheme"]
+          action        = "replace"
+          regex         = "(https?)"
+          target_label  = "__scheme__"
+          replacement   = "$1"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_profiles_grafana_com_memory_path"]
+          action        = "replace"
+          regex         = "(.+)"
+          target_label  = "__profile_path__"
+          replacement   = "$1"
+        }
+        rule {
+          source_labels = ["__address__", "__meta_kubernetes_pod_annotation_profiles_grafana_com_memory_port"]
+          action        = "replace"
+          regex         = "(.+?)(?::\\d+)?;(\\d+)"
+          target_label  = "__address__"
+          replacement   = "$1:$2"
+        }
+      }
+
+      pyroscope.scrape "pyroscope_scrape_memory" {
+        targets    = concat(discovery.relabel.kubernetes_pods_memory_default_name.output, discovery.relabel.kubernetes_pods_memory_custom_name.output)
+        forward_to = [pyroscope.write.pyroscope.receiver]
+        profiling_config {
+          profile.memory {
+            enabled = true
+          }
+          profile.process_cpu {
+            enabled = false
+          }
+          profile.goroutine {
+            enabled = false
+          }
+          profile.block {
+            enabled = false
+          }
+          profile.mutex {
+            enabled = false
+          }
+          profile.fgprof {
+            enabled = false
+          }
+        }
+      }
+
+      discovery.relabel "kubernetes_pods_cpu_default_name" {
+        targets = concat(discovery.relabel.profiler_pods.output)
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_profiles_grafana_com_cpu_scrape"]
+          action        = "keep"
+          regex         = "true"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_profiles_grafana_com_cpu_port_name"]
+          action        = "keep"
+          regex         = ""
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_profiles_grafana_com_cpu_scheme"]
+          action        = "replace"
+          regex         = "(https?)"
+          target_label  = "__scheme__"
+          replacement   = "$1"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_profiles_grafana_com_cpu_path"]
+          action        = "replace"
+          regex         = "(.+)"
+          target_label  = "__profile_path__"
+          replacement   = "$1"
+        }
+        rule {
+          source_labels = ["__address__", "__meta_kubernetes_pod_annotation_profiles_grafana_com_cpu_port"]
+          action        = "replace"
+          regex         = "(.+?)(?::\\d+)?;(\\d+)"
+          target_label  = "__address__"
+          replacement   = "$1:$2"
+        }
+      }
+
+      discovery.relabel "kubernetes_pods_cpu_custom_name" {
+        targets = concat(discovery.relabel.profiler_pods.output)
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_profiles_grafana_com_cpu_scrape"]
+          action        = "keep"
+          regex         = "true"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_profiles_grafana_com_cpu_port_name"]
+          action        = "drop"
+          regex         = ""
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_port_name"]
+          target_label  = "__meta_kubernetes_pod_annotation_profiles_grafana_com_cpu_port_name"
+          action        = "keepequal"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_profiles_grafana_com_cpu_scheme"]
+          action        = "replace"
+          regex         = "(https?)"
+          target_label  = "__scheme__"
+          replacement   = "$1"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_profiles_grafana_com_cpu_path"]
+          action        = "replace"
+          regex         = "(.+)"
+          target_label  = "__profile_path__"
+          replacement   = "$1"
+        }
+        rule {
+          source_labels = ["__address__", "__meta_kubernetes_pod_annotation_profiles_grafana_com_cpu_port"]
+          action        = "replace"
+          regex         = "(.+?)(?::\\d+)?;(\\d+)"
+          target_label  = "__address__"
+          replacement   = "$1:$2"
+        }
+      }
+
+      pyroscope.scrape "pyroscope_scrape_cpu" {
+        targets    = concat(discovery.relabel.kubernetes_pods_cpu_default_name.output, discovery.relabel.kubernetes_pods_cpu_custom_name.output)
+        forward_to = [pyroscope.write.pyroscope.receiver]
+        profiling_config {
+          profile.memory {
+            enabled = false
+          }
+          profile.process_cpu {
+            enabled = true
+          }
+          profile.goroutine {
+            enabled = false
+          }
+          profile.block {
+            enabled = false
+          }
+          profile.mutex {
+            enabled = false
+          }
+          profile.fgprof {
+            enabled = false
+          }
+        }
+      }
+      {% endif %}
+
+      // `pyroscope.write` receives performance profiles from other components and forwards them to a series of user-supplied endpoints.
+      // Explore more at: https://grafana.com/docs/alloy/latest/reference/components/pyroscope/pyroscope.write/
+      pyroscope.write "pyroscope" {
+        endpoint {
+          url = "http://pyroscope.monitoring.svc.cluster.local:4040"
+        }
+      }
+      {% endif %}
+
+  # -- Minimum stability level of components and behavior to enable. Must be
+  # one of "experimental", "public-preview", or "generally-available".
+  stabilityLevel: "generally-available"
+  # -- Extra ports to expose on the Alloy container.
+  # If `service.type` is `NodePort`, each item may set `nodePort` to choose the Service NodePort for that port.
+  extraPorts:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+  mounts:
+    # -- Mount /var/log from the host into the container for log collection.
+    varlog: true
+    # -- Mount /var/lib/docker/containers from the host into the container for log
+    # collection.
+    dockercontainers: false
+    # -- Extra volume mounts to add into the Grafana Alloy container. Does not
+    # affect the watch container.
+    extra: []
+  {%  if utilities.monitoring.apm.config.collected.profiles.enable and utilities.monitoring.apm.config.collected.profiles.pyroscope == "ebpf" %}
+  # -- Security context to add to the Grafana Alloy container. Does not affect the watch container.
+  # NOTE: Require if you want to use `pyroscope.ebpf` or collect host-level logs.
+  securityContext:
+    privileged: true
+    runAsGroup: 0
+    runAsUser: 0
+  {% endif %}
+# Options for the extra controller used for config reloading.
+configReloader:
+  # -- Enables automatically reloading when the Alloy config changes.
+  enabled: true
+controller:
+  # -- Type of controller to use for deploying Grafana Alloy in the cluster.
+  # Must be one of 'daemonset', 'deployment', or 'statefulset'.
+  type: 'daemonset'
+  # -- Number of pods to deploy. Ignored when controller.type is 'daemonset'.
+  replicas: 1

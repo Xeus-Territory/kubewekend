@@ -1,0 +1,43 @@
+# Web framework
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# Database
+sqlalchemy==2.0.36
+psycopg2-binary==2.9.10
+alembic==1.14.0
+
+# OpenTelemetry - Core
+opentelemetry-api==1.29.0
+opentelemetry-sdk==1.29.0
+
+# OpenTelemetry - Exporters (OTLP)
+opentelemetry-exporter-otlp-proto-grpc==1.29.0
+opentelemetry-exporter-otlp-proto-http==1.29.0
+opentelemetry-exporter-prometheus==0.50b0
+
+# OpenTelemetry - Instrumentation
+opentelemetry-instrumentation-fastapi==0.50b0
+opentelemetry-instrumentation-sqlalchemy==0.50b0
+opentelemetry-instrumentation-logging==0.50b0
+opentelemetry-instrumentation-requests==0.50b0
+opentelemetry-instrumentation-psycopg2==0.50b0
+
+# Structured logging
+structlog==24.4.0
+python-json-logger==2.0.7
+
+# Profiling (Pyroscope)
+pyroscope-io==1.0.4
+pyroscope-otel==1.0.0
+
+# Prometheus metrics
+prometheus-client==0.21.1
+
+# Security
+passlib[bcrypt]==1.7.4
+bcrypt==4.3.0
+
+# Utilities
+pydantic==2.10.3
+pydantic-settings==2.7.0

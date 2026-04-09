@@ -3,7 +3,7 @@
 - name: Playbook of Kubernetes Node with KIND
   vars:
     cluster_name: "{{ host_name }}"
-    user: "vagrant"
+    user: "{{ ansible_user_id }}"
   # To fix lint issues: when you not set host_name, use default func of jinja2 to handle
   # https://stackoverflow.com/questions/35105615/use-a-default-if-a-variable-is-not-defined
   hosts: "{{ host_name | default('sample-k8s-master') }}"

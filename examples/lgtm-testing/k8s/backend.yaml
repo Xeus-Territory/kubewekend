@@ -1,0 +1,102 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: lgtm-testing
+data:
+  DATABASE_URL: "postgresql://appuser:apppassword@postgres.lgtm-testing.svc.cluster.local:5432/lgtm_testing"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://alloy.monitoring.svc.cluster.local:4317"
+  OTEL_SERVICE_NAME: "lgtm-testing-api"
+  OTEL_ENVIRONMENT: "kubernetes"
+  OTEL_METRICS_ENABLED: "false"
+  PYROSCOPE_SERVER_ADDRESS: "http://pyroscope.monitoring.svc.cluster.local:4040"
+  PYROSCOPE_ENABLED: "true"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: lgtm-testing
+  labels:
+    app.kubernetes.io/name: lgtm-testing-api
+    app.kubernetes.io/part-of: lgtm-testing
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: lgtm-testing-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lgtm-testing-api
+        app.kubernetes.io/part-of: lgtm-testing
+        app.kubernetes.io/component: backend
+    spec:
+      containers:
+        - name: backend
+          image: xeusnguyen/lgtm-testing-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: backend-config
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: lgtm-testing
+  labels:
+    app.kubernetes.io/name: lgtm-testing-api
+spec:
+  selector:
+    app.kubernetes.io/name: lgtm-testing-api
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: http
+---
+# Ingress is optional - you can also port-forward to the service for testing
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: backend-ingress
+  namespace: lgtm-testing
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: backend.lgtm-testing.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
