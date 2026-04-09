@@ -1,0 +1,179 @@
+loki:
+  commonConfig:
+    path_prefix: /var/loki
+    replication_factor: 1
+   # -- Check https://grafana.com/docs/loki/latest/configuration/#server for more info on the server configuration
+  server:
+    http_listen_port: 3100
+    grpc_listen_port: 9095
+    http_server_read_timeout: 600s
+    http_server_write_timeout: 600s
+    grpc_server_max_recv_msg_size: {{ utilities.monitoring.logging.config.msgSize.server.recv | default(41943040) }}
+    grpc_server_max_send_msg_size: {{ utilities.monitoring.logging.config.msgSize.server.send | default(41943040) }}
+  # Configuration: https://grafana.com/docs/loki/latest/configure/#common
+  common:
+    ring:
+      kvstore:
+        store: inmemory
+      instance_addr: "127.0.0.1"
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        store: tsdb
+        object_store: {{ utilities.monitoring.logging.config.storage.type }}
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+  # Explore more about storage
+  # Storage options: https://grafana.com/docs/loki/latest/operations/storage/
+  # Configuration: https://grafana.com/docs/loki/latest/configure/#common
+  storage:
+    type: filesystem
+    filesystem:
+      chunks_directory: /var/loki/chunks
+      rules_directory: /var/loki/rules
+  # Explore more about storage_config
+  # Configuration: https://grafana.com/docs/loki/latest/configure/#storage_config
+  storage_config:
+    tsdb_shipper:
+      active_index_directory: /var/loki/index
+      cache_location: /var/loki/cache
+    filesystem:
+      directory: /var/loki/chunks
+  pattern_ingester:
+      enabled: true
+  # Explore more about ingester
+  # Components: https://grafana.com/docs/loki/latest/get-started/components/#ingester
+  # Configuration: https://grafana.com/docs/loki/latest/configure/#ingester
+  ingester:
+    chunk_block_size: 262144
+    chunk_idle_period: 3m
+    chunk_retain_period: 1m
+    lifecycler:
+      ring:
+        kvstore:
+          store: inmemory
+  # Explore more about limits_config
+  # Configuration: https://grafana.com/docs/loki/latest/configure/#limits_config
+  limits_config:
+    allow_structured_metadata: true
+    volume_enabled: true
+    discover_log_levels: true
+    reject_old_samples: true
+    reject_old_samples_max_age: 168h
+  # Auth Enable or disable
+  auth_enabled: {{ utilities.monitoring.logging.config.auth_enabled | default(false) }}
+  # -- memberlist configuration (overrides embedded default)
+  memberlistConfig: {}
+  # -- Extra memberlist configuration
+  extraMemberlistConfig: {}
+  # Explore more about compactor
+  # Components: https://grafana.com/docs/loki/latest/get-started/components/#compactor
+  # Configuration: https://grafana.com/docs/loki/latest/configure/#compactor
+  compactor:
+    working_directory: /var/loki/compactor
+    retention_enabled: true
+    delete_request_store: filesystem
+  compactor_grpc_client:
+    max_send_msg_size: {{ utilities.monitoring.logging.config.msgSize.client.send | default(104857600) }}
+    max_recv_msg_size: {{ utilities.monitoring.logging.config.msgSize.client.recv | default(104857600) }}
+  # Explore more about tracing
+  # Configuration: https://grafana.com/docs/loki/latest/configure/#tracing
+  tracing:
+    enabled: {{ utilities.monitoring.logging.config.tracing | default(false) }}
+  # Ruler configuration
+  rulerConfig:
+    wal:
+      dir: /var/loki/ruler-wal
+    storage:
+      type: local
+      local:
+        directory: /var/loki/ruler
+  # Memberlist configuration
+
+# Read more at: https://grafana.com/docs/loki/latest/get-started/deployment-modes/
+# -- Deployment mode lets you specify how to deploy Loki.
+# There are 3 options:
+# - SingleBinary: Loki is deployed as a single binary, useful for small installs typically without HA, up to a few tens of GB/day.
+# - SimpleScalable: Loki is deployed as 3 targets: read, write, and backend. Useful for medium installs easier to manage than distributed, up to a about 1TB/day.
+# - Distributed: Loki is deployed as individual microservices. The most complicated but most capable, useful for large installs, typically over 1TB/day.
+# There are also 2 additional modes used for migrating between deployment modes:
+# - SingleBinary<->SimpleScalable: Migrate from SingleBinary to SimpleScalable (or vice versa)
+# - SimpleScalable<->Distributed: Migrate from SimpleScalable to Distributed (or vice versa)
+# Note: SimpleScalable and Distributed REQUIRE the use of object storage.
+
+deploymentMode: {{ utilities.monitoring.logging.config.deploymentMode | default('SingleBinary') }}
+
+######################################################################################################################
+#
+# Single Binary Deployment
+#
+# For small Loki installations up to a few 10's of GB per day, or for testing and development.
+#
+######################################################################################################################
+
+# Configuration for the single binary node(s)
+singleBinary:
+  replicas: 1
+  persistence:
+    enabled: {{  utilities.monitoring.logging.config.storage.persistence.enable | default(true) }}
+    size: {{ utilities.monitoring.logging.config.storage.persistence.size | default('1Gi') }}
+    storageClass: {{ utilities.monitoring.logging.config.storage.persistence.storageClassName | default('longhorn') }}
+
+# Explore more about ruler
+# Components: https://grafana.com/docs/loki/latest/get-started/components/#ruler
+# Configuration: https://grafana.com/docs/loki/latest/configure/#ruler
+ruler:
+  enabled: {{ utilities.monitoring.logging.config.ruler | default(false) }}
+  persistence:
+    enabled: {{ utilities.monitoring.logging.config.ruler.persistence.enable | default(true) }}
+    size: {{ utilities.monitoring.logging.config.ruler.persistence.size | default('1Gi') }}
+    storageClass: {{ utilities.monitoring.logging.config.ruler.persistence.storageClassName | default('longhorn') }}
+
+sidecar:
+  rules:
+    enabled: false
+
+# Zero out replica counts of other deployment modes
+backend:
+  replicas: 0
+read:
+  replicas: 0
+write:
+  replicas: 0
+ingester:
+  replicas: 0
+querier:
+  replicas: 0
+queryFrontend:
+  replicas: 0
+queryScheduler:
+  replicas: 0
+distributor:
+  replicas: 0
+compactor:
+  replicas: 0
+indexGateway:
+  replicas: 0
+bloomPlanner:
+  replicas: 0
+bloomBuilder:
+  replicas: 0
+bloomGateway:
+  replicas: 0
+# Disable Test and Canary components
+test:
+  enabled: false
+# Required
+lokiCanary:
+  enabled: false
+gateway:
+  enabled: false
+  replicas: 0
+resultsCache:
+  enabled: false
+  replicas: 0
+chunksCache:
+  enabled: false
+  replicas: 0

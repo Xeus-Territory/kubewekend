@@ -1,7 +1,7 @@
 ---
-# Playbook for remove K3s Cluster, targeting all nodes in the cluster with `standalone-all` group
+# Playbook for remove K3s Cluster, targeting all nodes in the cluster
 - name: Playbook to remove K3s Cluster from all nodes
-  hosts: standalone-all
+  hosts: standalone-all, ha-all
   tasks:
     - name: Uninstall K3s from all nodes
       tags: remove_k3s

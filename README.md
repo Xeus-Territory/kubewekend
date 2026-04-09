@@ -20,6 +20,7 @@
       - [Setup Host with Vagrant](#setup-host-with-vagrant)
       - [Ansible Inventory — `hosts` File](#ansible-inventory--hosts-file)
       - [Setup K8s Cluster and Utilities Features](#setup-k8s-cluster-and-utilities-features)
+    - [LGTM Stack — Continuous Monitoring, Logging & Profiling Example](#lgtm-stack--continuous-monitoring-logging--profiling-example)
     - [Helm Chart](#helm-chart)
     - [Troubleshoot](#troubleshoot)
   - [Kubewekend Major Session 🚄🚄🚄](#kubewekend-major-session-)
@@ -181,15 +182,20 @@ Generate the inventory automatically from running Vagrant VMs:
 
 **Utilities** (`k8s-utilities-playbook.yaml`)
 
-|                            Name of Task                            | Description                                                           | Tags              | State |
-| :----------------------------------------------------------------: | --------------------------------------------------------------------- | ----------------- | ----- |
-|            Ingress test deployment inside the cluster              | Deploy a sample workload to validate Ingress routing                  | ingress_test      | ✅     |
-|          API Gateway test deployment inside the cluster            | Deploy a sample workload to validate API Gateway routing              | apigateway_test   | ✅     |
-|                 Setup cert-manager for the cluster                 | Install cert-manager for TLS certificate management                   | certmanager       | ✅     |
-|                  Setup Dashboard for the cluster                   | Install a Kubernetes dashboard (type configured in `utilities`)       | dashboard         | ✅     |
-|              Setup Secret Management for the cluster               | Install Vault or another secret management backend                    | secret_management | ✅     |
-|                Setup K8s Extensions for the cluster                | Install additional Kubernetes extensions                              | k8s_extensions    | ✅     |
-|                    Setup GitOps for the cluster                    | Install ArgoCD or Flux for GitOps workflows                           | gitops            | ✅     |
+|                            Name of Task                            | Description                                                                                                                                  | Tags              | State |
+| :----------------------------------------------------------------: | -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ----- |
+|            Ingress test deployment inside the cluster              | Deploy a sample workload to validate Ingress routing                                                                                         | ingress_test      | ✅     |
+|          API Gateway test deployment inside the cluster            | Deploy a sample workload to validate API Gateway routing                                                                                     | apigateway_test   | ✅     |
+|                 Setup cert-manager for the cluster                 | Install cert-manager for TLS certificate management                                                                                          | certmanager       | ✅     |
+|                  Setup Dashboard for the cluster                   | Install a Kubernetes dashboard (type configured in `utilities`: `kubernetes-dashboard`, `headlamp`, `rancher`)                               | dashboard         | ✅     |
+|                  Setup Storage for the cluster                     | Install Longhorn distributed block storage with optional iSCSI and NFS support                                                               | storage           | ✅     |
+|              Setup Secret Management for the cluster               | Install Vault or OpenBao with optional auto-unseal, Vault Operator, and unseal key persistence                                               | secret_management | ✅     |
+|                Setup K8s Extensions for the cluster                | Install Reflector, Reloader, and External Secrets Operator                                                                                   | k8s_extensions    | ✅     |
+|                    Setup GitOps for the cluster                    | Install ArgoCD (with Image Updater + Extensions) or Flux (with Weave GitOps UI) and optional Kargo promotion engine                          | gitops            | ✅     |
+|                 Setup Security for the cluster                     | Install policy engine (Kyverno or OPA Gatekeeper) and identity provider (Dex) for OIDC/OAuth2 authentication                                | security          | ✅     |
+|          Setup Internal Developer Portal (IDP) for the cluster     | Install Backstage developer portal for application catalogue and self-service workflows                                                       | idp               | ✅     |
+|               Setup Monitoring for the cluster                     | Install the full LGTM observability stack: kube-prometheus-stack (Prometheus + Grafana), Alloy APM collector, Loki, Tempo, and Pyroscope     | monitoring        | ✅     |
+|               Setup Service Mesh for the cluster                   | Install Istio service mesh for advanced traffic management, mTLS, and observability                                                           | service_mesh      | ✅     |
 
 > [!IMPORTANT]
 >
@@ -252,6 +258,78 @@ Generate the inventory automatically from running Vagrant VMs:
 > ```bash
 > ./scripts/setup.sh k3s setup --host k8s-master-machine --dry-run
 > ```
+
+### LGTM Stack — Continuous Monitoring, Logging & Profiling Example
+
+> [!NOTE]
+>
+> The [`examples/lgtm-testing/`](./examples/lgtm-testing/) directory contains a full-stack demo application designed to showcase and stress-test the **LGTM observability stack** (Loki · Grafana · Tempo · Prometheus) combined with **Pyroscope** for continuous profiling. It is the recommended starting point for validating your monitoring setup after running the `monitoring` utility tag.
+
+**Architecture**
+
+| Component | Role |
+|-----------|------|
+| **Frontend** — Nginx + HTML dashboard | Trigger test scenarios via UI |
+| **Backend** — FastAPI + OpenTelemetry SDK | Generates traces, structured logs, and custom metrics |
+| **PostgreSQL** | Persistence layer — produces DB span attributes |
+| **Pyroscope agent** | Continuous CPU/memory flamegraph profiling |
+| **Alloy** | DaemonSet collector — receives OTLP gRPC from app, routes to Tempo / Loki / Prometheus |
+| **Grafana** | Unified dashboard — correlate Traces ↔ Logs ↔ Profiles |
+
+**Option 1 — Docker Compose (local, no cluster required)**
+
+```bash
+cd examples/lgtm-testing
+docker compose up -d --build
+open http://localhost:3000   # frontend dashboard
+open http://localhost:8000/docs  # FastAPI Swagger UI
+```
+
+**Option 2 — Deploy into a running Kubernetes cluster**
+
+```bash
+# Build and push images (or use a local registry for kind)
+docker build -t lgtm-testing-backend:latest ./examples/lgtm-testing/backend
+docker build -t lgtm-testing-frontend:latest ./examples/lgtm-testing/frontend
+
+# Apply manifests
+kubectl apply -f examples/lgtm-testing/k8s/namespace.yaml
+kubectl apply -f examples/lgtm-testing/k8s/postgres.yaml
+kubectl apply -f examples/lgtm-testing/k8s/backend.yaml
+kubectl apply -f examples/lgtm-testing/k8s/frontend.yaml
+
+# Wait for readiness
+kubectl -n lgtm-testing wait --for=condition=ready pod \
+  -l app.kubernetes.io/part-of=lgtm-testing --timeout=120s
+```
+
+**Test scenarios included**
+
+| Scenario | Endpoint | What to verify in Grafana |
+|----------|----------|--------------------------|
+| Normal CRUD (traces) | `GET/POST /api/todos/` | Tempo: clean span waterfall; Loki: logs with `trace_id` |
+| Auth failures | `POST /api/auth/login` with bad creds | Tempo: red error spans; Prometheus: `auth_attempts_total` |
+| N+1 slow report | `GET /api/bottleneck/slow-report` | Tempo: many small DB spans; Loki: `duration_ms` warnings |
+| CPU-intensive profiling | `GET /api/bottleneck/cpu-intensive` | Pyroscope: `hashlib.sha256` + `_fibonacci` hotspots in flamegraph |
+
+**Seed test data**
+
+```bash
+curl -X POST http://localhost:8000/api/seed/
+```
+
+> [!TIP]
+>
+> Before deploying on Kubernetes, make sure the `monitoring` utility is already set up so Grafana, Loki, Tempo, and Pyroscope are available to receive telemetry data:
+> ```bash
+> ./scripts/setup.sh kind utils monitoring
+> # or
+> ./scripts/setup.sh k3s utils monitoring
+> ```
+
+See [`examples/lgtm-testing/README.md`](./examples/lgtm-testing/README.md) for the full architecture diagram, custom metric reference, and Grafana exploration guide.
+
+---
 
 ### Helm Chart
 

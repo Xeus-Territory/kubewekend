@@ -1,0 +1,20 @@
+pyroscope:
+  replicaCount: 1
+  memberlist:
+    port: 7946
+    port_name: memberlist
+  grpc:
+    port: 9095
+    port_name: grpc
+  metastore:
+    port: 9099
+    port_name: raft
+  persistence:
+    enabled: {{  utilities.monitoring.profiling.config.persistence.enable | default(false) }}
+    accessModes:
+      - ReadWriteOnce
+    size: {{ utilities.monitoring.profiling.config.persistence.size | default("1Gi") }}
+    storageClassName: {{ utilities.monitoring.profiling.config.persistence.storageClassName | default("longhorn") }}
+
+alloy:
+  enabled: false
