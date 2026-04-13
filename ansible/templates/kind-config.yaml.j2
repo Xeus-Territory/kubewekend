@@ -1,3 +1,4 @@
+#jinja2: lstrip_blocks: True, trim_blocks: True
 kind: Cluster
 # Exist two apiVersions for Kind Cluster
 # Documentation: https://pkg.go.dev/sigs.k8s.io/kind/pkg/apis/config@v0.23.0
@@ -58,14 +59,19 @@ nodes:
 # NOTICE: KIND ALWAYS NEED ONE CONTROL-PLANE TO OPERATE
 # YOU CAN NOT CREATE ONLY WORKER ON HOST
 ###########################################
+# Use the range (https://docs.python.org/2/library/functions.html?highlight=range#range) to create multiple node with same configuration, like:
+{% for i in range(1, kindCluster.numberOfNodes.controlPlane + 1) %}
 - role: control-plane
   # Use can specify the version of Kubernetes cluster of kind, use image
   # Find docker version at: https://hub.docker.com/r/kindest/node/
   image: {{ kindCluster.image }}
-#- role: worker
-#  # Use can specify the version of Kubernetes cluster of kind, use image
-#  # Find docker version at: https://hub.docker.com/r/kindest/node/
-#  image: {{  kindCluster.image }}
+{% endfor %}
+{% for i in range(1, kindCluster.numberOfNodes.worker + 1) %}
+- role: worker
+  # Use can specify the version of Kubernetes cluster of kind, use image
+  # Find docker version at: https://hub.docker.com/r/kindest/node/
+  image: {{  kindCluster.image }}
+{% endfor %}
 
   # Extra Mounts
   ########################################

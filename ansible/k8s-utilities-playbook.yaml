@@ -719,6 +719,22 @@
           changed_when: false
           when: utilities.monitoring.type == "kube-prometheus-stack"
 
+        - name: "Setup Grafana Operator for the cluster"
+          when: utilities.monitoring.config.grafana.operator | default(false)
+          ansible.builtin.shell: |
+            helm repo add grafana https://grafana.github.io/helm-charts
+            helm repo update
+            helm upgrade --install grafana-operator grafana/grafana-operator \
+              --namespace {{ utilities.monitoring.namespace }} --create-namespace --version 5.22.2 --wait
+          changed_when: false
+          register: grafana_operator_result
+
+        - name: "Display Grafana Operator result"
+          ansible.builtin.debug:
+            msg: "{{ grafana_operator_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.monitoring.config.grafana.operator | default(false)
+
         - name: "Copy template for Alloy APM values.yaml to remote host"
           when: utilities.monitoring.apm.enable | default(false)
           ansible.builtin.template:
