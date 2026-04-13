@@ -20,7 +20,7 @@
       - [Setup Host with Vagrant](#setup-host-with-vagrant)
       - [Ansible Inventory — `hosts` File](#ansible-inventory--hosts-file)
       - [Setup K8s Cluster and Utilities Features](#setup-k8s-cluster-and-utilities-features)
-    - [LGTM Stack — Continuous Monitoring, Logging & Profiling Example](#lgtm-stack--continuous-monitoring-logging--profiling-example)
+    - [LGTM Stack — Continuous Monitoring, Logging \& Profiling Example](#lgtm-stack--continuous-monitoring-logging--profiling-example)
     - [Helm Chart](#helm-chart)
     - [Troubleshoot](#troubleshoot)
   - [Kubewekend Major Session 🚄🚄🚄](#kubewekend-major-session-)
@@ -31,6 +31,7 @@
     - [Kubewekend Session 5: Build and Operate High Availability (HA) `Kubewekend` Cluster](#kubewekend-session-5-build-and-operate-high-availability-ha-kubewekend-cluster)
     - [Kubewekend Session 6: CSI and Ceph with Kubewekend](#kubewekend-session-6-csi-and-ceph-with-kubewekend)
     - [Kubewekend Session 7: Setup new deployment and route traffic to kubewekend cluster](#kubewekend-session-7-setup-new-deployment-and-route-traffic-to-kubewekend-cluster)
+    - [Kubewekend Session 8: Setting Up the Cluster Monitoring Stack with LGTM and Grafana Alloy](#kubewekend-session-8-setting-up-the-cluster-monitoring-stack-with-lgtm-and-grafana-alloy)
   - [Kubewekend Extra Session 🚢🚢🚢](#kubewekend-extra-session-)
     - [Kubewekend Session Extra 1: Longhorn and the story about NFS in Kubernetes](#kubewekend-session-extra-1-longhorn-and-the-story-about-nfs-in-kubernetes)
     - [Kubewekend Session Extra 2: Rebuild Cluster with RKE2 or K3S](#kubewekend-session-extra-2-rebuild-cluster-with-rke2-or-k3s)
@@ -413,6 +414,12 @@ Read full article about session at [Kubewekend 6: CSI and Ceph with Kubewekend](
 > [!NOTE]
 >
 > This session explores core networking concepts in Kubernetes, guiding you through the setup of new deployments and demonstrating how to expose services for external access using Ingress and the Gateway API. We also delve into External LoadBalancer concepts and the operational nuances of managing them via Cilium NodeIPAM. By the end of this session, you will understand how to bridge the gap between cluster-internal services and external clients using modern, eBPF-powered networking strategies.
+
+### Kubewekend Session 8: Setting Up the Cluster Monitoring Stack with LGTM and Grafana Alloy
+
+> [!NOTE]
+>
+> This session provides the opportunity to deploy the LGTM stack, the comprehensive observability suite from the Grafana ecosystem. You will gain hands-on experience in correlating logs, metrics, traces, and profiling data to achieve deep-level observability within a Kubernetes environment.
 
 ## Kubewekend Extra Session 🚢🚢🚢
 

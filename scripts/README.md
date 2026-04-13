@@ -66,7 +66,7 @@ chmod +x ./scripts/setup.sh
 
 # 2. Initialize .env from template
 ./scripts/setup.sh env init
-# Edit .env with your SSH_USER and SSH_KEY_LOCATION
+# Edit .env with your SSH_USER and SSH_KEY
 
 # 3. Check tools
 ./scripts/setup.sh env check

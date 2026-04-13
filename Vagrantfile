@@ -13,20 +13,25 @@ Vagrant.configure("2") do |config|
     # Read more the documentation at: https://www.virtualbox.org/manual/ch06.html#network_hostonly 
     config.vm.network "private_network", ip: "192.168.56.99"
     config.ssh.username = ENV["SSH_USER"]
-    config.ssh.private_key_path = ENV["SSH_PRIV_KEY_PATH"]
     config.ssh.port = 6996
     config.ssh.guest_port = 22
 
     # # Disable to generate a key pair inside .vargrant directory, use insecure_private_keys
-    # # instead of using private_key
+    # # instead of using private_key at .vagrant.d directory of current user
     # config.ssh.insert_key = false
 
+    # # Add the public key to authorized_keys for ssh access with custom key pair (NOTE: override the existing, fail to ssh by vagrant)
+    # config.vm.provision "file", source: "~/.ssh/vmbox.pub", destination: "/home/vagrant/.ssh/authorized_keys"
+
+    # Forward the ssh agent to let the machine can use the ssh key of current user for access other machines
+    # If true, agent forwarding over SSH connections is enabled. Defaults to false.
+    # Read more at: https://stackoverflow.com/questions/11955525/how-to-use-ssh-agent-forwarding-with-vagrant-ssh
     config.ssh.forward_agent = true
 
     config.vm.provider "virtualbox" do |config|
       config.name = "k8s-master-machine"
       # Change here when you need more memory to prevent Errors: 137 in Kubernetes
-      config.memory = 2048
+      config.memory = 3072
       config.cpus = 2
     end
 
@@ -38,7 +43,56 @@ Vagrant.configure("2") do |config|
     # config.vm.disk :disk, size: "10GB", name: "extra-disk-master"
   end
 
-  # Use to loo[] over VM defination
+  # Use to loop over VM definition
+  # Documentation: https://developer.hashicorp.com/vagrant/docs/vagrantfile/tips#loop-over-vm-definitions
+  # Use can use `up` with regex to numberic the machines what you want to provisioning
+  # Example: vagrant up "/k8s-master-machine-[1-2]/" --provider=virtualbox
+  (1..2).each do |i|
+    config.vm.define "k8s-master-machine-#{i}" do |config|
+      config.vm.box = "ubuntu/jammy64"
+      config.vm.hostname = "k8s-master-machine-#{i}"
+      config.vm.communicator = "ssh"
+      # Default enable 2222 for ssh communication (Add id: "ssh" to disable default)
+      # https://realguess.net/2015/10/06/overriding-the-default-forwarded-ssh-port-in-vagrant/
+      # For prevent collisions, use `auto_correct` and `unsable_port_parameter` to guide the port to new one
+      config.vm.network "forwarded_port", guest: 22, host: 9696, protocol: "tcp", id: "ssh", host_ip: "127.0.0.1", auto_correct: true
+      # Add the bridge network for let these machines can communicate each others
+      # With Linux, Private Network will set by default in range: 192.168.56.0/21 (192.168.56.1 - 192.168.63.255)
+      # Read more the documentation at: https://www.virtualbox.org/manual/ch06.html#network_hostonly 
+      config.vm.network "private_network", ip: "192.168.56.20#{i}"
+      config.vm.usable_port_range = 9696..9697
+      config.vm.box_check_update = false
+      config.ssh.username = ENV["SSH_USER"]
+      config.ssh.guest_port = 22
+
+      # # Disable to generate a key pair inside .vargrant directory, use insecure_private_keys
+      # # instead of using private_key at .vagrant.d directory of current user
+      # config.ssh.insert_key = false
+
+      # # Add the public key to authorized_keys for ssh access with custom key pair (NOTE: override the existing, fail to ssh by vagrant)
+      # config.vm.provision "file", source: "~/.ssh/vmbox.pub", destination: "/home/vagrant/.ssh/authorized_keys"
+
+      # Forward the ssh agent to let the machine can use the ssh key of current user for access other machines
+      # If true, agent forwarding over SSH connections is enabled. Defaults to false.
+      # Read more at: https://stackoverflow.com/questions/11955525/how-to-use-ssh-agent-forwarding-with-vagrant-ssh
+      config.ssh.forward_agent = true
+
+      config.vm.provider "virtualbox" do |config|
+        config.name = "k8s-master-machine-#{i}"
+        config.memory = 1024
+        config.cpus = 1
+      end
+
+      # # Resize disk for primary storage
+      # # Documentation: https://developer.hashicorp.com/vagrant/docs/disks/usage#resizing-your-primary-disk
+      # config.vm.disk :disk, size: "50GB", primary: true
+      # # Add one more disk 10GB for node, if you require more disk space for testing
+      # # Documentation: https://developer.hashicorp.com/vagrant/docs/disks/usage#attaching-new-hard-disks
+      # config.vm.disk :disk, size: "10GB", name: "extra-disk-master-#{i}"
+    end
+  end
+
+  # Use to loop over VM definition
   # Documentation: https://developer.hashicorp.com/vagrant/docs/vagrantfile/tips#loop-over-vm-definitions
   # Use can use `up` with regex to numberic the machines what you want to provisioning
   # Example: vagrant up "/k8s-worker-machine-[1-2]/" --provider=virtualbox
@@ -58,13 +112,18 @@ Vagrant.configure("2") do |config|
       config.vm.usable_port_range = 9669..9671
       config.vm.box_check_update = false
       config.ssh.username = ENV["SSH_USER"]
-      config.ssh.private_key_path = ENV["SSH_PRIV_KEY_PATH"]
       config.ssh.guest_port = 22
 
       # # Disable to generate a key pair inside .vargrant directory, use insecure_private_keys
-      # # instead of using private_key
+      # # instead of using private_key at .vagrant.d directory of current user
       # config.ssh.insert_key = false
 
+      # # Add the public key to authorized_keys for ssh access with custom key pair (NOTE: override the existing, fail to ssh by vagrant)
+      # config.vm.provision "file", source: "~/.ssh/vmbox.pub", destination: "/home/vagrant/.ssh/authorized_keys"
+
+      # Forward the ssh agent to let the machine can use the ssh key of current user for access other machines
+      # If true, agent forwarding over SSH connections is enabled. Defaults to false.
+      # Read more at: https://stackoverflow.com/questions/11955525/how-to-use-ssh-agent-forwarding-with-vagrant-ssh
       config.ssh.forward_agent = true
 
       config.vm.provider "virtualbox" do |config|
@@ -99,6 +158,22 @@ Vagrant.configure("2") do |config|
 
   # Execution the shell script provide
   config.vm.provision "shell", inline: $configScript
+  # Add the public key to authorized_keys for ssh access with custom key pair
+  # You can generate the key pair with `ssh-keygen -t rsa -b 4096 -C "vmbox" -f ~/.ssh/vmbox`
+  # Read more at: https://serverfault.com/questions/491343/how-can-i-move-my-deploy-key-into-vagrant
+  # To prevent error not found the key in vagrant
+  # Exit with warning in vagrant: https://github.com/hashicorp/vagrant/issues/1026
+  if ENV["SSH_KEY"].nil? || ENV["SSH_KEY"].empty?
+    puts "SSH_KEY environment variable is not set or empty. Please set it to the name of your SSH key (without the .pub extension)."
+    puts "E.g 1: Set SSH_KEY environment variable `export SSH_KEY=vmbox` or `SSH_KEY=vmbox vagrant ...`"
+    puts "E.g 2: Add SSH_KEY=vmbox to .env file and load it with `source .env` before running vagrant commands."
+    puts "E.g 3: Run export for .env file by `export $(grep -v '^#' .env | xargs)` to load all environment variables in .env file."
+    exit 1
+  end
+  ssh_pub_key = File.readlines("#{Dir.home}/.ssh/#{ENV["SSH_KEY"]}.pub").first.strip
+  config.vm.provision "shell", inline: <<-SHELL
+    echo "#{ssh_pub_key}" >> /home/vagrant/.ssh/authorized_keys
+  SHELL
 
   # Configuration auto trigger reload profile in machine after shell
   config.trigger.after :up, :provision do |trigger|

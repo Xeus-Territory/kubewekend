@@ -137,7 +137,7 @@ env_show() {
     load_env
     header "Environment"
     echo "SSH_USER          = ${SSH_USER:-<not set>}"
-    echo "SSH_KEY_LOCATION  = ${SSH_KEY_LOCATION:-<not set>}"
+    echo "SSH_KEY           = ${SSH_KEY:-<not set>}"
     echo "PROJECT_ROOT      = $PROJECT_ROOT"
     echo "ANSIBLE_DIR       = $ANSIBLE_DIR"
     echo "INVENTORY         = $HOSTS_FILE"
@@ -160,7 +160,9 @@ SUBCOMMANDS
 
 OPTIONS
   Machines can be specified by name or regex pattern.
-  Environment variables SSH_USER, SSH_PRIV_KEY_PATH are read from .env
+
+REQUIREMENTS
+  Environment variables SSH_USER, SSH_KEY are read from .env
 
 EXAMPLES
   # Provision master only
@@ -208,13 +210,24 @@ vagrant_up() {
     header "Provisioning VMs: ${machines[*]}"
 
     export SSH_USER="${SSH_USER:-vagrant}"
-    export SSH_PRIV_KEY_PATH="${SSH_PRIV_KEY_PATH:-${SSH_KEY_LOCATION:-~/.ssh/id_rsa}}"
+    export SSH_KEY="${SSH_KEY:-vmbox}"
+
+    [ -f "$HOME/.ssh/$SSH_KEY" ] && [ -f "$HOME/.ssh/$SSH_KEY.pub" ] || {
+        error "SSH key and public key not found at $HOME/.ssh/$SSH_KEY"
+        error "Please generate it with: ssh-keygen -t rsa -b 2048 -C \"vmbox\" -f ~/.ssh/vmbox"
+        return 1
+    }
+
+    # Printf the profile environment variables before running vagrant up
+    info "Using SSH_USER=$SSH_USER"
+    info "Using SSH_KEY=$SSH_KEY"
 
     vagrant up "${machines[@]}" --provider=virtualbox
     info "VMs provisioned successfully"
 }
 
 vagrant_halt() {
+    load_env
     require_cmd vagrant || return 1
     cd "$PROJECT_ROOT"
     if [[ $# -eq 0 ]]; then
@@ -227,6 +240,7 @@ vagrant_halt() {
 }
 
 vagrant_destroy() {
+    load_env
     require_cmd vagrant || return 1
     cd "$PROJECT_ROOT"
     if [[ $# -eq 0 ]]; then
@@ -240,12 +254,14 @@ vagrant_destroy() {
 }
 
 vagrant_status() {
+    load_env
     require_cmd vagrant || return 1
     cd "$PROJECT_ROOT"
     vagrant status
 }
 
 vagrant_ssh() {
+    load_env
     require_cmd vagrant || return 1
     cd "$PROJECT_ROOT"
     local machine="${1:?Machine name required. Usage: kubewekend vagrant ssh <machine>}"
@@ -253,6 +269,7 @@ vagrant_ssh() {
 }
 
 vagrant_reload() {
+    load_env
     require_cmd vagrant || return 1
     cd "$PROJECT_ROOT"
     if [[ $# -eq 0 ]]; then
@@ -305,6 +322,7 @@ inventory_generate() {
     require_cmd vagrant || return 1
     cd "$PROJECT_ROOT"
 
+    load_env
     header "Generating ansible inventory from Vagrant"
 
     local running
@@ -315,7 +333,6 @@ inventory_generate() {
         return 1
     fi
 
-    load_env
     local masters="" workers=""
     while IFS= read -r vm; do
         local ssh_config host port user key_path node_ip
@@ -365,7 +382,7 @@ standalone-workers
 [all:vars]
 ansible_user=${SSH_USER:-vagrant}
 ansible_connection=ssh
-ansible_ssh_private_key_file="${SSH_KEY_LOCATION:-~/.ssh/id_rsa}"
+ansible_ssh_private_key_file="~/.ssh/${SSH_KEY:-vmbox}"
 ansible_ssh_common_args='-o StrictHostKeyChecking=no'
 INVENTORY
 

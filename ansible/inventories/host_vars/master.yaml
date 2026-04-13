@@ -1,4 +1,10 @@
 kindCluster:
+  # Number nodes for the clusters
+  # Default is 1 control-plane and 0 worker, you can change the number of nodes for control-plane and worker as you need, 
+  # but remember that KIND ALWAYS NEED ONE CONTROL-PLANE TO OPERATE, YOU CAN NOT CREATE ONLY WORKER ON HOST
+  numberOfNodes:
+    controlPlane: 1
+    worker: 0
   networking:
     apiServer:
       address: "127.0.0.1"
@@ -12,7 +18,7 @@ kindCluster:
     kubeProxyMode: "iptables" # iptables | nftables (v1.31+) | ipvs | none
   # Kubernetes version for kind node image, find more at https://hub.docker.com/r/kindest/node/
   # Stable Version (Recommended): v1.28.9, v1.28.15, v1.29.14, v1.30.13, v1.31.14, v1.32.11, v1.33.7, v1.34.3 (latest)  
-  image: "kindest/node:v1.28.9"
+  image: "kindest/node:v1.34.3"
   loadbalancer:
     enable: true
     type: "cloud-provider-kind"  # metallb | cloud-provider-kind | cilium-ipam-lb (requires cilium CNI)
@@ -167,6 +173,7 @@ utilities:
   # NOTE: Only for K3s clusters, with Kind, use local-path-storage by default
   storage:
     enable: true
+    # Explore Longhorn for production: https://longhorn.io/
     type: "longhorn"  # longhorn
     namespace: "longhorn"
     setup:
@@ -179,19 +186,34 @@ utilities:
       # NFS CSI Driver: https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner
       nfs: false
 
-  # Certificate Management for the cluster
+  # Object Storage
+  objectStorage:
+    enable: false
+    # Explore Production-ready for object storage with
+    # 1. SeaweedFS: https://github.com/seaweedfs/seaweedfs
+    # 2. Garage: https://garagehq.deuxfleurs.fr/
+    # 3. MinIO: https://min.io/ (Recommended for production cluster)
+    # Other solutions: rustfs (https://github.com/rustfs/rustfs), (cubefs) https://github.com/cubefs/cubefs
+    type: "seaweedfs"  # seaweedfs | garage | minio
+    namespace: "seaweedfs"
+    host: "seaweedfs.local"
+    ingressClass: "traefik"
+
+  # Certificate Management for the cluster with ACME and Let's Encrypt for automated certificate issuance and renewal
+  # Explore more at: https://cert-manager.io/
   # Recommendation: Use for production cluster
   certmanager:
     enable: true
     namespace: "cert-manager"
 
   # Setup DNS for the cluster for external domain resolution (AWS Route53, Cloudflare, Google Cloud DNS, etc)
+  # Explore more at: https://github.com/kubernetes-sigs/external-dns
   # Recommendation: Use for production cluster
   dns:
     enable: true
     type: "external-dns"  # external-dns (with cloud provider DNS like AWS Route53, Cloudflare, etc)
 
-  # Setup Global Load Balancer for the cluster with k8gb
+  # Setup Global Load Balancer for the cluster with k8gb, Explore more at: https://github.com/k8gb-io/k8gb
   # Recommendation: Use for production cluster with multi-cluster setup, automatic failover and global traffic management requirements
   glb:
     enable: false
@@ -221,52 +243,108 @@ utilities:
   extensions:
     enable: false
     # Used to replicate secrets, configmaps and certificates.
+    # GitHub: https://github.com/emberstack/kubernetes-reflector
     reflector:
       enable: false
     
     # Used to auto reload pods when configmap or secret change
+    # GitHub: https://github.com/stakater/reloader
     reloader:
       enable: false
 
     # Used to sync external secrets from external secret management systems
+    # https://github.com/external-secrets/external-secrets
     externalsecrets:
+      enable: false
+
+    # A Kubernetes controller and tool for one-way encrypted Secrets
+    # GitHub: https://github.com/bitnami-labs/sealed-secrets
+    sealedsecrets:
+      enable: false
+
+    # A Database Operator for Schema Management and Migrations in Kubernetes
+    # GitHub: https://schemahero.io/
+    schemahero:
       enable: false
 
   # Operator for cluster management and automation, with various options for different use cases and requirements
   # E.g: Database (PostgreSQL, MongoDB), Messaging (RabbitMQ, Kafka), Cache (Redis, Memcached), etc
   # Read more about Kubernetes Operators at: https://kubernetes.io/docs/concepts/extend-kubernetes/operator/
   # Find more at: https://operatorhub.io/ or https://artifacthub.io/packages/search?org=operator-framework&sort=relevance&page=1
+  # If you want to any helm-chart, I also recommend using Bitami's Helm with multiple references, at: https://artifacthub.io/packages/search?repo=bitnami&sort=relevance&page=1
   operator:
     enable: false
-    database:
+    # Full operation for database with 35+ operators available with Kubeblocks
+    # Explore more at: https://kubeblocks.io/
+    full:
       enable: false
-      type: "postgresql"  # postgresql | mongodb
+      type: "kubeblocks"
+    # Operators for deploying and managing stateful applications for PostgreSQL
+    # Explore more at:
+    # 1. CloudNativePG (CNPG): https://cloudnative-pg.io/ (Recommended)
+    # 2. Percona PostgreSQL Operator: https://docs.percona.com/percona-operator-for-postgresql/2.9.0/index.html
+    postgresql:
+      enable: false
+      type: "cnpg" # cnpg (CloudNativePG) | percona (Percona PostgreSQL Operator)
+    # Operators for deploying and managing stateful applications for MongoDB
+    # Explore more at:
+    # 1. MongoDB Community Operator: https://github.com/mongodb/mongodb-kubernetes
+    # 2. Percona MongoDB Operator: https://docs.percona.com/percona-operator-for-mongodb/index.html
+    mongodb:
+      enable: false
+      type: "community"  # community (MongoDB Community Operator) | percona (Percona MongoDB Operator)
+    # Operators for deploying and managing stateful applications for Elasticsearch and OpenSearch
+    # Explore more at:
+    # 1. ECK (Elastic Cloud on Kubernetes): https://operatorhub.io/operator/elastic-cloud-eck
+    # 2. OpenSearch Operator: https://github.com/opensearch-project/opensearch-k8s-operator
     search:
       enable: false
       type: "elasticsearch"  # elasticsearch | opensearch
+    # Operators for deploying and managing stateful applications for Messaging, including RabbitMQ and Kafka
+    # Explore more at:
+    # 1. RabbitMQ: https://github.com/rabbitmq/cluster-operator
+    # 2. Kafka (Strimzi): https://github.com/strimzi/strimzi-kafka-operator
     messaging:
       enable: false
-      type: "rabbitmq"  # rabbitmq | kafka
+      type: "rabbitmq"  # rabbitmq (Recommended))
+    kafka:
+      enable: false
+      type: "strimzi"  # strimzi (Recommended)
+    # Operators for deploying and managing stateful applications for Cache, including Redis and Memcached
+    # Explore more at:
+    # 1. Redis Operator: https://github.com/ot-container-kit/redis-operator
+    # 2. Memcached: https://artifacthub.io/packages/helm/bitnami/memcached
+    # 3. Valkey Operator: https://artifacthub.io/packages/helm/bitnami/valkey
     cache:
       enable: false
       type: "redis"  # redis | memcached | valkey
 
   # GitOps for the cluster
+  # 1. ArgoCD: https://argo-cd.readthedocs.io/en/stable/ (Recommended)
+  # 2. Flux: https://fluxcd.io/ (Recommended)
   gitops:
     enable: true
     type: "argocd"  # argocd | flux
     argocd:
-      sops: false # Enable SOPS support in ArgoCD for encrypted secrets
       namespace: "argocd"
       host: "argocd.local"
       ingressClass: "traefik"
+      # Using argocd-image-updater: https://argocd-image-updater.readthedocs.io/en/stable/
       argocdImageUpdater: true
+      # Extensions for ArgoCD, include
+      # 1. argocd-extension-metrics: https://github.com/argoproj-labs/argocd-extension-metrics
+      # 2. argocd-rollout-extension: https://github.com/argoproj-labs/rollout-extension
       argocdExtensions: true
+      # Using argocd-vault-plugin: https://github.com/argoproj-labs/argocd-vault-plugin
+      argocdSecretManagement: true
     flux:
       namespace: "flux-system"
-      ui: true # Enable Flux UI (Weave GitOps) or not
+      # Enable Flux UI (Weave GitOps), explore more at: https://github.com/weaveworks/weave-gitops
+      ui: true
       ingressClass: "traefik"
       host: "flux.local"
+    # Multi-stage GitOps Continuous promotion
+    # Read more at: https://kargo.io/
     kargo:
       enable: false
       namespace: "kargo"
@@ -341,7 +419,9 @@ utilities:
           enable: true
           storageClassName: "longhorn"
           size: "1Gi"
-        operator: true # Enable Grafana Operator for better management of Grafana instances and dashboards
+        # Enable Grafana Operator for better management of Grafana instances and dashboards
+        operator: false
+      # Prometheus Scraping
       scraping:
         enable: true # Enable all scraping for the cluster
         kubeApiServer: true
@@ -434,7 +514,8 @@ utilities:
     # Explore more about Tempo Link with Log and Profile in Grafana
     # Traces in Explore: https://grafana.com/docs/grafana/latest/visualizations/explore/trace-integration/
     # Traces to Profiles: https://grafana.com/docs/pyroscope/latest/configure-client/trace-span-profiles/
-    # Traces to Logs: 
+    # Traces to Logs: https://grafana.com/docs/grafana/latest/datasources/tempo/configure-tempo-data-source/#trace-to-logs
+    # Traces to Metrics: https://grafana.com/docs/grafana/latest/datasources/tempo/configure-tempo-data-source/#trace-to-metrics
     tracing:
       enable: true
       type: "tempo" # tempo
@@ -524,6 +605,19 @@ utilities:
       enable: false
       type: "default" # default | cluster-autoscaler
 
+  # Developer tools and environment for Developers in the cluster, including tools for local development, debugging, testing, and 
+  # more to enhance the developer experience and productivity
+  DevEx:
+    enable: false
+    # Kubernetes Development Environment (KDE)
+    kde:
+      enable: false
+      type: "okteto"  # devspace | okteto | garden | devpod
+    # Kubernetes Development Tools (KDT)
+    kdt:
+      enable: false
+      type: "mirrord"  # tilt | skaffold | mirrord
+
   # Backup and Restore for the cluster
   backupRestore:
     enable: false
@@ -543,16 +637,6 @@ utilities:
   scheduler:
     enable: false
     type: "koordinator"  # volcano | descheduler | koordinator
-
-  # Developer tools for the cluster
-  developerTools:
-    enable: false
-    type: "tilt"  # tilt | skaffold
-
-  # Kubernetes Development Environment
-  kde:
-    enable: false
-    type: "devspace"  # devspace | garden.io
 
   # Workflow for the cluster
   workflow:

@@ -1072,7 +1072,7 @@ grafana:
   operator:
     ## Enable references to ConfigMaps containing dashboards in GrafanaDashboard CRs
     ## Set to true to allow dashboards to be loaded from ConfigMap references
-    dashboardsConfigMapRefEnabled: false
+    dashboardsConfigMapRefEnabled: {{  utilities.monitoring.config.grafana.operator | default(false) }}
 
     ## Annotations for GrafanaDashboard Cr
     ##
