@@ -296,6 +296,8 @@
 # ---------------------------------------------------------------------------
 - name: Setup K3s HA Worker Nodes
   hosts: ha_worker
+  # Allow to fail if worker nodes not found or defined but don't online yet, but don't ignore error when hit the erros
+  gather_facts: false
   tasks:
     - name: Include HA worker vars
       tags: setup_k3s, remove_k3s
@@ -305,6 +307,8 @@
     # --- Setup block --------------------------------------------------------
     - name: Setup K3s HA Worker Node
       tags: setup_k3s
+      # Allow to fail if worker nodes not found or defined but don't online yet, but don't ignore error when hit the erros
+      ignore_unreachable: true
       block:
         - name: Create directories for K3s configuration
           ansible.builtin.shell: |
@@ -342,6 +346,7 @@
         - name: Log output of K3s HA Worker Node installation
           ansible.builtin.debug:
             msg: "{{ install_worker_node.stdout_lines }}"
+          ignore_errors: true
 
 # ---------------------------------------------------------------------------
 # Play 5 – Setup Traefik Ingress Controller (runs once on the init master)
