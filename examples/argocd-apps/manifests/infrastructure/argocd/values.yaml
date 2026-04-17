@@ -28,6 +28,7 @@ apps:
       additionalAnnotations: {}
       finalizers:
       - resources-finalizer.argocd.argoproj.io
+      project: infrastructure
       # ArgoCD v2.6 or later
       sources:
       - repoURL: "https://github.com/Xeus-Territory/kubewekend.git"
@@ -51,7 +52,7 @@ apps:
       additionalAnnotations: {}
       finalizers:
       - resources-finalizer.argocd.argoproj.io
-      project: platform
+      project: infrastructure
       # ArgoCD v2.6 or later
       sources:
       - repoURL: "https://github.com/Xeus-Territory/kubewekend.git"
