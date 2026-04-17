@@ -122,13 +122,13 @@ apps:
         kind: LimitRange
       - group: ''
         kind: NetworkPolicy
+        orphanedResources: {}
+        roles: []
       namespaceResourceWhitelist:
       - group: 'apps'
         kind: Deployment
       - group: 'apps'
         kind: StatefulSet
-      - group: 'argoproj.io'
-        kind: Application
       orphanedResources: {}
       roles:
       - name: admin
@@ -166,8 +166,6 @@ apps:
         kind: Deployment
       - group: 'apps'
         kind: StatefulSet
-      - group: 'argoproj.io'
-        kind: Application
       orphanedResources: {}
       roles:
       - name: admin
