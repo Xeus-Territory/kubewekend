@@ -1,0 +1,17 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: apps
+  namespace: argocd
+spec:
+  sourceRepos:
+    - https://github.com/Xeus-Territory/kubewekend.git
+  sourceNamespaces:
+    - '*'
+  destinations:
+    # Do not allow any app to be installed in `kube-system`  
+    - namespace: '!kube-system'
+      server: '*'
+    # Any other namespace or server is fine though.
+    - server: https://kubernetes.default.svc
+      namespace: '*'

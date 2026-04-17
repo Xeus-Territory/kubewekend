@@ -1,0 +1,57 @@
+# todo-list
+
+![Version: 1.0.0](https://img.shields.io/badge/Version-1.0.0-informational?style=flat-square)
+
+## Requirements
+
+| Repository | Name | Version |
+|------------|------|---------|
+| https://kubewekend.xeusnguyen.xyz | common | 0.2.0 |
+
+## Values
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| common.affinity | object | `{}` | Functions like the nodeSelector field but is more expressive and allows you to specify soft rules, for more information: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#affinity-and-anti-affinity |
+| common.autoscaling | object | `{"enabled":false,"maxReplicas":100,"minReplicas":1,"targetCPUUtilizationPercentage":80}` | This section is for setting up autoscaling more information can be found here: https://kubernetes.io/docs/concepts/workloads/autoscaling/ |
+| common.command | list | `["/bin/sh","-c"]` | This will set the command for your application Let it null if you already have entrypoint or cmd in your application For more information checkout: https://kubernetes.io/docs/tasks/inject-data-application/define-command-argument-container/ |
+| common.deploymentType | string | `"deployment"` | Definition what type of your application (e.g: deployment, statefulset or daemonset) |
+| common.enabled | bool | `true` | This will define Chart enabled or not |
+| common.env | object | `{}` | This sets the environment for your deployment For more information checkout: https://kubernetes.io/docs/tasks/inject-data-application/define-environment-variable-container/ |
+| common.extraManifests | object | `{}` | To add your extra manifest into your applications |
+| common.fullnameOverride | string | `""` |  |
+| common.image | object | `{"pullPolicy":"IfNotPresent","repository":"xeusnguyen/application","tag":"v0.0.1"}` | This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/ |
+| common.image.pullPolicy | string | `"IfNotPresent"` | This sets the pull policy for images. |
+| common.image.tag | string | `"v0.0.1"` | Overrides the image tag whose default is the chart appVersion. |
+| common.imagePullSecrets | list | `[]` | This is for the secretes for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/ |
+| common.ingress | object | `{"annotations":{},"className":"traefik","enabled":true,"hosts":[{"host":"todo-list.local","paths":[{"path":"/","pathType":"ImplementationSpecific"}]}],"tls":[]}` | This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/ |
+| common.nameOverride | string | `""` | This is to override the chart name. |
+| common.nodeSelector | object | `{}` | Choose your node to deloy application depend on `label`, for more information: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector |
+| common.pdb | object | `{"create":false,"maxUnavailable":0,"minAvailable":1}` | Setup Pod Disruption Budget for your application More information can be found here: https://kubernetes.io/docs/concepts/workloads/pods/disruptions/ |
+| common.podAnnotations | object | `{}` | This is for setting Kubernetes Annotations to a Pod. For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/  |
+| common.podLabels | object | `{}` | This is for setting Kubernetes Labels to a Pod. For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/ |
+| common.podSecurityContext | object | `{}` | This holds pod-level security attributes and common container settings. |
+| common.probes | object | `{"disableProbes":["startupProbe"],"livenessProbe":{"httpGet":{"path":"/","port":"http"}},"readinessProbe":{"httpGet":{"path":"/","port":"http"}}}` | This is to setup the liveness,readiness and startupProbe probes  More information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/ |
+| common.probes.disableProbes | list | `["startupProbe"]` | Probe list that you want to disable, accepted values: "livenessProbe", "readinessProbe", "startupProbe", "all" Ex: ["livenessProbe", "readinessProbe"] -> enable `startupProbe` only |
+| common.probesOverride | object | `{}` | This set the override probes base on your decision |
+| common.rbac | object | `{"create":false}` | To enable/disable the rbac for deployment |
+| common.replicaCount | int | `1` | This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/ |
+| common.resources | object | `{"limits":{"memory":"128Mi"},"requests":{"cpu":"100m","memory":"128Mi"}}` | This define resource for your application **(BE CAREFUL TO SET THIS VALUE)** Best practice: Not set **cpu limit** for preventing CPU Throttle,  set **memory request/limit** for bring up and preventing OOM. For more information checkout: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/ |
+| common.runtimeArgs | list | `["npm run dev"]` | This will set the runtimeArgs for your application Let it null if you feel pleasure with cmd command in your application Add more if you want to override it |
+| common.securityContext | object | `{}` | This defines the security options the ephemeral container should be run with.  If set, the fields of SecurityContext override the equivalent fields of PodSecurityContext. For more information checkout: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/ |
+| common.service | object | `{"enabled":true,"headless":false,"port":3000,"type":"ClusterIP"}` | This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/ |
+| common.service.enabled | bool | `true` | Enable service creation |
+| common.service.headless | bool | `false` | Set this to true to create a headless service |
+| common.service.port | int | `3000` | This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports |
+| common.service.type | string | `"ClusterIP"` | This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types |
+| common.serviceAccount | object | `{"annotations":{},"automount":true,"create":true,"name":""}` | This section builds out the service account more information can be found here: https://kubernetes.io/docs/concepts/security/service-accounts/ |
+| common.serviceAccount.annotations | object | `{}` | Annotations to add to the service account |
+| common.serviceAccount.automount | bool | `true` | Automatically mount a ServiceAccount's API credentials? |
+| common.serviceAccount.create | bool | `true` | Specifies whether a service account should be created |
+| common.serviceAccount.name | string | `""` | If not set and create is true, a name is generated using the fullname template |
+| common.testConnection | bool | `false` | To enable/disable the testconnection for deployment |
+| common.tolerations | list | `[]` | Set for deploy your application into `taint` node, for more information: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/ |
+| common.vault | object | `{"config":{"authPath":"auth/kubernetes","namespace":"default","path":"secret/data/project","role":"vault-role","serviceServer":"https://vault.svc.cluster.local:8200"},"enabled":false,"template":{"content":"{{ with secret \"secret/data/project\" }}\n{{- range $key, $value := .Data.data }}\nexport {{ $key }}={{ $value }}\n{{- end }}\n{{- end }}","name":"config.env"}}` | Setup Vault Agent sidecar for injecting secrets into your application More information can be found here: https://developer.hashicorp.com/vault/docs/deploy/kubernetes/injector More annotation with Vault Injector Configuration here: https://developer.hashicorp.com/vault/docs/deploy/kubernetes/injector/annotations |
+| common.volumeMounts | list | `[]` | Additional volumeMounts on the output Deployment definition. |
+| common.volumes | list | `[]` | Additional volumes on the output Deployment definition. |
+

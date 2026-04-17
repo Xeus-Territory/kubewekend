@@ -534,6 +534,7 @@ cmd_kind() {
 parse_ansible_opts() {
     HOST_NAME="k8s-master-machine"
     DRY_RUN=false
+    ASK_BECOME_PASS=false
     SKIP_TAGS=""
     EXTRA_VARS=""
     ANSIBLE_TAGS=()
@@ -544,6 +545,7 @@ parse_ansible_opts() {
             --dry-run)       DRY_RUN=true;  shift ;;
             --skip-tags)     SKIP_TAGS="$2"; shift 2 ;;
             --extra-vars)    EXTRA_VARS="$2"; shift 2 ;;
+            --ask-become-pass) ASK_BECOME_PASS=true; shift ;;
             -*)              warn "Unknown option: $1"; shift ;;
             *)               ANSIBLE_TAGS+=("$1"); shift ;;
         esac
@@ -568,6 +570,10 @@ run_ansible_playbook() {
     [[ -n "$EXTRA_VARS" ]] && cmd+=(--extra-vars "$EXTRA_VARS")
     [[ -n "$extra" ]]      && cmd+=(--extra-vars "$extra")
     cmd+=("$ANSIBLE_DIR/$playbook")
+
+    if [[ "$ASK_BECOME_PASS" == true ]]; then
+        cmd+=(--ask-become-pass)
+    fi
 
     if [[ "$DRY_RUN" == true ]]; then
         info "[DRY RUN] ${cmd[*]}"
@@ -636,6 +642,7 @@ OPTIONS
   --dry-run             Show ansible command without executing
   --skip-tags <tags>    Comma-separated tags to skip
   --extra-vars <vars>   Additional ansible extra-vars (key=value)
+  --ask-become-pass      Prompt for sudo password when needed
 
 EXAMPLES
   # --- Standalone K3s (Vagrant VMs) ---
@@ -707,7 +714,7 @@ k3s_setup() {
     if [[ "$HOST_NAME" == *master* ]]; then
         echo ""
         info "Retrieve kubeconfig after all nodes are set up:"
-        echo "  ssh <master> 'sudo cat /etc/rancher/k3s/k3s.yaml' > ~/.kube/config"
+        echo "  ssh <master> 'sudo cat -S /etc/rancher/k3s/k3s.yaml' > ~/.kube/config"
     fi
 }
 
@@ -1000,7 +1007,7 @@ Step-by-step:
      ./scripts/setup.sh k3s setup
 
   7. Get kubeconfig:
-     ssh vagrant@192.168.56.99 'sudo cat /etc/rancher/k3s/k3s.yaml' > ~/.kube/config
+     ssh vagrant@192.168.56.99 'sudo cat -S /etc/rancher/k3s/k3s.yaml' > ~/.kube/config
      # Replace 127.0.0.1 with 192.168.56.99 in the kubeconfig
 
   8. Install utilities:
@@ -1041,7 +1048,7 @@ Step-by-step:
      ./scripts/setup.sh k3s setup
 
   5. Get kubeconfig:
-     ssh <user>@<vps-ip> 'sudo cat /etc/rancher/k3s/k3s.yaml' > ~/.kube/config
+     ssh <user>@<vps-ip> 'sudo cat -S /etc/rancher/k3s/k3s.yaml' > ~/.kube/config
      # Replace 127.0.0.1 with your VPS IP in the kubeconfig
 
   6. Install utilities:
