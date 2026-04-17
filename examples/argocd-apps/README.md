@@ -481,12 +481,12 @@ spec:
   sourceNamespaces:
     - '*'
   destinations:
-    # Do not allow any app to be installed in `kube-system`  
-    - namespace: '!kube-system'
-      server: '*'
-    # Any other namespace or server is fine though.
-    - server: https://kubernetes.default.svc
+    # Allow apps to be installed in any namespace and any cluster.
+    - server: '*'
       namespace: '*'
+  clusterResourceWhitelist:
+  - group: '*'
+    kind: '*'
 ```
 
 > [!TIP]
@@ -541,16 +541,18 @@ kubectl apply -n argocd -f - <<EOF
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: root-app
+  name: argocd-apps
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: infrastructure
+  project: default
   source:
     repoURL: "https://github.com/Xeus-Territory/kubewekend"
     targetRevision: HEAD
     path: "examples/argocd-apps/app-of-apps"
+    directory:
+      recurse: true
   destination:
     server: "https://kubernetes.default.svc"
     namespace: argocd

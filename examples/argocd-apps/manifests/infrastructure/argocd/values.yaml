@@ -19,7 +19,188 @@ argocd:
     enabled: false
 
 apps:
-  enabled: false
+  enabled: true
+  applications:
+    # The app of apps pattern is used to deploy ArgoCD itself and the platform apps.
+    apps:
+      namespace: argocd
+      additionalLabels: {}
+      additionalAnnotations: {}
+      finalizers:
+      - resources-finalizer.argocd.argoproj.io
+      project: apps
+      # ArgoCD v2.6 or later
+      sources:
+      - repoURL: "https://github.com/Xeus-Territory/kubewekend.git"
+        targetRevision: HEAD
+        path: "examples/argocd-apps/app-of-apps/apps"
+        directory:
+          recurse: true
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: argocd
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: false
+        syncOptions:
+        - CreateNamespace=true
+      revisionHistoryLimit: null
+    platform:
+      namespace: argocd
+      additionalLabels: {}
+      additionalAnnotations: {}
+      finalizers:
+      - resources-finalizer.argocd.argoproj.io
+      project: platform
+      # ArgoCD v2.6 or later
+      sources:
+      - repoURL: "https://github.com/Xeus-Territory/kubewekend.git"
+        targetRevision: HEAD
+        path: "examples/argocd-apps/app-of-apps/platform"
+        directory:
+          recurse: true
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: argocd
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+        - CreateNamespace=true
+      revisionHistoryLimit: null
+    infrastructure:
+      namespace: argocd
+      additionalLabels: {}
+      additionalAnnotations: {}
+      finalizers:
+      - resources-finalizer.argocd.argoproj.io
+      project: infrastructure
+      # ArgoCD v2.6 or later
+      sources:
+      - repoURL: "https://github.com/Xeus-Territory/kubewekend.git"
+        targetRevision: HEAD
+        path: "examples/argocd-apps/app-of-apps/infrastructure"
+        directory:
+          recurse: true
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: argocd
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+        - CreateNamespace=true
+      revisionHistoryLimit: null
+
+  # Reference: https://argo-cd.readthedocs.io/en/stable/user-guide/projects/
+  # Examples: https://argo-cd.readthedocs.io/en/latest/operator-manual/project-specification/
+  projects:
+    apps:
+      namespace: argocd
+      additionalLabels: {}
+      additionalAnnotations: {}
+      permitOnlyProjectScopedClusters: false
+      finalizers:
+      - resources-finalizer.argocd.argoproj.io
+      description: For Kubewekend Apps project deployed by app of apps pattern in ArgoCD.
+      sourceRepos:
+      - 'https://github.com/Xeus-Territory/kubewekend.git'
+      destinations:
+      - namespace: '!kube-system'
+        server: https://kubernetes.default.svc
+      - namespace: '*'
+        server: https://kubernetes.default.svc
+      clusterResourceWhitelist: []
+      clusterResourceBlacklist: []
+      namespaceResourceBlacklist:
+      - group: ''
+        kind: ResourceQuota
+      - group: ''
+        kind: LimitRange
+      - group: ''
+        kind: NetworkPolicy
+        orphanedResources: {}
+        roles: []
+      namespaceResourceWhitelist:
+      - group: 'apps'
+        kind: Deployment
+      - group: 'apps'
+        kind: StatefulSet
+      orphanedResources: {}
+      roles:
+      - name: admin
+        description: Admin role with permissions to do everything.
+        policies:
+        - p, proj:apps:admin, applications, *, */*, allow
+      - name: read-only
+        description: Read-only role with permissions to view applications and their resources.
+        policies:
+        - p, proj:apps:read-only, applications, get, */*, allow
+        - p, proj:apps:read-only, applications, list, */*, allow
+        - p, proj:apps:read-only, applications, watch, */*, allow
+      sourceNamespaces:
+      - argocd
+    platform:
+      namespace: argocd
+      additionalLabels: {}
+      additionalAnnotations: {}
+      permitOnlyProjectScopedClusters: false
+      finalizers:
+      - resources-finalizer.argocd.argoproj.io
+      description: For Kubewekend Platform project deployed by app of apps pattern in ArgoCD.
+      sourceRepos:
+      - 'https://github.com/Xeus-Territory/kubewekend.git'
+      destinations:
+      - namespace: '!kube-system'
+        server: https://kubernetes.default.svc
+      - namespace: '*'
+        server: https://kubernetes.default.svc
+      clusterResourceWhitelist: []
+      clusterResourceBlacklist: []
+      namespaceResourceBlacklist: {}
+      namespaceResourceWhitelist:
+      - group: 'apps'
+        kind: Deployment
+      - group: 'apps'
+        kind: StatefulSet
+      orphanedResources: {}
+      roles:
+      - name: admin
+        description: Admin role with permissions to do everything.
+        policies:
+        - p, proj:platform:admin, applications, *, */*, allow
+
+    infrastructure:
+      namespace: argocd
+      additionalLabels: {}
+      additionalAnnotations: {}
+      permitOnlyProjectScopedClusters: false
+      finalizers:
+      - resources-finalizer.argocd.argoproj.io
+      description: For Kubewekend Infrastructure project deployed by app of apps pattern in ArgoCD.
+      sourceRepos:
+      - 'https://github.com/Xeus-Territory/kubewekend.git'
+      destinations:
+      - namespace: '*'
+        server: https://kubernetes.default.svc
+      clusterResourceWhitelist:
+      - group: '*'
+        kind: '*'
+      clusterResourceBlacklist: []
+      namespaceResourceBlacklist: {}
+      namespaceResourceWhitelist:
+      - group: '*'
+        kind: '*'
+      orphanedResources:
+        warn: false
+      roles:
+      - name: admin
+        description: Admin role with permissions to do everything.
+        policies:
+        - p, proj:infrastructure:admin, applications, *, */*, allow
 
 image-updater:
-  enabled: false
+  enabled: true

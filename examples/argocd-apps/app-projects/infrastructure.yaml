@@ -9,9 +9,9 @@ spec:
   sourceNamespaces:
     - '*'
   destinations:
-    # Do not allow any app to be installed in `kube-system`  
-    - namespace: '!kube-system'
-      server: '*'
-    # Any other namespace or server is fine though.
-    - server: https://kubernetes.default.svc
+    # Allow apps to be installed in any namespace and any cluster.
+    - server: '*'
       namespace: '*'
+  clusterResourceWhitelist:
+  - group: '*'
+    kind: '*'
