@@ -98,125 +98,33 @@ apps:
   # Reference: https://argo-cd.readthedocs.io/en/stable/user-guide/projects/
   # Examples: https://argo-cd.readthedocs.io/en/latest/operator-manual/project-specification/
   projects:
-    apps:
-      namespace: argocd
-      additionalLabels: {}
-      additionalAnnotations: {}
-      permitOnlyProjectScopedClusters: false
-      finalizers:
-      - resources-finalizer.argocd.argoproj.io
-      description: For Kubewekend Apps project deployed by app of apps pattern in ArgoCD.
-      sourceRepos:
-      - 'https://github.com/Xeus-Territory/kubewekend.git'
-      destinations:
-      - namespace: '!kube-system'
-        server: https://kubernetes.default.svc
-      - namespace: '*'
-        server: https://kubernetes.default.svc
-      clusterResourceWhitelist: []
-      clusterResourceBlacklist: []
-      namespaceResourceBlacklist:
-      - group: ''
-        kind: ResourceQuota
-      - group: ''
-        kind: LimitRange
-      - group: ''
-        kind: NetworkPolicy
-      namespaceResourceWhitelist:
-      - group: 'argoproj.io'
-        kind: Application
-      - group: 'apps'
-        kind: Deployment
-      - group: 'apps'
-        kind: StatefulSet
-      - group: ''
-        kind: Service
-      - group: ''
-        kind: ServiceAccount
-      - group: ''
-        kind: ConfigMap
-      - group: ''
-        kind: Secret
-      - group: ''
-        kind: Role
-      - group: ''
-        kind: RoleBinding
-      - group: 'networking.k8s.io'
-        kind: Ingress
-      - group: ''
-        kind: Endpoints
-      - group: 'discovery.k8s.io'
-        kind: EndpointSlice
-      orphanedResources: {}
-      roles:
-      - name: admin
-        description: Admin role with permissions to do everything.
-        policies:
-        - p, proj:apps:admin, applications, *, */*, allow
-      - name: read-only
-        description: Read-only role with permissions to view applications and their resources.
-        policies:
-        - p, proj:apps:read-only, applications, get, */*, allow
-        - p, proj:apps:read-only, applications, list, */*, allow
-        - p, proj:apps:read-only, applications, watch, */*, allow
-      sourceNamespaces:
-      - argocd
-    platform:
-      namespace: argocd
-      additionalLabels: {}
-      additionalAnnotations: {}
-      permitOnlyProjectScopedClusters: false
-      finalizers:
-      - resources-finalizer.argocd.argoproj.io
-      description: For Kubewekend Platform project deployed by app of apps pattern in ArgoCD.
-      sourceRepos:
-      - 'https://github.com/Xeus-Territory/kubewekend.git'
-      destinations:
-      - namespace: '!kube-system'
-        server: https://kubernetes.default.svc
-      - namespace: '*'
-        server: https://kubernetes.default.svc
-      clusterResourceWhitelist: []
-      clusterResourceBlacklist: []
-      namespaceResourceBlacklist: {}
-      namespaceResourceWhitelist:
-      - group: '*'
-        kind: '*'
-      orphanedResources: {}
-      roles:
-      - name: admin
-        description: Admin role with permissions to do everything.
-        policies:
-        - p, proj:platform:admin, applications, *, */*, allow
-
     infrastructure:
-      namespace: argocd
-      additionalLabels: {}
-      additionalAnnotations: {}
-      permitOnlyProjectScopedClusters: false
-      finalizers:
-      - resources-finalizer.argocd.argoproj.io
-      description: For Kubewekend Infrastructure project deployed by app of apps pattern in ArgoCD.
+      description: "Infrastructure layer - manages ArgoCD itself and platform apps via GitOps IDP"
       sourceRepos:
-      - 'https://github.com/Xeus-Territory/kubewekend.git'
+        - '*'
+      sourceNamespaces:
+        - argocd
+        - '*'
       destinations:
-      - namespace: '*'
-        server: https://kubernetes.default.svc
+        # Full access to all namespaces and clusters for system bootstrapping
+        - server: '*'
+          namespace: '*'
+      # Unrestricted cluster-wide resources - infrastructure can provision anything
       clusterResourceWhitelist:
-      - group: '*'
-        kind: '*'
-      clusterResourceBlacklist: []
-      namespaceResourceBlacklist: {}
-      namespaceResourceWhitelist:
-      - group: '*'
-        kind: '*'
+        - group: '*'
+          kind: '*'
+      roles:
+        - name: infra-admin
+          description: "Infrastructure admin - full provisioning access to all cluster resources"
+          policies:
+            - p, proj:infrastructure:infra-admin, applications, *, infrastructure/*, allow
+            - p, proj:infrastructure:infra-admin, exec, create, infrastructure/*, allow
+        - name: viewer
+          description: "Read-only access to the infrastructure project"
+          policies:
+            - p, proj:infrastructure:viewer, applications, get, infrastructure/*, allow
       orphanedResources:
         warn: false
-      roles:
-      - name: admin
-        description: Admin role with permissions to do everything.
-        policies:
-        - p, proj:infrastructure:admin, applications, *, */*, allow
 
 image-updater:
   enabled: true
