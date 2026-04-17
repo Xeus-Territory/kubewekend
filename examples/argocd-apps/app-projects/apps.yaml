@@ -4,14 +4,74 @@ metadata:
   name: apps
   namespace: argocd
 spec:
+  description: "Application layer - manages workload Deployments and StatefulSets via GitOps IDP"
   sourceRepos:
     - https://github.com/Xeus-Territory/kubewekend.git
   sourceNamespaces:
-    - '*'
+    - argocd
   destinations:
-    # Do not allow any app to be installed in `kube-system`  
+    # Block privileged/system namespaces from app workloads
     - namespace: '!kube-system'
       server: '*'
-    # Any other namespace or server is fine though.
+    - namespace: '!argocd'
+      server: '*'
+    - namespace: '!monitoring'
+      server: '*'
+    - namespace: '!logging'
+      server: '*'
+    - namespace: '!cert-manager'
+      server: '*'
+    - namespace: '!ingress-nginx'
+      server: '*'
+    # Allow all other namespaces on the local cluster
     - server: https://kubernetes.default.svc
       namespace: '*'
+  # Only allow namespace-scoped workload resources
+  namespaceResourceWhitelist:
+    - group: 'apps'
+      kind: Deployment
+    - group: 'apps'
+      kind: StatefulSet
+    - group: 'apps'
+      kind: DaemonSet
+    - group: ''
+      kind: Service
+    - group: ''
+      kind: ConfigMap
+    - group: ''
+      kind: Secret
+    - group: ''
+      kind: ServiceAccount
+    - group: ''
+      kind: PersistentVolumeClaim
+    - group: 'networking.k8s.io'
+      kind: Ingress
+    - group: 'networking.k8s.io'
+      kind: NetworkPolicy
+    - group: 'autoscaling'
+      kind: HorizontalPodAutoscaler
+    - group: 'policy'
+      kind: PodDisruptionBudget
+    - group: 'batch'
+      kind: Job
+    - group: 'batch'
+      kind: CronJob
+  # Explicitly block all cluster-wide resources at the app layer
+  clusterResourceBlacklist:
+    - group: '*'
+      kind: '*'
+  roles:
+    - name: developer
+      description: "Application developer - can deploy and sync workloads"
+      policies:
+        - p, proj:apps:developer, applications, get, apps/*, allow
+        - p, proj:apps:developer, applications, create, apps/*, allow
+        - p, proj:apps:developer, applications, update, apps/*, allow
+        - p, proj:apps:developer, applications, sync, apps/*, allow
+        - p, proj:apps:developer, applications, override, apps/*, allow
+    - name: viewer
+      description: "Read-only access to the apps project"
+      policies:
+        - p, proj:apps:viewer, applications, get, apps/*, allow
+  orphanedResources:
+    warn: true
