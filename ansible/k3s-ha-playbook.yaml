@@ -37,6 +37,8 @@
 # ---------------------------------------------------------------------------
 - name: Install common libraries and dependencies on all HA nodes
   hosts: ha_master_init
+  vars:
+    user: "{{ ansible_user_id }}"
   tasks:
     - name: Install common libraries, and dependencies for your host
       tags: install_common
@@ -55,19 +57,19 @@
         curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
         # Enable bash-completion for kubectl and helm
-        echo 'source /etc/bash_completion' >>~/.bashrc
+        echo 'source /etc/bash_completion' >> /home/{{ user }}/.bashrc
         kubectl completion bash | sudo tee /etc/bash_completion.d/kubectl >/dev/null
         helm completion bash | sudo tee /etc/bash_completion.d/helm >/dev/null
 
         # Useful kubectl aliases
-        echo 'export KUBE_EDITOR="nano"' >>~/.bashrc
-        echo 'alias k="kubectl"' >>~/.bashrc
-        echo 'alias kgp="kubectl get pods"' >>~/.bashrc
-        echo 'alias kn="kubectl config set-context --current --namespace"' >>~/.bashrc
-        echo 'alias kaf="kubectl apply -f "' >>~/.bashrc
-        echo 'alias kr="kubectl run --dry-run=client -o yaml "' >>~/.bashrc
-        echo 'alias krcp="k resource-capacity -p --util"' >>~/.bashrc
-        echo 'alias krca="k resource-capacity -a"' >>~/.bashrc
+        echo 'export KUBE_EDITOR="nano"' >> /home/{{ user }}/.bashrc
+        echo 'alias k="kubectl"' >> /home/{{ user }}/.bashrc
+        echo 'alias kgp="kubectl get pods"' >> /home/{{ user }}/.bashrc
+        echo 'alias kn="kubectl config set-context --current --namespace"' >> /home/{{ user }}/.bashrc
+        echo 'alias kaf="kubectl apply -f "' >> /home/{{ user }}/.bashrc
+        echo 'alias kr="kubectl run --dry-run=client -o yaml "' >> /home/{{ user }}/.bashrc
+        echo 'alias krcp="k resource-capacity -p --util"' >> /home/{{ user }}/.bashrc
+        echo 'alias krca="k resource-capacity -a"' >> /home/{{ user }}/.bashrc
 
         # Install vault CLI
         wget https://releases.hashicorp.com/vault/1.18.5/vault_1.18.5_linux_amd64.zip && \
@@ -78,6 +80,7 @@
       args:
         executable: /bin/bash
       register: install_output
+      become: true
 
     - name: Log output of common libraries installation
       tags: install_common
@@ -94,6 +97,8 @@
 # ---------------------------------------------------------------------------
 - name: Setup K3s HA Master Init Node (cluster-init)
   hosts: ha_master_init
+  vars:
+    user: "{{ ansible_user_id }}"
   tasks:
     - name: Include HA master vars
       tags: setup_k3s, remove_k3s
@@ -134,6 +139,7 @@
               --disable traefik
 
           register: install_init_node_etcd
+          become: true
 
         - name: Log output of K3s HA Master Init Node installation (embedded etcd)
           when: k3sCluster.highAvailability.dataStorage.externalDatabase.type | default('etcd') == 'etcd'
@@ -156,6 +162,7 @@
             curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3sCluster.version }} INSTALL_K3S_EXEC="server" sh -s - \
               --disable traefik
           register: install_init_node_pg
+          become: true
 
         - name: Log output of K3s HA Master Init Node installation (PostgreSQL)
           when: k3sCluster.highAvailability.dataStorage.externalDatabase.type == 'postgres'
@@ -182,9 +189,10 @@
         - name: Save K3s kubeconfig for Ansible use
           ansible.builtin.shell: |
             mkdir -p ~/.kube
-            sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
-            sudo chown $(id -u):$(id -g) ~/.kube/config
+            sudo cp /etc/rancher/k3s/k3s.yaml /home/{{ user }}/.kube/config
+            sudo chown $(id -u {{ user }}):$(id -g {{ user }}) /home/{{ user }}/.kube/config
           register: save_kubeconfig
+          become: true
 
         - name: Log output of kubeconfig save
           ansible.builtin.debug:
@@ -257,6 +265,7 @@
             curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3sCluster.version }} INSTALL_K3S_EXEC="server" sh -s - \
               --disable traefik
           register: install_join_node_etcd
+          become: true
 
         - name: Log output of K3s HA Master Join Node installation (embedded etcd)
           when: k3sCluster.highAvailability.dataStorage.externalDatabase.type | default('etcd') == 'etcd'
@@ -279,6 +288,7 @@
             curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3sCluster.version }} INSTALL_K3S_EXEC="server" sh -s - \
               --disable traefik
           register: install_join_node_pg
+          become: true
 
         - name: Log output of K3s HA Master Join Node installation (PostgreSQL)
           when: k3sCluster.highAvailability.dataStorage.externalDatabase.type == 'postgres'
@@ -342,6 +352,7 @@
 
             curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3sCluster.version }} INSTALL_K3S_EXEC="agent" sh -s -
           register: install_worker_node
+          become: true
 
         - name: Log output of K3s HA Worker Node installation
           ansible.builtin.debug:
@@ -378,7 +389,6 @@
               --set gateway.enabled=false
           register: traefik_log
           changed_when: false
-          become_user: vagrant
 
         - name: Log results of Traefik installation
           tags: setup_k3s
@@ -399,7 +409,6 @@
               --set ingressRoute.dashboard.entryPoints={web} \
           register: traefik_dashboard_log
           changed_when: false
-          become_user: vagrant
 
         - name: Log results of Traefik Dashboard setup
           tags: setup_k3s
@@ -417,7 +426,6 @@
               --set gateway.enabled=true
           register: traefik_gateway_log
           changed_when: false
-          become_user: vagrant
 
         - name: Log results of Traefik Gateway setup
           tags: setup_k3s

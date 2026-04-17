@@ -185,6 +185,8 @@ utilities:
     csi:
       # NFS CSI Driver: https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner
       nfs: false
+    # Default replica storage for Longhorn 3 (Recommended for production), but 1 is also fine for testing and development cluster
+    replicaStorage: 1
 
   # Object Storage
   objectStorage:
@@ -203,14 +205,14 @@ utilities:
   # Explore more at: https://cert-manager.io/
   # Recommendation: Use for production cluster
   certmanager:
-    enable: true
+    enable: false
     namespace: "cert-manager"
 
   # Setup DNS for the cluster for external domain resolution (AWS Route53, Cloudflare, Google Cloud DNS, etc)
   # Explore more at: https://github.com/kubernetes-sigs/external-dns
   # Recommendation: Use for production cluster
   dns:
-    enable: true
+    enable: false
     type: "external-dns"  # external-dns (with cloud provider DNS like AWS Route53, Cloudflare, etc)
 
   # Setup Global Load Balancer for the cluster with k8gb, Explore more at: https://github.com/k8gb-io/k8gb
@@ -221,7 +223,7 @@ utilities:
 
   # Secret Management for the cluster
   secretManagement:
-    enable: true
+    enable: false
     # Options: vault | openbao
     # Recommendation: Use for production cluster
     # NOTE: When you use openbao with latest version, you need to setup Kubernetes Version >= v1.30 for openbao operator compatibility
@@ -330,13 +332,13 @@ utilities:
       host: "argocd.local"
       ingressClass: "traefik"
       # Using argocd-image-updater: https://argocd-image-updater.readthedocs.io/en/stable/
-      argocdImageUpdater: true
+      argocdImageUpdater: false
       # Extensions for ArgoCD, include
       # 1. argocd-extension-metrics: https://github.com/argoproj-labs/argocd-extension-metrics
       # 2. argocd-rollout-extension: https://github.com/argoproj-labs/rollout-extension
-      argocdExtensions: true
+      argocdExtensions: false
       # Using argocd-vault-plugin: https://github.com/argoproj-labs/argocd-vault-plugin
-      argocdSecretManagement: true
+      argocdSecretManagement: false
     flux:
       namespace: "flux-system"
       # Enable Flux UI (Weave GitOps), explore more at: https://github.com/weaveworks/weave-gitops
@@ -359,7 +361,7 @@ utilities:
   # 4. OWASP Kubernetes Security: https://cheatsheetseries.owasp.org/cheatsheets/Kubernetes_Security_Cheat_Sheet.html
   # 5. Kubernetes Security Tools: https://www.wiz.io/academy/container-security/top-kubernetes-security-tools
   security:
-    enable: true
+    enable: false
     policyEngine:
       enable: true
       type: "kyverno"  # opa-gatekeeper | kyverno
@@ -399,7 +401,7 @@ utilities:
   # 5. https://hackmd.io/@XeusNguyen/rJk0lunAj
   # 6. https://oneuptime.com/blog/post/2026-01-21-loki-tempo-traces-correlation/view
   monitoring:
-    enable: true
+    enable: false
     type: "kube-prometheus-stack" # kube-prometheus-stack (Prometheus + Grafana)
     namespace: "monitoring"
     config:
@@ -548,7 +550,7 @@ utilities:
   # Read more about article comparison between service mesh
   # https://mkdev.me/posts/the-best-service-mesh-linkerd-vs-kuma-vs-istio-vs-consul-connect-comparison-cilium-and-osm-on-top
   serviceMesh:
-    enable: true
+    enable: false
     type: "istio"  # istio
 
   # Setup IDP (Internal Development Platform) integration for the cluster
@@ -558,7 +560,7 @@ utilities:
   # 1. What is an Internal Developer Platform? - https://www.youtube.com/watch?v=w7hPRaPIKlU
   # 2. Internal Developer Platform (IDP) - https://www.youtube.com/playlist?list=PLyicRj904Z9_50dH2eD5prLZ8b9A-fdgt
   idp:
-    enable: true
+    enable: false
     # Portal for the cluster, which is the entry point for developers to access the cluster and its resources,
     # and also provide features like application catalog, developer dashboard, etc
     # Read more at: https://internaldeveloperplatform.org/developer-portals/

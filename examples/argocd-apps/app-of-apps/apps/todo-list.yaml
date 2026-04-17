@@ -1,0 +1,27 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: todo-list
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: "https://github.com/Xeus-Territory/kubewekend"
+    targetRevision: HEAD
+    path: "examples/argocd-apps/manifests/apps/todo-list"
+    helm:
+      # https://argo-cd.readthedocs.io/en/stable/user-guide/helm/#helm-release-name
+      releaseName: todo-list
+      # https://argo-cd.readthedocs.io/en/stable/user-guide/helm/#values-files
+      valueFiles:
+        - values.yaml
+      # https://argo-cd.readthedocs.io/en/stable/user-guide/helm/#helm-version
+      version: v3
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: "default"
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

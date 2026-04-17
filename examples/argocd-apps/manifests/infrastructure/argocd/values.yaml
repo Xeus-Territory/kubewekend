@@ -1,0 +1,25 @@
+argocd:
+  enabled: true
+  server:
+    ingress:
+      enabled: true
+      ingressClassName: "traefik"
+      annotations: {}
+      hostname: argocd.local
+
+  configs:
+    params:
+      create: true
+      annotations: {}
+      # TLS Disable for ArgoCD API should be terminated when ingress enabled --> Use insecure mode for ArgoCD
+      # Read more at: https://argo-cd.readthedocs.io/en/latest/operator-manual/ingress/#ambassador
+      server.insecure: true
+
+  dex:
+    enabled: false
+
+apps:
+  enabled: false
+
+image-updater:
+  enabled: false

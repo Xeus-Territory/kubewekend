@@ -1,0 +1,27 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: "https://github.com/Xeus-Territory/kubewekend"
+    targetRevision: HEAD
+    path: "examples/argocd-apps/manifests/platform/cert-manager"
+    helm:
+      # https://argo-cd.readthedocs.io/en/stable/user-guide/helm/#helm-release-name
+      releaseName: cert-manager
+      # https://argo-cd.readthedocs.io/en/stable/user-guide/helm/#values-files
+      valueFiles:
+        - values.yaml
+      # https://argo-cd.readthedocs.io/en/stable/user-guide/helm/#helm-version
+      version: v3
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: "cert-manager"
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
