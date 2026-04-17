@@ -6,7 +6,8 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: infrastructure
+  # The default project is fine for this app since it doesn't have any special requirements.
+  project: default
   source:
     repoURL: "https://github.com/Xeus-Territory/kubewekend"
     targetRevision: HEAD
