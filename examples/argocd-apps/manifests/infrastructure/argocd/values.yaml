@@ -122,13 +122,31 @@ apps:
         kind: LimitRange
       - group: ''
         kind: NetworkPolicy
-        orphanedResources: {}
-        roles: []
       namespaceResourceWhitelist:
+      - group: 'argoproj.io'
+        kind: Application
       - group: 'apps'
         kind: Deployment
       - group: 'apps'
         kind: StatefulSet
+      - group: ''
+        kind: Service
+      - group: ''
+        kind: ServiceAccount
+      - group: ''
+        kind: ConfigMap
+      - group: ''
+        kind: Secret
+      - group: ''
+        kind: Role
+      - group: ''
+        kind: RoleBinding
+      - group: 'networking.k8s.io'
+        kind: Ingress
+      - group: ''
+        kind: Endpoints
+      - group: 'discovery.k8s.io'
+        kind: EndpointSlice
       orphanedResources: {}
       roles:
       - name: admin
@@ -162,10 +180,8 @@ apps:
       clusterResourceBlacklist: []
       namespaceResourceBlacklist: {}
       namespaceResourceWhitelist:
-      - group: 'apps'
-        kind: Deployment
-      - group: 'apps'
-        kind: StatefulSet
+      - group: '*'
+        kind: '*'
       orphanedResources: {}
       roles:
       - name: admin
