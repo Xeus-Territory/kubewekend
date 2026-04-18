@@ -3,8 +3,10 @@
 - [GitOps with ArgoCD — App of Apps \& ApplicationSet Patterns](#gitops-with-argocd--app-of-apps--applicationset-patterns)
   - [Overview](#overview)
   - [Repository Structure](#repository-structure)
+  - [Three-Layer Architecture](#three-layer-architecture)
   - [Pattern 1 — App of Apps](#pattern-1--app-of-apps)
     - [How it works](#how-it-works)
+    - [Bootstrap Strategy](#bootstrap-strategy)
     - [Example child Application](#example-child-application)
     - [Sync Waves](#sync-waves)
   - [Pattern 2 — ApplicationSet (Alternative)](#pattern-2--applicationset-alternative)
@@ -18,12 +20,15 @@
       - [7. Pull Request Generator](#7-pull-request-generator)
     - [Pattern Comparison](#pattern-comparison)
   - [App Projects (RBAC Isolation)](#app-projects-rbac-isolation)
-  - [Bootstrap Guide](#bootstrap-guide)
+  - [From Scratch — Practice Guide](#from-scratch--practice-guide)
     - [Prerequisites](#prerequisites)
-    - [Step 1 — Install ArgoCD](#step-1--install-argocd)
-    - [Step 2 — Apply App Projects](#step-2--apply-app-projects)
-    - [Step 3 — Create the Root App (App of Apps bootstrap)](#step-3--create-the-root-app-app-of-apps-bootstrap)
-    - [Step 4 — Access the ArgoCD UI](#step-4--access-the-argocd-ui)
+    - [Step 1 — Spin up a Kubernetes Cluster](#step-1--spin-up-a-kubernetes-cluster)
+    - [Step 2 — Initial ArgoCD Installation](#step-2--initial-argocd-installation)
+    - [Step 3 — Apply App Projects](#step-3--apply-app-projects)
+    - [Step 4 — Apply the argocd Application (App of Apps entry point)](#step-4--apply-the-argocd-application-app-of-apps-entry-point)
+    - [Step 5 — Apply Remaining app-of-apps Manifests](#step-5--apply-remaining-app-of-apps-manifests)
+    - [Step 6 — Access the ArgoCD UI](#step-6--access-the-argocd-ui)
+    - [Step 7 — Teardown](#step-7--teardown)
   - [Helm Chart Structure (Manifests)](#helm-chart-structure-manifests)
   - [References](#references)
     - [ArgoCD Official Docs](#argocd-official-docs)
@@ -50,8 +55,9 @@ examples/argocd-apps/
 ├── app-of-apps/            # ArgoCD Application manifests (child apps)
 │   ├── apps/
 │   │   └── todo-list.yaml
-│   └── infrastructure/
-│       ├── argocd.yaml
+│   ├── infrastructure/
+│   │   └── argocd.yaml     # ← App of Apps entry point (bootstraps ArgoCD self-management)
+│   └── platform/
 │       └── cert-manager.yaml
 ├── app-projects/           # AppProject resources (RBAC isolation)
 │   ├── apps.yaml
@@ -61,12 +67,47 @@ examples/argocd-apps/
     ├── apps/
     │   └── todo-list/
     ├── infrastructure/
-    │   ├── argocd/
-    │   ├── cert-manager/
-    │   ├── argo-rollouts/
-    │   └── argo-workflow/
+    │   └── argocd/         # ArgoCD Helm chart (argo-cd + argocd-apps + image-updater)
     └── platform/
+        └── cert-manager/   # cert-manager + ClusterIssuer template
 ```
+
+---
+
+## Three-Layer Architecture
+
+The example follows a three-layer separation of concerns, each backed by a dedicated `AppProject` with scoped RBAC:
+
+```
+┌─────────────────────────────────────────────────────┐
+│                   INFRASTRUCTURE                     │
+│  Project: infrastructure  (full cluster privileges)  │
+│  ─────────────────────────────────────────────────  │
+│  app-of-apps/infrastructure/argocd.yaml              │
+│    └─▶ manifests/infrastructure/argocd/              │
+│         (ArgoCD self-management via Helm)            │
+├─────────────────────────────────────────────────────┤
+│                     PLATFORM                         │
+│  Project: platform  (cluster-level tooling)          │
+│  ─────────────────────────────────────────────────  │
+│  app-of-apps/platform/cert-manager.yaml              │
+│    └─▶ manifests/platform/cert-manager/              │
+│         (cert-manager CRDs + ClusterIssuers)         │
+├─────────────────────────────────────────────────────┤
+│                       APPS                           │
+│  Project: apps  (namespace-scoped workloads only)    │
+│  ─────────────────────────────────────────────────  │
+│  app-of-apps/apps/todo-list.yaml                     │
+│    └─▶ manifests/apps/todo-list/                     │
+│         (workload Deployment + Service + Ingress)    │
+└─────────────────────────────────────────────────────┘
+```
+
+| Layer | Project | Privileges | Contents |
+|---|---|---|---|
+| **Infrastructure** | `infrastructure` | Full cluster (`clusterResourceWhitelist: *`) | ArgoCD itself |
+| **Platform** | `platform` | Selective cluster-wide (Namespace, CRD, RBAC, StorageClass, WebhookConfig) | cert-manager |
+| **Apps** | `apps` | Namespace-scoped workloads only (`clusterResourceBlacklist: *`) | todo-list |
 
 ---
 
@@ -74,25 +115,40 @@ examples/argocd-apps/
 
 ### How it works
 
-The App of Apps pattern uses a **root Application** that points ArgoCD at a directory of child `Application` manifests stored in Git. When the root app syncs, it discovers and creates all child applications — each of which then manages its own Helm chart or manifest directory.
+The App of Apps pattern uses a **bootstrap Application** that points ArgoCD at a directory of child `Application` manifests stored in Git. When it syncs, ArgoCD discovers and creates all child applications — each of which then manages its own Helm chart or manifest directory.
 
 ```
 Git Repository
 └── app-of-apps/
-    ├── apps/
-    │   └── todo-list.yaml       ← ArgoCD Application → manifests/apps/todo-list
-    └── infrastructure/
-        ├── argocd.yaml          ← ArgoCD Application → manifests/infrastructure/argocd
-        └── cert-manager.yaml    ← ArgoCD Application → manifests/infrastructure/cert-manager
+    ├── infrastructure/
+    │   └── argocd.yaml          ← ArgoCD Application → manifests/infrastructure/argocd
+    ├── platform/
+    │   └── cert-manager.yaml    ← ArgoCD Application → manifests/platform/cert-manager
+    └── apps/
+        └── todo-list.yaml       ← ArgoCD Application → manifests/apps/todo-list
 
-                ↕  reconciled by ArgoCD
+                ↕  continuously reconciled by ArgoCD
 
-Kubernetes Cluster
-└── argocd namespace
-    ├── Application: root-app       (the bootstrap entry point)
-    ├── Application: todo-list      (manages todo-list Helm release)
-    ├── Application: argocd         (manages ArgoCD itself)
-    └── Application: cert-manager   (manages cert-manager + ClusterIssuers)
+Kubernetes Cluster (argocd namespace)
+    ├── Application: argocd         (self-manages ArgoCD via Helm)
+    ├── Application: cert-manager   (manages cert-manager + ClusterIssuers)
+    └── Application: todo-list      (manages workload Deployment)
+```
+
+### Bootstrap Strategy
+
+The key insight is that **the `argocd` Application is both the entry point and the self-management declaration for ArgoCD**. Once applied manually, ArgoCD takes ownership of its own Helm release and uses the `argocd-apps` sub-chart to continuously reconcile all remaining Applications.
+
+```
+[Manual] kubectl apply → app-of-apps/infrastructure/argocd.yaml
+                            │
+                            ▼
+              ArgoCD reconciles manifests/infrastructure/argocd/
+              (Helm chart: argo-cd + argocd-apps + image-updater)
+                            │
+                            ▼
+              argocd-apps sub-chart creates remaining Applications
+              from values.yaml  ─────────────────────────────────▶  GitOps is fully self-driving
 ```
 
 ### Example child Application
@@ -105,9 +161,9 @@ metadata:
   name: todo-list
   namespace: argocd
   finalizers:
-    - resources-finalizer.argocd.argoproj.io   # cascading delete
+    - resources-finalizer.argocd.argoproj.io   # cascading delete on app removal
 spec:
-  project: apps
+  project: apps                                  # scoped to namespace workloads only
   source:
     repoURL: "https://github.com/Xeus-Territory/kubewekend"
     targetRevision: HEAD
@@ -121,28 +177,27 @@ spec:
     server: "https://kubernetes.default.svc"
     namespace: "default"
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
 ```
 
 ### Sync Waves
 
-Use `argocd.argoproj.io/sync-wave` annotations to control the deployment order within a sync operation. Resources with lower wave numbers are applied first.
+Use `argocd.argoproj.io/sync-wave` annotations to control the deployment order within a sync. Lower wave number = applied first. This is critical for infrastructure that has CRD-to-resource dependencies.
 
 ```yaml
-# Deploy cert-manager CRDs before ClusterIssuers
+# Wave 0: Install cert-manager operator (creates CRDs)
 metadata:
   annotations:
-    argocd.argoproj.io/sync-wave: "0"   # wave 0: cert-manager operator
+    argocd.argoproj.io/sync-wave: "0"
 
-# ClusterIssuer resources wait for wave 1
+# Wave 1: Create ClusterIssuer resources (depend on cert-manager CRDs)
 metadata:
   annotations:
-    argocd.argoproj.io/sync-wave: "1"   # wave 1: ClusterIssuer resources
+    argocd.argoproj.io/sync-wave: "1"
 ```
+
+The `cluster-issuers.yaml` template in `manifests/platform/cert-manager/templates/` already uses wave `"1"` so ClusterIssuers only apply after the operator is healthy.
 
 ---
 
@@ -460,123 +515,284 @@ spec:
 
 ## App Projects (RBAC Isolation)
 
-`AppProject` resources scope what each set of applications can access. Three projects are defined in this example:
+`AppProject` resources scope what each set of applications can access. Three projects are defined with progressively tighter RBAC:
 
-| Project | Applications | Purpose |
-|---|---|---|
-| `apps` | todo-list, user-facing services | Deploy workloads to application namespaces |
-| `infrastructure` | argocd, cert-manager, networking | Deploy cluster-level infrastructure |
-| `platform` | monitoring, logging, observability | Deploy platform-layer components |
+| Project | Layer | Source Repos | Cluster Privileges | Namespace Access |
+|---|---|---|---|---|
+| `infrastructure` | Bootstrap | Any (`*`) | Full (`clusterResourceWhitelist: *`) | All namespaces |
+| `platform` | Tooling | Pinned repos (kubewekend, jetstack, grafana, prometheus-community) | Selective (Namespace, CRD, RBAC, StorageClass, Webhook, ClusterIssuer) | All except `kube-system` |
+| `apps` | Workloads | Pinned repo (kubewekend) | Blocked (`clusterResourceBlacklist: *`) | All except kube-system, argocd, monitoring, logging, cert-manager, traefik |
 
-```yaml
-# app-projects/infrastructure.yaml
-apiVersion: argoproj.io/v1alpha1
-kind: AppProject
-metadata:
-  name: infrastructure
-  namespace: argocd
-spec:
-  sourceRepos:
-    - https://github.com/Xeus-Territory/kubewekend.git
-  sourceNamespaces:
-    - '*'
-  destinations:
-    # Allow apps to be installed in any namespace and any cluster.
-    - server: '*'
-      namespace: '*'
-  clusterResourceWhitelist:
-  - group: '*'
-    kind: '*'
-```
+Each project also ships pre-defined **roles**:
 
-> [!TIP]
-> Tighten `namespaceResourceBlacklist` and `clusterResourceWhitelist` in production to limit the blast radius of a misconfigured Application.
+- `infrastructure` → `infra-admin` (full provisioning access + exec)
+- `platform` → `platform-engineer` (CRUD sync on platform apps)
+- `apps` → `developer` (deploy/sync workloads), `viewer` (read-only)
 
 ---
 
-## Bootstrap Guide
+## From Scratch — Practice Guide
 
 ### Prerequisites
 
-- Kubernetes cluster (k3s, kind, or cloud-managed)
-- `kubectl` configured against the cluster
-- `helm` v3 installed
+| Tool | Required | Purpose |
+|---|---|---|
+| [vagrant](https://developer.hashicorp.com/vagrant/docs/installation) | Yes* | VM provisioning |
+| [VirtualBox](https://www.virtualbox.org/wiki/Downloads) | Yes* | VM provider |
+| [ansible](https://docs.ansible.com/ansible/latest/installation_guide/) | Yes | Cluster orchestration |
+| [kubectl](https://kubernetes.io/docs/tasks/tools/) | Yes | Kubernetes CLI |
+| [helm](https://helm.sh/docs/intro/install/) | Yes | Helm chart management |
+| [docker](https://docs.docker.com/engine/install/) | For Kind | Required for Kind clusters |
 
-### Step 1 — Install ArgoCD
+> \* Vagrant + VirtualBox are only required for local VM workflows. Skip for remote VPS or localhost Kind.
 
-**Option A** — Stable manifest (quickstart):
+See the full [Kubewekend CLI reference](../../scripts/README.md) for all available commands.
+
+---
+
+### Step 1 — Spin up a Kubernetes Cluster
+
+Use the **Kubewekend CLI** (`./scripts/setup.sh`) to provision a local cluster. Pick the workflow that matches your environment:
+
+**Kind on Vagrant (recommended for local play):**
+
+```bash
+# 1. Initialize environment
+chmod +x ./scripts/setup.sh
+./scripts/setup.sh env init          # creates .env from template.env
+./scripts/setup.sh env check         # verify all tools are installed
+
+# 2. Provision the VM
+./scripts/setup.sh vagrant up k8s-master-machine
+
+# 3. Generate inventory and verify SSH connectivity
+./scripts/setup.sh inventory generate
+./scripts/setup.sh inventory ping
+
+# 4. Create the Kind cluster (installs CNI, kubeconfig)
+./scripts/setup.sh kind setup
+```
+
+**K3s Standalone on Vagrant:**
+
+```bash
+./scripts/setup.sh vagrant up k8s-master-machine k8s-worker-machine-1
+./scripts/setup.sh inventory generate
+./scripts/setup.sh inventory ping
+./scripts/setup.sh k3s setup
+
+# Fetch kubeconfig
+ssh vagrant@192.168.56.99 'sudo cat /etc/rancher/k3s/k3s.yaml' \
+  | sed 's/127.0.0.1/192.168.56.99/' > ~/.kube/config
+```
+
+**Kind on localhost (no Vagrant):**
+
+```bash
+# Manually configure inventory for localhost
+cat > ansible/inventories/hosts <<'EOF'
+[standalone-masters]
+localhost ansible_host=127.0.0.1 ansible_connection=local
+
+[standalone-all:children]
+standalone-masters
+EOF
+
+./scripts/setup.sh kind setup --host localhost
+kubectl cluster-info --context kind-kubewekend
+```
+
+Verify the cluster is ready:
+
+```bash
+kubectl get nodes
+```
+
+---
+
+### Step 2 — Initial ArgoCD Installation
+
+ArgoCD must be running before we can apply Application manifests. This is a **one-time manual bootstrap** — after Step 4, ArgoCD will self-manage its own installation via GitOps.
+
+**Option A — Stable manifest (quickstart):**
 
 ```bash
 kubectl create namespace argocd
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl apply -n argocd \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 ```
 
-**Option B** — Helm chart (recommended, production-grade):
+**Option B — Helm chart from this repo (production-grade, matches `values.yaml`):**
 
 ```bash
 cd examples/argocd-apps/manifests/infrastructure/argocd
-
 helm dependency update
-helm template argocd . -f values.yaml -n argocd | kubectl apply -n argocd -f -
+helm template argocd . -f values.yaml --namespace argocd \
+  | kubectl apply -n argocd -f -
 ```
 
-Wait for ArgoCD to be ready:
+Wait for ArgoCD to be healthy:
 
 ```bash
-kubectl wait --for=condition=available deployment/argocd-server -n argocd --timeout=120s
+kubectl wait --for=condition=available deployment/argocd-server \
+  -n argocd --timeout=120s
 ```
 
-### Step 2 — Apply App Projects
+**Option C - Deploy ArgoCD via Utilities of Kubewekend (Simple version with no advantage configuration):**
+
+```bash
+# For K3s
+./scripts/setup.sh k3s utilities gitops --host k8s-master-machine
+
+# For Kind
+./scripts/setup.sh kind utilities gitops --host localhost
+```
+---
+
+### Step 3 — Apply App Projects
+
+Apply all three `AppProject` resources to create the RBAC boundaries before any Application is created:
 
 ```bash
 kubectl apply -f examples/argocd-apps/app-projects/
 ```
 
-### Step 3 — Create the Root App (App of Apps bootstrap)
-
-Apply the root Application that points ArgoCD at the `app-of-apps/` directory:
+Verify:
 
 ```bash
-kubectl apply -n argocd -f - <<EOF
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: argocd-apps
-  namespace: argocd
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: "https://github.com/Xeus-Territory/kubewekend"
-    targetRevision: HEAD
-    path: "examples/argocd-apps/app-of-apps"
-    directory:
-      recurse: true
-  destination:
-    server: "https://kubernetes.default.svc"
-    namespace: argocd
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-EOF
+kubectl get appprojects -n argocd
+# NAME             AGE
+# apps             5s
+# infrastructure   5s
+# platform         5s
 ```
 
-ArgoCD will discover all `Application` YAML files under `app-of-apps/` and create them automatically.
+---
 
-### Step 4 — Access the ArgoCD UI
+### Step 4 — Apply the argocd Application (App of Apps entry point)
+
+This is the **single command that kicks off the entire GitOps loop**. Applying `app-of-apps/infrastructure/argocd.yaml` tells ArgoCD to reconcile the full ArgoCD Helm chart from `manifests/infrastructure/argocd/`. That chart bundles the `argocd-apps` sub-chart, which can then create and manage all remaining Applications declaratively.
+
+>[!TIP]
+>In the first time provision, you can change project of `argocd` to `default` for ignore conflict with highest permission when we sync ArgoCD in UI, but if you handle and trigger the step 3, you can set project to `infrastructure`
+
+```
+[You] kubectl apply -f app-of-apps/infrastructure/argocd.yaml
+         │
+         ▼
+[ArgoCD] Reconciles manifests/infrastructure/argocd/  (Helm)
+         ├── argo-cd        v9.1.3   → ArgoCD v3.2.0 (self-managed)
+         ├── argocd-apps    v2.0.2   → manages remaining Application resources
+         └── image-updater  v1.0.1   → auto-updates container image tags
+         │
+         ▼
+[argocd-apps] Creates Application resources from values.yaml
+              └── GitOps is now fully self-driving
+```
+
+```bash
+kubectl apply -n argocd \
+  -f examples/argocd-apps/app-of-apps/infrastructure/argocd.yaml
+```
+
+Watch the Application sync in real time:
+
+```bash
+kubectl get applications -n argocd -w
+# NAME     SYNC STATUS   HEALTH STATUS
+# argocd   Synced        Healthy
+```
+
+> [!NOTE]
+> ArgoCD will now manage its own Helm release. Any future changes to `manifests/infrastructure/argocd/values.yaml` committed to Git will automatically be reconciled — no manual `helm upgrade` needed.
+
+---
+
+### Step 5 — Apply Remaining app-of-apps Manifests
+
+With ArgoCD self-managing, apply the platform and app layer Applications:
+
+```bash
+# Platform layer (cert-manager)
+kubectl apply -n argocd \
+  -f examples/argocd-apps/app-of-apps/platform/cert-manager.yaml
+
+# Apps layer (todo-list workload)
+kubectl apply -n argocd \
+  -f examples/argocd-apps/app-of-apps/apps/todo-list.yaml
+```
+
+Watch all applications converge:
+
+```bash
+kubectl get applications -n argocd
+# NAME           SYNC STATUS   HEALTH STATUS
+# argocd         Synced        Healthy
+# cert-manager   Synced        Healthy
+# todo-list      Synced        Healthy
+```
+
+Full end-to-end flow once all steps are complete:
+
+```
+Git Push
+   │
+   ▼
+GitHub (examples/argocd-apps/)
+   │
+   ▼  ArgoCD polls every 180s (or webhook)
+   │
+   ├──▶ app-of-apps/infrastructure/argocd.yaml
+   │       └──▶ manifests/infrastructure/argocd/   (ArgoCD Helm release)
+   │
+   ├──▶ app-of-apps/platform/cert-manager.yaml
+   │       └──▶ manifests/platform/cert-manager/   (cert-manager + ClusterIssuers)
+   │
+   └──▶ app-of-apps/apps/todo-list.yaml
+           └──▶ manifests/apps/todo-list/           (workload Deployment)
+```
+
+---
+
+### Step 6 — Access the ArgoCD UI
 
 ```bash
 # Port-forward the ArgoCD server
-kubectl port-forward svc/argocd-server -n argocd 8080:443
+kubectl port-forward svc/argocd-server -n argocd 8080:80
 
-# Retrieve the initial admin password
+# Retrieve the initial admin password (if not set in values.yaml)
 kubectl get secret argocd-initial-admin-secret -n argocd \
-  -o jsonpath="{.data.password}" | base64 --decode
+  -o jsonpath="{.data.password}" | base64 --decode && echo
 ```
 
-Open `https://localhost:8080` and log in with `admin` / `<decoded password>`.
+Open [http://localhost:8080](http://localhost:8080) and log in with `admin` / `<decoded password>`.
+
+> [!TIP]
+> The `values.yaml` in `manifests/infrastructure/argocd/` sets `configs.params.server.insecure: true`, so the UI is served over HTTP. Use port `8080:80`, not `8080:443`.
+
+---
+
+### Step 7 — Teardown
+
+```bash
+# Remove all Applications (cascading delete removes managed resources)
+kubectl delete -n argocd \
+  -f examples/argocd-apps/app-of-apps/apps/todo-list.yaml \
+  -f examples/argocd-apps/app-of-apps/platform/cert-manager.yaml \
+  -f examples/argocd-apps/app-of-apps/infrastructure/argocd.yaml
+
+# Remove App Projects
+kubectl delete -f examples/argocd-apps/app-projects/
+
+# Destroy the cluster (Kind)
+./scripts/setup.sh kind destroy
+
+# Or for K3s
+./scripts/setup.sh k3s destroy
+
+# Destroy VMs (if using Vagrant)
+./scripts/setup.sh vagrant destroy
+```
 
 ---
 
@@ -589,20 +805,30 @@ Each application under `manifests/` is a thin wrapper Helm chart that declares a
 - Allows ArgoCD to render and diff the final manifests
 
 ```
-manifests/infrastructure/cert-manager/
+manifests/platform/cert-manager/
 ├── Chart.yaml          # pins cert-manager v1.19.2
-├── values.yaml         # installCRDs, clusterIssuers list
+├── values.yaml         # installCRDs: true, clusterIssuers list
 └── templates/
-    └── cluster-issuers.yaml   # custom template for ClusterIssuer resources
+    └── cluster-issuers.yaml   # generates ClusterIssuer resources (sync-wave: "1")
 ```
 
-The `argocd` chart bundles three components under one release:
+The `argocd` chart bundles three components under one Helm release:
 
-| Sub-chart | Alias | Version |
+| Sub-chart | Alias | Version | Purpose |
+|---|---|---|---|
+| `argo-cd` | `argocd` | `9.1.3` (ArgoCD `v3.2.0`) | Core ArgoCD |
+| `argocd-apps` | `apps` | `2.0.2` | Manages Application/AppProject resources via values |
+| `argocd-image-updater` | `image-updater` | `1.0.1` | Auto-updates image tags in Git |
+
+Notable `values.yaml` settings in the `argocd` chart:
+
+| Setting | Value | Effect |
 |---|---|---|
-| `argo-cd` | `argocd` | `9.1.3` (ArgoCD `v3.2.0`) |
-| `argocd-apps` | `apps` | `2.0.2` |
-| `argocd-image-updater` | `image-updater` | `1.0.1` |
+| `argocd.configs.params.server.insecure` | `true` | HTTP mode (no TLS termination at ArgoCD) |
+| `argocd.configs.cm.timeout.reconciliation` | `180s` | Polling interval for drift detection |
+| `argocd.configs.cm.exec.enabled` | `true` | Enables `argocd exec` into pods from UI |
+| `argocd.global.domain` | `argocd.local` | Ingress hostname |
+| `argocd.global.image.tag` | `v3.2.0` | Pinned ArgoCD version |
 
 ---
 

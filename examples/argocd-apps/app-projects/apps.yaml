@@ -21,6 +21,8 @@ spec:
       server: '*'
     - namespace: '!cert-manager'
       server: '*'
+    - namespace: '!traefik'
+      server: '*'
     - namespace: '!ingress-nginx'
       server: '*'
     # Allow all other namespaces on the local cluster
@@ -56,6 +58,10 @@ spec:
       kind: Job
     - group: 'batch'
       kind: CronJob
+    - group: ''
+      kind: Pod
+    - group: 'apps'
+      kind: ReplicaSet
   # Explicitly block all cluster-wide resources at the app layer
   clusterResourceBlacklist:
     - group: '*'

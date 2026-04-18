@@ -6,8 +6,9 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  # The default project is fine for this app since it doesn't have any special requirements.
-  project: default
+  # The `default` project is fine for this app since it doesn't have any special requirements.
+  # Using for initialization of ArgoCD itself, so that the project can be used by the app of apps to manage the platform and app layer apps.
+  project: infrastructure
   source:
     repoURL: "https://github.com/Xeus-Territory/kubewekend"
     targetRevision: HEAD
