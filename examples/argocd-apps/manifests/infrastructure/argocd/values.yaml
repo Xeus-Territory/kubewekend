@@ -1,5 +1,8 @@
 argocd:
   enabled: true
+
+  global:
+    domain: argocd.local
   server:
     ingress:
       enabled: true
@@ -16,9 +19,12 @@ argocd:
       accounts.kubewekend-reader: login
       # Recommended: Disable initialize admin account and use RBAC for least privilege access control
       # Reference: https://argo-cd.readthedocs.io/en/stable/operator-manual/user-management/#disable-admin-user
-      # admin.enabled: false
       # Manage user accounts and permissions with admin account before disabling admin access
       # Reference: https://argo-cd.readthedocs.io/en/stable/operator-manual/user-management/#manage-users
+      # admin.enabled: false
+      # Enable Exec for CLI access to app containers when RBAC policies allow
+      exec.enabled: true
+      # 
     params:
       create: true
       annotations: {}
