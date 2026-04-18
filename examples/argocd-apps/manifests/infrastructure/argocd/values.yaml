@@ -8,15 +8,43 @@ argocd:
       hostname: argocd.local
 
   configs:
+    cm:
+      create: true
+      # Create a kubewekend-admin account
+      accounts.kubewekend-admin: apiKey,login
+      # Create a kubewekend-read-only account
+      accounts.kubewekend-reader: login
+      # Recommended: Disable initialize admin account and use RBAC for least privilege access control
+      # Reference: https://argo-cd.readthedocs.io/en/stable/operator-manual/user-management/#disable-admin-user
+      # admin.enabled: false
+      # Manage user accounts and permissions with admin account before disabling admin access
+      # Reference: https://argo-cd.readthedocs.io/en/stable/operator-manual/user-management/#manage-users
     params:
       create: true
       annotations: {}
       # TLS Disable for ArgoCD API should be terminated when ingress enabled --> Use insecure mode for ArgoCD
       # Read more at: https://argo-cd.readthedocs.io/en/latest/operator-manual/ingress/#ambassador
       server.insecure: true
+    rbac:
+      create: true
+      # Reference: https://argo-cd.readthedocs.io/en/stable/operator-manual/rbac/
+      # Examples: https://argo-cd.readthedocs.io/en/latest/operator-manual/rbac-examples/
+      policy.csv: |
+        g, kubewekend-admin, role:admin
+        g, kubewekend-reader, role:readonly
 
+  # Disable Dex since we're using static admin accounts for simplicity in this demo. 
+  # In production, you would likely want to enable Dex and connect it to an external identity provider.
   dex:
     enabled: false
+
+  repoServer:
+    env:
+      # Enable HA with Git polling in the repo server, which is recommended 
+      # when running multiple ArgoCD replicas for high availability.
+      # Reference: https://argo-cd.readthedocs.io/en/stable/operator-manual/high_availability/
+      - name: ARGOCD_GIT_ATTEMPTS_COUNT
+        value: "3"
 
 apps:
   enabled: true
@@ -41,8 +69,8 @@ apps:
         namespace: argocd
       syncPolicy:
         automated:
-          prune: false
-          selfHeal: false
+          prune: true
+          selfHeal: true
         syncOptions:
         - CreateNamespace=true
       revisionHistoryLimit: null
@@ -98,6 +126,144 @@ apps:
   # Reference: https://argo-cd.readthedocs.io/en/stable/user-guide/projects/
   # Examples: https://argo-cd.readthedocs.io/en/latest/operator-manual/project-specification/
   projects:
+    apps:
+      description: "Application layer - manages workload Deployments and StatefulSets via GitOps IDP"
+      sourceRepos:
+        - https://github.com/Xeus-Territory/kubewekend.git
+      sourceNamespaces:
+        - argocd
+      destinations:
+        # Block privileged/system namespaces from app workloads
+        - namespace: '!kube-system'
+          server: '*'
+        - namespace: '!argocd'
+          server: '*'
+        - namespace: '!monitoring'
+          server: '*'
+        - namespace: '!logging'
+          server: '*'
+        - namespace: '!cert-manager'
+          server: '*'
+        - namespace: '!traefik'
+          server: '*'
+        - namespace: '!ingress-nginx'
+          server: '*'
+        # Allow all other namespaces on the local cluster
+        - server: https://kubernetes.default.svc
+          namespace: '*'
+      # Only allow namespace-scoped workload resources
+      namespaceResourceWhitelist:
+        - group: 'apps'
+          kind: Deployment
+        - group: 'apps'
+          kind: StatefulSet
+        - group: 'apps'
+          kind: DaemonSet
+        - group: ''
+          kind: Service
+        - group: ''
+          kind: ConfigMap
+        - group: ''
+          kind: Secret
+        - group: ''
+          kind: ServiceAccount
+        - group: ''
+          kind: PersistentVolumeClaim
+        - group: 'networking.k8s.io'
+          kind: Ingress
+        - group: 'networking.k8s.io'
+          kind: NetworkPolicy
+        - group: 'autoscaling'
+          kind: HorizontalPodAutoscaler
+        - group: 'policy'
+          kind: PodDisruptionBudget
+        - group: 'batch'
+          kind: Job
+        - group: 'batch'
+          kind: CronJob
+        - group: ''
+          kind: Pod
+        - group: 'apps'
+          kind: ReplicaSet
+      # Explicitly block all cluster-wide resources at the app layer
+      clusterResourceBlacklist:
+        - group: '*'
+          kind: '*'
+      roles:
+        - name: developer
+          description: "Application developer - can deploy and sync workloads"
+          policies:
+            - p, proj:apps:developer, applications, get, apps/*, allow
+            - p, proj:apps:developer, applications, create, apps/*, allow
+            - p, proj:apps:developer, applications, update, apps/*, allow
+            - p, proj:apps:developer, applications, sync, apps/*, allow
+            - p, proj:apps:developer, applications, override, apps/*, allow
+        - name: viewer
+          description: "Read-only access to the apps project"
+          policies:
+            - p, proj:apps:viewer, applications, get, apps/*, allow
+      orphanedResources:
+        warn: true
+    platform:
+      description: "Platform layer - manages tooling integrations (monitoring, logging, service mesh, ingress) via GitOps IDP"
+      sourceRepos:
+        - https://github.com/Xeus-Territory/kubewekend.git
+        - https://prometheus-community.github.io/helm-charts
+        - https://grafana.github.io/helm-charts
+        - https://helm.nginx.com/stable
+        - https://charts.jetstack.io
+      sourceNamespaces:
+        - argocd
+      destinations:
+        # Block only the core system namespace; platform tools install in dedicated namespaces
+        - namespace: '!kube-system'
+          server: '*'
+        # Allow all other namespaces (monitoring, logging, cert-manager, ingress-nginx, etc.)
+        - server: https://kubernetes.default.svc
+          namespace: '*'
+      # Allow all namespace-scoped resources so platform tools can install any workload type
+      namespaceResourceWhitelist:
+        - group: '*'
+          kind: '*'
+      # Allow selective cluster-wide resources needed for platform tooling
+      clusterResourceWhitelist:
+        - group: ''
+          kind: Namespace
+        - group: ''
+          kind: PersistentVolume
+        - group: 'rbac.authorization.k8s.io'
+          kind: ClusterRole
+        - group: 'rbac.authorization.k8s.io'
+          kind: ClusterRoleBinding
+        - group: 'apiextensions.k8s.io'
+          kind: CustomResourceDefinition
+        - group: 'storage.k8s.io'
+          kind: StorageClass
+        - group: 'networking.k8s.io'
+          kind: IngressClass
+        - group: 'admissionregistration.k8s.io'
+          kind: MutatingWebhookConfiguration
+        - group: 'admissionregistration.k8s.io'
+          kind: ValidatingWebhookConfiguration
+        - group: 'cert-manager.io'
+          kind: ClusterIssuer
+        - group: 'apiextensions.k8s.io'
+          kind: CustomResourceDefinition
+      roles:
+        - name: platform-engineer
+          description: "Platform engineer - can manage and integrate platform tooling"
+          policies:
+            - p, proj:platform:platform-engineer, applications, get, platform/*, allow
+            - p, proj:platform:platform-engineer, applications, create, platform/*, allow
+            - p, proj:platform:platform-engineer, applications, update, platform/*, allow
+            - p, proj:platform:platform-engineer, applications, sync, platform/*, allow
+            - p, proj:platform:platform-engineer, applications, override, platform/*, allow
+        - name: viewer
+          description: "Read-only access to the platform project"
+          policies:
+            - p, proj:platform:viewer, applications, get, platform/*, allow
+      orphanedResources:
+        warn: true
     infrastructure:
       description: "Infrastructure layer - manages ArgoCD itself and platform apps via GitOps IDP"
       sourceRepos:
