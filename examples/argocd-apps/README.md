@@ -770,6 +770,42 @@ Open [http://localhost:8080](http://localhost:8080) and log in with `admin` / `<
 > [!TIP]
 > The `values.yaml` in `manifests/infrastructure/argocd/` sets `configs.params.server.insecure: true`, so the UI is served over HTTP. Use port `8080:80`, not `8080:443`.
 
+> [!NOTE]
+> Because, Other `admin` account, the system also provide a two bootstrap user, include `kubewekend-admin` and `kubewekend-reader`
+>
+> To setup the the password for them, you can use `argocd` command with `admin` account. Read more at [ArgoCD - Manager Users](https://argo-cd.readthedocs.io/en/stable/operator-manual/user-management/#manage-users)
+
+```bash
+# Install `argocd` command
+VERSION=$(curl -L -s https://raw.githubusercontent.com/argoproj/argo-cd/stable/VERSION)
+curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/download/v$VERSION/argocd-linux-amd64
+sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
+rm argocd-linux-amd64
+
+# Login argocd with admin account
+# (For Interact)
+argocd login argocd.local
+# (For Manual)
+argocd login argocd.local --user admin --password <decoded password>
+
+# List account in system
+argocd account list
+
+# Get specific account
+argocd account get --account <username>
+
+# Set new password if you are managing users as the admin user, <current-user-password> should be the current admin password.
+# (For Interact)
+argocd account update-password \
+  --account <name>
+
+# (For Manual)
+argocd account update-password \
+  --account <name> \
+  --current-password <current-user-password> \
+  --new-password <new-user-password>
+```
+
 ---
 
 ### Step 7 — Teardown
