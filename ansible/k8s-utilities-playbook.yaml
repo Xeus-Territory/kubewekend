@@ -227,14 +227,18 @@
           changed_when: false
           when: utilities.storage.type == "longhorn" and utilities.storage.setup.nfs | default(false)
 
+        # Reference Issue: https://github.com/longhorn/longhorn/issues/12573 for memory leak, so update longhorn
+        # from v1.11.0 to v1.11.1 which has the fix for this issue
+        # Fixed: https://github.com/longhorn/longhorn/issues/12820#issuecomment-4095195336
         - name: "Setup Longhorn Storage for the cluster"
           when: utilities.storage.type == "longhorn"
           ansible.builtin.shell: |
             helm repo add longhorn https://charts.longhorn.io
             helm repo update
             helm upgrade --install longhorn longhorn/longhorn \
-              --namespace {{ utilities.storage.namespace }} --create-namespace --version 1.11.0 --wait \
-              --set longhornUI.replicas=1
+              --namespace {{ utilities.storage.namespace }} --create-namespace --version 1.11.1 --wait \
+              --set longhornUI.replicas=1 \
+              --set persistence.defaultClassReplicaCount={{ utilities.storage.replicaStorage | default(3) }}
 
           changed_when: false
           register: longhorn_storage_result
@@ -448,6 +452,10 @@
       tags: gitops
       when: utilities.gitops.enable | default(false)
       block:
+        # TLS Disable for ArgoCD API should be terminated when ingress enabled --> Use insecure mode for ArgoCD
+        # Read more at: https://argo-cd.readthedocs.io/en/latest/operator-manual/ingress/#ambassador
+        # But with Helm, you need to set `configs.params."server\.insecure"=true` to enable insecure mode for ArgoCD for right format of the value
+        # Reference: https://github.com/argoproj/argo-cd/discussions/18277
         - name: "Setup ArgoCD for GitOps"
           when: utilities.gitops.type == "argocd"
           ansible.builtin.shell: |
@@ -459,7 +467,8 @@
               --set server.ingress.enabled=true \
               --set server.ingress.ingressClassName={{ utilities.gitops.argocd.ingressClass }} \
               --set server.ingress.hostname={{ utilities.gitops.argocd.host }} \
-              --set configs.params."server.insecure"="true"
+              --set configs.params."server\.insecure"=true \
+              --set dex.enabled=false
 
           changed_when: false
           register: argocd_gitops_result

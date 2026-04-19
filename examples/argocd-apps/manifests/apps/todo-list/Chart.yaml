@@ -1,0 +1,12 @@
+apiVersion: v2
+name: todo-list
+version: 1.0.0
+dependencies:
+  - name: common
+    # Use version for remote dependency, or latest for local dependency
+    version: 0.2.0
+    # Use directory path for local dependency or URL for remote dependency
+    # Local: file://../../../../charts/common (relative to the location of this Chart.yaml)
+    # Remote: https://kubewekend.xeusnguyen.xyz
+    repository: "https://kubewekend.xeusnguyen.xyz"
+    condition: common.enabled

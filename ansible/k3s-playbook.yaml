@@ -24,19 +24,19 @@
         curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
         # Add bash-completion into ~/.bashrc
-        echo 'source /etc/bash_completion' >>~/.bashrc
+        echo 'source /etc/bash_completion' >> /home/{{ user }}/.bashrc
         kubectl completion bash | sudo tee /etc/bash_completion.d/kubectl >/dev/null
         helm completion bash | sudo tee /etc/bash_completion.d/helm >/dev/null
 
         # Add the alias and kubectl with couple of useful options
-        echo 'export KUBE_EDITOR="nano"' >>~/.bashrc
-        echo 'alias k="kubectl"' >> ~/.bashrc
-        echo 'alias kgp="kubectl get pods"' >> ~/.bashrc
-        echo 'alias kn="kubectl config set-context --current --namespace"' >> ~/.bashrc
-        echo 'alias kaf="kubectl apply -f "' >> ~/.bashrc
-        echo 'alias kr="kubectl run --dry-run=client -o yaml "' >> ~/.bashrc
-        echo 'alias krcp="k resource-capacity -p --util"' >> ~/.bashrc
-        echo 'alias krca="k resource-capacity -a"' >> ~/.bashrc
+        echo 'export KUBE_EDITOR="nano"' >> /home/{{ user }}/.bashrc
+        echo 'alias k="kubectl"' >> /home/{{ user }}/.bashrc
+        echo 'alias kgp="kubectl get pods"' >> /home/{{ user }}/.bashrc
+        echo 'alias kn="kubectl config set-context --current --namespace"' >> /home/{{ user }}/.bashrc
+        echo 'alias kaf="kubectl apply -f "' >> /home/{{ user }}/.bashrc
+        echo 'alias kr="kubectl run --dry-run=client -o yaml "' >> /home/{{ user }}/.bashrc
+        echo 'alias krcp="k resource-capacity -p --util"' >> /home/{{ user }}/.bashrc
+        echo 'alias krca="k resource-capacity -a"' >> /home/{{ user }}/.bashrc
 
         # Install vault
         wget https://releases.hashicorp.com/vault/1.18.5/vault_1.18.5_linux_amd64.zip && \
@@ -47,6 +47,7 @@
       args:
         executable: /bin/bash
       register: shell_output
+      become: true
 
     - name: Log output of common libraries installation
       ansible.builtin.debug:
@@ -120,8 +121,8 @@
         - name: Save the K3s kubeconfig for ansible used
           ansible.builtin.shell: |
             mkdir -p ~/.kube
-            sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
-            sudo chown $(id -u):$(id -g) ~/.kube/config
+            sudo cp /etc/rancher/k3s/k3s.yaml /home/{{ user }}/.kube/config
+            sudo chown $(id -u {{ user }}):$(id -g {{ user }}) /home/{{ user }}/.kube/config
           become: true
       
       when: cluster_name is search("master")
@@ -166,6 +167,7 @@
             # Install K3s with configuration from host_vars/worker.yaml
             curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3sCluster.version }} INSTALL_K3S_EXEC="agent" sh -s - 
           register: install_worker_node
+          become: true
 
         - name: Log output of K3s Worker Node installation
           ansible.builtin.debug:
@@ -254,7 +256,6 @@
           ansible.builtin.debug:
             msg: "{{ install_master_cilium_cni.stdout_lines }}"
           when: k3sCluster.cni.type == "cilium"
-    
 
     # Setup K3s Ingress Controller for Master Node
     - name: Setup K3s Traefik Ingress Controller
@@ -272,7 +273,6 @@
               --set gateway.enabled=false
           register: traefik_log
           changed_when: false
-          become_user: vagrant
 
         - name: Log the results of Install Traefik Ingress Controller for Master Node
           tags: setup_k3s
@@ -293,7 +293,6 @@
               --set ingressRoute.dashboard.entryPoints={web}
           register: traefik_dashboard_log
           changed_when: false
-          become_user: vagrant
 
         - name: Log the results of Setup Traefik Dashboard
           tags: setup_k3s
@@ -311,7 +310,6 @@
               --set gateway.enabled=true
           register: traefik_gateway_log
           changed_when: false
-          become_user: vagrant
 
         - name: Log the results of Setup Traefik Gateway
           tags: setup_k3s

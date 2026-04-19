@@ -1,0 +1,65 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  description: "Platform layer - manages tooling integrations (monitoring, logging, service mesh, ingress) via GitOps IDP"
+  sourceRepos:
+    - https://github.com/Xeus-Territory/kubewekend.git
+    - https://prometheus-community.github.io/helm-charts
+    - https://grafana.github.io/helm-charts
+    - https://helm.nginx.com/stable
+    - https://charts.jetstack.io
+  sourceNamespaces:
+    - argocd
+  destinations:
+    # Block only the core system namespace; platform tools install in dedicated namespaces
+    - namespace: '!kube-system'
+      server: '*'
+    # Allow all other namespaces (monitoring, logging, cert-manager, ingress-nginx, etc.)
+    - server: https://kubernetes.default.svc
+      namespace: '*'
+  # Allow all namespace-scoped resources so platform tools can install any workload type
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  # Allow selective cluster-wide resources needed for platform tooling
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+    - group: ''
+      kind: PersistentVolume
+    - group: 'rbac.authorization.k8s.io'
+      kind: ClusterRole
+    - group: 'rbac.authorization.k8s.io'
+      kind: ClusterRoleBinding
+    - group: 'apiextensions.k8s.io'
+      kind: CustomResourceDefinition
+    - group: 'storage.k8s.io'
+      kind: StorageClass
+    - group: 'networking.k8s.io'
+      kind: IngressClass
+    - group: 'admissionregistration.k8s.io'
+      kind: MutatingWebhookConfiguration
+    - group: 'admissionregistration.k8s.io'
+      kind: ValidatingWebhookConfiguration
+    - group: 'cert-manager.io'
+      kind: ClusterIssuer
+    - group: 'apiextensions.k8s.io'
+      kind: CustomResourceDefinition
+  roles:
+    - name: platform-engineer
+      description: "Platform engineer - can manage and integrate platform tooling"
+      policies:
+        - p, proj:platform:platform-engineer, applications, get, platform/*, allow
+        - p, proj:platform:platform-engineer, applications, create, platform/*, allow
+        - p, proj:platform:platform-engineer, applications, update, platform/*, allow
+        - p, proj:platform:platform-engineer, applications, sync, platform/*, allow
+        - p, proj:platform:platform-engineer, applications, override, platform/*, allow
+    - name: viewer
+      description: "Read-only access to the platform project"
+      policies:
+        - p, proj:platform:viewer, applications, get, platform/*, allow
+  orphanedResources:
+    warn: true

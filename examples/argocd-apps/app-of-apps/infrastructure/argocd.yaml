@@ -1,0 +1,29 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  # The `default` project is fine for this app since it doesn't have any special requirements.
+  # Using for initialization of ArgoCD itself, so that the project can be used by the app of apps to manage the platform and app layer apps.
+  project: infrastructure
+  source:
+    repoURL: "https://github.com/Xeus-Territory/kubewekend"
+    targetRevision: HEAD
+    path: "examples/argocd-apps/manifests/infrastructure/argocd"
+    helm:
+      # https://argo-cd.readthedocs.io/en/stable/user-guide/helm/#helm-release-name
+      releaseName: argocd
+      # https://argo-cd.readthedocs.io/en/stable/user-guide/helm/#values-files
+      valueFiles:
+        - values.yaml
+      # https://argo-cd.readthedocs.io/en/stable/user-guide/helm/#helm-version
+      version: v3
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: "argocd"
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
