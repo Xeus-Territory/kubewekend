@@ -35,6 +35,8 @@ argocd:
       create: true
       # Reference: https://argo-cd.readthedocs.io/en/stable/operator-manual/rbac/
       # Examples: https://argo-cd.readthedocs.io/en/latest/operator-manual/rbac-examples/
+      # Default policy.csv is empty, and they are predefined two default roles: admin and readonly
+      # Explore more at: https://github.com/argoproj/argo-cd/blob/master/assets/builtin-policy.csv
       policy.csv: |
         g, kubewekend-admin, role:admin
         g, kubewekend-reader, role:readonly
@@ -221,9 +223,6 @@ apps:
       sourceNamespaces:
         - argocd
       destinations:
-        # Block only the core system namespace; platform tools install in dedicated namespaces
-        - namespace: '!kube-system'
-          server: '*'
         # Allow all other namespaces (monitoring, logging, cert-manager, ingress-nginx, etc.)
         - server: https://kubernetes.default.svc
           namespace: '*'
