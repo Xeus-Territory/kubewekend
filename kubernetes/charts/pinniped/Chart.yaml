@@ -1,0 +1,19 @@
+apiVersion: v2
+name: pinniped
+description: A Helm chart for Pinniped, a Kubernetes authentication via ImpersonationProxy with Supervisor and Concierge components.
+type: application
+version: 0.1.0
+appVersion: v0.46.0
+sources:
+  - https://github.com/vmware/pinniped
+maintainers:
+  - name: "Xeus Nguyen"
+    email: "xeusnguyen@gmail.com"
+    url: https://wiki.xeusnguyen.xyz
+keywords:
+  - kubernetes-login
+  - secure-kubernetes-access
+  - authentication
+  - impersonation-proxy
+  - supervisor
+  - concierge

@@ -85,6 +85,76 @@
             msg: "{{ certmanager_install_result.stdout_lines }}"
           changed_when: false
 
+        - name: "Setup Self-Signed Certificates for the cluster with Cert Manager"
+          when: utilities.certmanager.selfSignedIssuer.enable | default(false)
+          ansible.builtin.shell: |
+            cat <<EOF | kubectl apply -f -
+            apiVersion: cert-manager.io/v1
+            kind: ClusterIssuer
+            metadata:
+              name: selfsigned-{{ utilities.certmanager.selfSignedIssuer.name }}
+            spec:
+              selfSigned: {}
+            ---
+            apiVersion: cert-manager.io/v1
+            kind: Certificate
+            metadata:
+              name: {{ utilities.certmanager.selfSignedIssuer.name }}-selfsigned-ca
+              # Create CA root secret in `cert-manager` namespace instead of `sandbox` namespace.
+              namespace: cert-manager
+            spec:
+              isCA: true
+              commonName: {{ utilities.certmanager.selfSignedIssuer.name }}-selfsigned-ca
+              secretName: {{ utilities.certmanager.selfSignedIssuer.secretName }}
+              privateKey:
+                algorithm: ECDSA
+                size: 256
+              issuerRef:
+                name: selfsigned-{{ utilities.certmanager.selfSignedIssuer.name }}
+                kind: ClusterIssuer
+                group: cert-manager.io
+            ---
+            apiVersion: cert-manager.io/v1
+            kind: ClusterIssuer
+            metadata:
+              name: {{ utilities.certmanager.selfSignedIssuer.name }}-ca-issuer
+            spec:
+              ca:
+                # `ClusterIssuer` resource is not namespaced, so `secretName` is assumed to reference secret in `cert-manager` namespace.
+                secretName: {{ utilities.certmanager.selfSignedIssuer.secretName }}
+            EOF
+          changed_when: false
+          register: certmanager_selfsigned_issuer_result
+
+        - name: "Display cert-manager Self-Signed Issuer setup result"
+          ansible.builtin.debug:
+            msg: "{{ certmanager_selfsigned_issuer_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.certmanager.selfSignedIssuer.enable | default(false)
+
+        - name: Get the root CA certificate from remote host
+          when: utilities.certmanager.selfSignedIssuer.enable | default(false)
+          ansible.builtin.shell: |
+            sleep 5 # Wait for the certificate to be generated
+            kubectl -n cert-manager get secret {{ utilities.certmanager.selfSignedIssuer.secretName }} -o jsonpath='{.data.ca\.crt}' | base64 --decode > /home/{{ user }}/{{ utilities.certmanager.selfSignedIssuer.name }}-ca.crt
+            echo "Root CA certificate has been saved to /home/{{ user }}/{{ utilities.certmanager.selfSignedIssuer.name }}-ca.crt"
+          changed_when: false
+          register: certmanager_get_root_ca_result
+        
+        - name: "Display cert-manager Get Root CA result"
+          ansible.builtin.debug:
+            msg: "{{ certmanager_get_root_ca_result.stdout_lines }}"
+          changed_when: false
+          when: utilities.certmanager.selfSignedIssuer.enable | default(false)
+
+        - name: "Copy root CA certificate from remote"
+          ansible.builtin.fetch:
+            src: "/home/{{ user }}/{{ utilities.certmanager.selfSignedIssuer.name }}-ca.crt"
+            dest: "./{{ utilities.certmanager.selfSignedIssuer.name }}-ca.crt"
+            flat: yes
+          changed_when: false
+          when: utilities.certmanager.selfSignedIssuer.enable | default(false)
+
     - name: "Setup Dashboard for the cluster"
       tags: dashboard
       when: utilities.dashboard.enable | default(false)

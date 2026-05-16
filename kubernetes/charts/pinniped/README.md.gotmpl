@@ -1,0 +1,298 @@
+{{ template "chart.header" . }}
+{{ template "chart.deprecationWarning" . }}
+
+{{ template "chart.badgesSection" . }}
+
+{{ template "chart.description" . }}
+
+>[!NOTE]
+>This chart bootstraps the Pinniped Concierge and Supervisor server-side resources on Kubernetes. CRDs can be managed by this chart using `installCRDs=true`. Set `installCRDs=false` when CRDs are installed separately or managed outside Helm.
+
+>[!INFO]
+>The main customization surface lives in `values.yaml` under the `concierge` and `supervisor` sections.
+
+## Networking requirements
+
+Pinniped expects end-to-end TLS. When exposing the Supervisor or Concierge through an ingress controller, use TCP/TLS passthrough instead of regular Layer 7 HTTP termination.
+
+This chart supports four exposure patterns per component:
+
+- `traefik`: renders an `IngressRouteTCP` with `tls.passthrough=true`. This is the recommended option because it is a native Layer 4/TCP resource.
+- `nginx`: renders a standard `Ingress` with `nginx.ingress.kubernetes.io/ssl-passthrough: "true"`. This requires the NGINX Ingress Controller to be started with `--enable-ssl-passthrough`.
+- `loadBalancer`: uses the Kubernetes `Service` type `LoadBalancer`. This is useful on AWS or other clouds when you already run a load balancer controller and want to pass controller-specific annotations or `loadBalancerClass` values.
+- `gateway-api`: renders a Gateway API route. The chart supports both `TLSRoute` and `TCPRoute` styles through `*.ingress.gatewayAPI.routeKind`.
+
+The chart does not force any controller. Leave `concierge.ingress.enabled=false` and `supervisor.ingress.enabled=false` if you prefer to expose Pinniped only through a `LoadBalancer`, `NodePort`, or another TCP proxy.
+
+### LoadBalancer notes
+
+For cloud-native exposure, use the `service.*.loadBalancer.*` values.
+
+- `supervisor.service.public.loadBalancer.annotations` lets you pass AWS Load Balancer Controller annotations such as `service.beta.kubernetes.io/aws-load-balancer-scheme`.
+- `supervisor.service.public.loadBalancer.loadBalancerClass` can be used with implementations like AWS NLB.
+- `concierge.service.proxy.*` provides the same controls when the Concierge impersonation proxy is exposed directly.
+
+### Gateway API notes
+
+To use Gateway API, set `*.ingress.provider=gateway-api` and `*.ingress.gatewayAPI.enabled=true`, then provide at least one `parentRef`.
+
+- Use `routeKind: TLSRoute` when your Gateway implementation supports TLS passthrough with SNI matching.
+- Use `routeKind: TCPRoute` when you want pure TCP forwarding and your Gateway implementation does not support `TLSRoute`.
+- The backend service will be selected from the chart values, or you can force it with `*.ingress.service.name`.
+
+## TLS certificate options
+
+Pinniped still needs certificates even when TCP passthrough is used, because TLS terminates inside the Pinniped pods.
+
+This chart provides optional cert-manager integration, but does not require cert-manager as a chart dependency.
+
+- Set `supervisor.tls.certManager.enabled=true` to create a `Certificate` for the Supervisor `defaultTLSCertificateSecret`.
+- Set `concierge.tls.certManager.enabled=true` to create a `Certificate` for the Concierge impersonation proxy TLS secret.
+- Set `*.tls.certManager.createSelfSignedIssuer=true` to let the chart create a simple self-signed `Issuer` in the component namespace.
+
+If you already have your own issuer, set `*.tls.certManager.issuerRef.*` and keep `createSelfSignedIssuer=false`.
+
+## Example
+
+```yaml
+supervisor:
+  ingress:
+    enabled: true
+    provider: traefik
+    hostname: supervisor.example.com
+  tls:
+    certManager:
+      enabled: true
+      createSelfSignedIssuer: true
+
+concierge:
+  ingress:
+    enabled: true
+    provider: nginx
+    className: nginx
+    hostname: concierge.example.com
+  tls:
+    certManager:
+      enabled: true
+      createSelfSignedIssuer: true
+```
+
+## Authentication configuration
+
+After deploying the Supervisor, configure it as an OIDC issuer by creating a `FederationDomain` and connecting one or more identity providers. Then create a `JWTAuthenticator` on each downstream Concierge to trust those tokens.
+
+### FederationDomain
+
+The `FederationDomain` is the public OIDC issuer URL published by the Supervisor. Its `issuer` field must be a fully qualified HTTPS URL reachable by end-users and by Concierge clusters.
+
+```yaml
+supervisor:
+  federationDomain:
+    create: true
+    issuer: https://supervisor.example.com
+    # tlsSecretName defaults to the cert-manager-managed secret when
+    # supervisor.tls.certManager.enabled=true. Override only when needed.
+    tlsSecretName: ""
+```
+
+### Identity providers
+
+Enable exactly the IDPs your environment needs. Enabled IDPs are automatically registered in the FederationDomain's `identityProviders` list.
+
+#### Dex (OIDC)
+
+```yaml
+supervisor:
+  identityProviders:
+    dex:
+      create: true
+      name: dex
+      displayName: "Dex"
+      issuer: https://dex.example.com
+      # certificateAuthorityData: "<base64-pem>"  # omit if Dex uses a public CA
+      additionalScopes: [offline_access, groups, email]
+      allowPasswordGrant: false
+      usernameClaim: email
+      groupsClaim: groups
+      createClientSecret: true
+      clientID: pinniped
+      clientSecret: "<dex-client-secret>"
+```
+
+#### GitHub
+
+```yaml
+supervisor:
+  identityProviders:
+    github:
+      create: true
+      name: github
+      displayName: "GitHub"
+      organizationPolicy: OnlyUsersFromAllowedOrganizations
+      allowedOrganizations:
+        - my-org
+      usernameClaim: "login:id"
+      groupsClaim: slug
+      createClientSecret: true
+      clientID: "<github-app-client-id>"
+      clientSecret: "<github-app-client-secret>"
+```
+
+Set `host` and `certificateAuthorityData` when using GitHub Enterprise Server instead of `github.com`.
+
+#### LDAP
+
+```yaml
+supervisor:
+  identityProviders:
+    ldap:
+      create: true
+      name: openldap
+      displayName: "LDAP"
+      host: "ldap.example.com:636"
+      # certificateAuthorityData: "<base64-pem>"  # omit if using a public CA
+      userSearch:
+        base: "ou=users,dc=example,dc=com"
+        filter: "&(objectClass=inetOrgPerson)(uid={})"
+        usernameAttribute: uid
+        uidAttribute: uidNumber
+      groupSearch:
+        base: "ou=groups,dc=example,dc=com"
+        filter: "&(objectClass=groupOfNames)(member={})"
+        groupNameAttribute: cn
+      createBindSecret: true
+      bindUsername: "cn=admin,dc=example,dc=com"
+      bindPassword: "<bind-password>"
+```
+
+### JWTAuthenticator (Concierge)
+
+Create one `JWTAuthenticator` per downstream Concierge cluster. Its `issuer` must exactly match `supervisor.federationDomain.issuer`.
+
+```yaml
+concierge:
+  jwtAuthenticator:
+    create: true
+    name: supervisor-jwt-authenticator
+    issuer: https://supervisor.example.com
+    audience: my-cluster          # unique identifier for this cluster
+    # certificateAuthorityData: "<base64-pem>"
+    # Omit certificateAuthorityData when the Supervisor uses a publicly trusted CA.
+    # For dynamic rotation, reference a Secret or ConfigMap instead:
+    # certificateAuthorityDataSource:
+    #   kind: Secret
+    #   name: pinniped-supervisor-default-tls-certificate
+    #   key: ca.crt
+```
+
+> **TLS trust note**: When `supervisor.tls.certManager.enabled=true` with a public CA issuer (e.g. Let's Encrypt), you can omit `certificateAuthorityData` entirely because the CA is already trusted by default. Only set it when using a private or self-signed CA.
+
+
+Gateway API example:
+
+```yaml
+supervisor:
+	ingress:
+		enabled: true
+		provider: gateway-api
+		hostname: supervisor.example.com
+		gatewayAPI:
+			enabled: true
+			routeKind: TLSRoute
+			parentRefs:
+				- name: main-gateway
+					sectionName: https
+```
+
+AWS/NLB-style load balancer example:
+
+```yaml
+supervisor:
+	service:
+		public:
+			loadBalancer:
+				enabled: true
+				loadBalancerClass: service.k8s.aws/nlb
+				annotations:
+					service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+```
+
+## Pinniped Note
+
+Explore more about Pinniped at https://pinniped.dev/ and the official architecture at https://pinniped.dev/docs/background/architecture/ to understand how the Concierge and Supervisor components work together to provide secure Kubernetes authentication.
+
+Pinniped is a open-source project under the VMware and it has many installation options. This chart is customized base on my experience, so you can find the more options at 
+1. The official documentation: https://pinniped.dev/docs/howto/install-concierge/ and https://pinniped.dev/docs/howto/install-supervisor/
+2. Bitnami's chart: https://artifacthub.io/packages/helm/bitnami/pinniped
+
+By default, this chart will not create and expose services and ingress for both Concierge and Supervisor, and sometime it look noisy if you don't cover the documentation well, so that is why I share this chart to make it easier for you to get started with Pinniped and customize it for your needs. With more configuration options for
+
+1. Setup Service and Ingress with different providers and patterns, such as Traefik, NGINX, Gateway API, and LoadBalancer at Layer 4/TCP with SSL Passthrough
+2. Setup TLS certificates with cert-manager integration, including self-signed issuers for local development and testing. Because Pinniped requires end-to-end TLS, so you can use cert-manager to automate certificate management for both the Supervisor and Concierge components.
+3. Support you modify configuration for both Supervisor and Concierge components seperately, it help you prevent errors for mismatch in configuration for couple of situations, such as
+
+Your concierge is exposed through Impersonation Proxy, but with the default chart, it will support for type: LoadBalancer, it means you need another loadbalancer controller to help you create new load balancer, such as metalLB, AWS Load Balancer Controller, or other cloud load balancer controller. But when you read about [Pinniped API](https://github.com/vmware/pinniped/tree/main/generated/latest), it will show you more configuration instead of just `type: LoadBalancer`, it also support for `ClusterIP` and `None`, it means use can use `ClusterIP` and expose it through your own ingress controller with `externalEndpoint` add-on, by default this value will be set be served using the external name of the LoadBalancer service or the cluster service DNS name.
+
+That why, you can change this one to expose the Concierge right way for support Impersonation Proxy, instead encounter problems with LoadBalancer for this one, and also ignore unsupport cluster which don't include any `kube-controller-manager` which not let pinniped interact when create new `kubeconfig` for your users.
+
+```yaml
+  # -- CredentialIssuer bootstrap resource for Concierge impersonation support.
+  credentialIssuer:
+    create: true
+    impersonationProxy:
+      mode: enabled
+      externalEndpoint: "concierge-endpoint.example.com"
+      service:
+        type: ClusterIP
+```
+
+## Installing the Chart
+
+To install the chart with the release name `pinniped`:
+
+```bash
+helm repo add kubewekend https://kubewekend.xeusnguyen.xyz
+helm install pinniped kubewekend/{{ template "chart.name" . }}
+```
+
+For local rendering/testing:
+
+```bash
+helm template pinniped . -f values.yaml
+helm lint .
+```
+
+## Uninstalling the Chart
+
+```bash
+helm uninstall pinniped
+```
+
+## Also preference
+
+- [Pinniped Documentation](https://pinniped.dev/docs/)
+- [Using Pinniped for authentication against Talos-based Kubernetes clusters](https://dickingwithdocker.com/posts/pinniped-authentication-against-talos-clusters/)
+- [OpenUnison - Deploying The Authentication Portal](https://openunison.github.io/deployauth/)
+- [Pinniped: A Unified Framework for User Authentication to Kubernetes Cluster- Mo Khan & Anjali Telang](https://www.youtube.com/watch?v=2fI_XOGEoIU)
+- [Pinniped - Concierge with Supervisor Locally](https://pinniped.dev/docs/tutorials/local-concierge-and-supervisor-demo/)
+
+## Alternative solutions
+
+- [Kubelogin](https://github.com/int128/kubelogin): kubectl plugin for Kubernetes OpenID Connect authentication (kubectl oidc-login)
+- [kube-oidc-proxy](https://github.com/jetstack/kube-oidc-proxy/tree/master): Reverse proxy to authenticate to managed Kubernetes API servers via OIDC.
+- [OpenUnison](https://openunison.github.io/): OpenUnison provides SSO and authentication for your Kubernetes clusters, no matter where they run or how your users need to authenticate.
+- [gangway](https://github.com/vmware-archive/gangway): An application that can be used to easily enable authentication flows via OIDC for a kubernetes cluster.
+- [paralus](https://github.com/paralus/paralus): All-in-one Kubernetes access manager. User-level credentials, RBAC, SSO, audit logs.
+- [dex-k8s-authenticator](https://github.com/mintel/dex-k8s-authenticator): A Kubernetes Dex Client Authenticator
+
+{{ template "chart.homepageLine" . }}
+
+{{ template "chart.maintainersSection" . }}
+
+{{ template "chart.sourcesSection" . }}
+
+{{ template "chart.requirementsSection" . }}
+
+{{ template "chart.valuesSection" . }}
+
+{{ template "helm-docs.versionFooter" . }}

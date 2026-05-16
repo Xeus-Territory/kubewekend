@@ -1,0 +1,47 @@
+{{- if and .Values.supervisor.enabled .Values.supervisor.tls.certManager.enabled .Values.supervisor.tls.certManager.createSelfSignedIssuer }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ default (printf "%s-selfsigned" (include "pinniped.componentName" (dict "root" . "component" "supervisor"))) .Values.supervisor.tls.certManager.issuerRef.name }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+spec:
+  selfSigned: {}
+{{- end }}
+{{- if and .Values.supervisor.enabled .Values.supervisor.tls.certManager.enabled .Values.supervisor.tls.certManager.certificate.enabled }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ printf "%s-tls" (include "pinniped.componentName" (dict "root" . "component" "supervisor")) | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+spec:
+  secretName: {{ default (include "pinniped.supervisor.defaultTLSSecretName" .) .Values.supervisor.tls.certManager.certificate.secretName }}
+  issuerRef:
+    name: {{ default (printf "%s-selfsigned" (include "pinniped.componentName" (dict "root" . "component" "supervisor"))) .Values.supervisor.tls.certManager.issuerRef.name }}
+    kind: {{ .Values.supervisor.tls.certManager.issuerRef.kind }}
+    group: {{ .Values.supervisor.tls.certManager.issuerRef.group }}
+{{- if .Values.supervisor.tls.certManager.certificate.commonName }}
+  commonName: {{ .Values.supervisor.tls.certManager.certificate.commonName | quote }}
+{{- end }}
+{{- $supervisorDnsNames := .Values.supervisor.tls.certManager.certificate.dnsNames -}}
+{{- if and (eq (len $supervisorDnsNames) 0) .Values.supervisor.ingress.hostname }}
+  dnsNames:
+    - {{ .Values.supervisor.ingress.hostname | quote }}
+{{- else if gt (len $supervisorDnsNames) 0 }}
+  dnsNames:
+{{ toYaml $supervisorDnsNames | indent 4 }}
+{{- end }}
+{{- if .Values.supervisor.tls.certManager.certificate.duration }}
+  duration: {{ .Values.supervisor.tls.certManager.certificate.duration }}
+{{- end }}
+{{- if .Values.supervisor.tls.certManager.certificate.renewBefore }}
+  renewBefore: {{ .Values.supervisor.tls.certManager.certificate.renewBefore }}
+{{- end }}
+  privateKey:
+    algorithm: {{ .Values.supervisor.tls.certManager.certificate.privateKey.algorithm }}
+    size: {{ .Values.supervisor.tls.certManager.certificate.privateKey.size }}
+{{- end }}

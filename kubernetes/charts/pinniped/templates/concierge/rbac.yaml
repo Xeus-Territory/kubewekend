@@ -1,0 +1,283 @@
+{{- if .Values.concierge.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-aggregated-api-server" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [apiregistration.k8s.io]
+    resources: [apiservices]
+    verbs: [get, list, patch, update, watch]
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [validatingwebhookconfigurations, mutatingwebhookconfigurations, validatingadmissionpolicies, validatingadmissionpolicybindings, mutatingadmissionpolicies, mutatingadmissionpolicybindings]
+    verbs: [get, list, watch]
+  - apiGroups: [flowcontrol.apiserver.k8s.io]
+    resources: [flowschemas, prioritylevelconfigurations]
+    verbs: [get, list, watch]
+  - apiGroups: [security.openshift.io]
+    resources: [securitycontextconstraints]
+    verbs: [use]
+    resourceNames: [nonroot]
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [list]
+  - apiGroups: [{{ printf "config.concierge.%s" .Values.concierge.config.apiGroupSuffix | quote }}]
+    resources: [credentialissuers]
+    verbs: [get, list, watch, create]
+  - apiGroups: [{{ printf "config.concierge.%s" .Values.concierge.config.apiGroupSuffix | quote }}]
+    resources: [credentialissuers/status]
+    verbs: [get, patch, update]
+  - apiGroups: [{{ printf "authentication.concierge.%s" .Values.concierge.config.apiGroupSuffix | quote }}]
+    resources: [jwtauthenticators, webhookauthenticators]
+    verbs: [get, list, watch]
+  - apiGroups: [{{ printf "authentication.concierge.%s" .Values.concierge.config.apiGroupSuffix | quote }}]
+    resources: [jwtauthenticators/status, webhookauthenticators/status]
+    verbs: [get, list, watch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-aggregated-api-server" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pinniped.concierge.serviceAccountName" (dict "root" . "suffix" "") }}
+    namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s-aggregated-api-server" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-impersonation-proxy" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [users, groups, serviceaccounts]
+    verbs: [impersonate]
+  - apiGroups: [authentication.k8s.io]
+    resources: ["*"]
+    verbs: [impersonate]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-impersonation-proxy" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pinniped.concierge.serviceAccountName" (dict "root" . "suffix" "impersonation-proxy") }}
+    namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s-impersonation-proxy" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ printf "%s-kube-cert-agent" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+rules:
+  - apiGroups: [policy]
+    resources: [podsecuritypolicies]
+    verbs: [use]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ printf "%s-kube-cert-agent" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pinniped.concierge.serviceAccountName" (dict "root" . "suffix" "kube-cert-agent") }}
+    namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ printf "%s-kube-cert-agent" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ printf "%s-aggregated-api-server" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [services, secrets]
+    verbs: [create, get, list, patch, update, watch, delete]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch, delete]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [create, get, list, patch, update, watch, delete]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [list, get, watch]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [create, get, update]
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [serviceaccounts/token]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ printf "%s-aggregated-api-server" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pinniped.concierge.serviceAccountName" (dict "root" . "suffix" "") }}
+    namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ printf "%s-aggregated-api-server" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ printf "%s-kube-system-pod-read" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+  namespace: kube-system
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ printf "%s-kube-system-pod-read" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+  namespace: kube-system
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pinniped.concierge.serviceAccountName" (dict "root" . "suffix" "") }}
+    namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ printf "%s-kube-system-pod-read" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-pre-authn-apis" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+rules:
+  - apiGroups: [{{ printf "login.concierge.%s" .Values.concierge.config.apiGroupSuffix | quote }}]
+    resources: [tokencredentialrequests]
+    verbs: [create, list]
+  - apiGroups: [{{ printf "identity.concierge.%s" .Values.concierge.config.apiGroupSuffix | quote }}]
+    resources: [whoamirequests]
+    verbs: [create, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-pre-authn-apis" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+subjects:
+  - kind: Group
+    name: system:authenticated
+    apiGroup: rbac.authorization.k8s.io
+  - kind: Group
+    name: system:unauthenticated
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s-pre-authn-apis" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "pinniped.componentName" (dict "root" . "component" "concierge") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pinniped.concierge.serviceAccountName" (dict "root" . "suffix" "") }}
+    namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ printf "%s-extension-apiserver-authentication-reader" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+  namespace: kube-system
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pinniped.concierge.serviceAccountName" (dict "root" . "suffix" "") }}
+    namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ printf "%s-cluster-info-lister-watcher" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+  namespace: kube-public
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ printf "%s-cluster-info-lister-watcher" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+  namespace: kube-public
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pinniped.concierge.serviceAccountName" (dict "root" . "suffix" "") }}
+    namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ printf "%s-cluster-info-lister-watcher" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+{{- end }}

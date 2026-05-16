@@ -196,6 +196,7 @@ utilities:
     # 2. Garage: https://garagehq.deuxfleurs.fr/
     # 3. MinIO: https://min.io/ (Recommended for production cluster)
     # Other solutions: rustfs (https://github.com/rustfs/rustfs), (cubefs) https://github.com/cubefs/cubefs
+    # Discussion: https://www.reddit.com/r/selfhosted/comments/1s4z2ux/s3_storage_benchmark_round_3_minio_vs_seaweedfs/
     type: "seaweedfs"  # seaweedfs | garage | minio
     namespace: "seaweedfs"
     host: "seaweedfs.local"
@@ -205,8 +206,14 @@ utilities:
   # Explore more at: https://cert-manager.io/
   # Recommendation: Use for production cluster
   certmanager:
-    enable: false
+    enable: true
     namespace: "cert-manager"
+    # Create self-signed ca for your cluster to SSL in local development and testing
+    # Explore more at: https://cert-manager.io/docs/configuration/selfsigned/
+    selfSignedIssuer:
+      enable: true
+      name: "kubewekend"
+      secretName: "kubewekend-selfsigned-ca"
 
   # Setup DNS for the cluster for external domain resolution (AWS Route53, Cloudflare, Google Cloud DNS, etc)
   # Explore more at: https://github.com/kubernetes-sigs/external-dns
@@ -276,15 +283,22 @@ utilities:
   # If you want to any helm-chart, I also recommend using Bitami's Helm with multiple references, at: https://artifacthub.io/packages/search?repo=bitnami&sort=relevance&page=1
   operator:
     enable: false
-    # Full operation for database with 35+ operators available with Kubeblocks
-    # Explore more at: https://kubeblocks.io/
+    # You can operate for multiple database with one operator, like
+    # 1. Kubeblocks: https://kubeblocks.io/
+    # 2. Aiven: https://aiven.io/
     full:
       enable: false
-      type: "kubeblocks"
+      type: "kubeblocks"  # kubeblocks | aiven
     # Operators for deploying and managing stateful applications for PostgreSQL
     # Explore more at:
     # 1. CloudNativePG (CNPG): https://cloudnative-pg.io/ (Recommended)
     # 2. Percona PostgreSQL Operator: https://docs.percona.com/percona-operator-for-postgresql/2.9.0/index.html
+    # Another option for operating PostgreSQL
+    # 1. Zalando Postgres Operator: https://github.com/zalando/postgres-operator
+    # 2. Crunchy PostgreSQL Operator: https://github.com/crunchydata/postgres-operator
+    # 3. Patroni PostgreSQL: https://github.com/patroni/patroni/tree/master/kubernetes
+    # 4. Bitnami PostgreSQL: https://github.com/bitnami/charts/tree/main/bitnami/postgresql
+    # 5. Bitnami PostgreSQL HA: https://github.com/bitnami/charts/tree/main/bitnami/postgresql-ha
     postgresql:
       enable: false
       type: "cnpg" # cnpg (CloudNativePG) | percona (Percona PostgreSQL Operator)
@@ -366,9 +380,9 @@ utilities:
       enable: true
       type: "kyverno"  # opa-gatekeeper | kyverno
       namespace: "kyverno" # `kyverno` required for kyverno, opa-gatewaykeepers able to run in any namespace, but recommend `gatekeeper-system`
-    # For Kubernetes Authentication and more about strategy to manage Identity in application
-    # via OAuth Middleware
-    # Read more at: https://www.tremolo.io/post/kubernetes-authentication-comparing-solutions
+    # Identity for the cluster, including tools for managing user identities, access control, and authentication
+    # For Identity Broker, choose Dex and link with external identity providers, e.g: GitHub, Google, LDAP, etc (Recommended with simple setup)
+    # For fully managed identity and access management, you can use KeyCloak, Authentik, Ory, or more (Recommended for production with complex learn curve)
     # About Dex case study: https://b-nova.com/en/home/content/dex-the-game-changer-in-app-authentication-see-how-it-works/
     identity:
       enable: true
@@ -386,6 +400,36 @@ utilities:
     intelligence:
       enable: false
       type: "falco"  # falco | tetragon
+    # For Kubernetes Authentication and Identity Management, including tools for managing user identities, access control, and authentication
+    # This option is not required you to modify OIDC flag of kube-apiserver, but you another strategy called ImpersonationProxy
+    # Strategy: https://kubernetes.io/docs/reference/access-authn-authz/user-impersonation/
+    # Options: https://www.tremolo.io/post/kubernetes-authentication-comparing-solutions
+    # Dex case study: https://dexidp.io/docs/guides/kubernetes/
+    # Install CLI tool for testing OIDC authentication: kubelogin (kubectl oidc-login) and pinniped-cli
+    kubernetesAuth:
+      enable: false
+      # Kubewekend will support two ways for authentication
+      # 1. with impersonation-proxy, via pinniped or kube-oidc-proxy (in direct mode)
+      # 2. With oidc via kubeapi-server, or structured file (direct mode)
+      type: "impersonation-proxy" # impersonation-proxy | oidc
+      impersonationProxy:
+        # Options for impersonation-proxy, including pinniped and kube-oidc-proxy
+        # Read more at: https://pinniped.dev/ and kube-oidc-proxy: https://github.com/jetstack/kube-oidc-proxy/tree/master/deploy/charts/kube-oidc-proxy
+        type: "pinniped" # pinniped | kube-oidc-proxy
+        conf:
+          issuerUrl: "https://dex.local" # Issuer URL for OIDC, should be the same as Dex host when using Dex as OIDC provider
+          clientId: "your-client-id" # Client ID for OIDC, should be the same as Dex client ID when using Dex as OIDC provider
+          clientSecret: "your-client-secret" # Client Secret for OIDC, should be the same as Dex client secret when using Dex as OIDC provider
+      oidc:
+        # Options for OIDC, including direct mode via kubeapi-server or structured file
+        # Read more at: https://kubernetes.io/docs/reference/access-authn-authz/authentication/
+        # Flag (https://kubernetes.io/docs/reference/access-authn-authz/authentication/#configuring-the-api-server)
+        # Structured File (https://kubernetes.io/docs/reference/access-authn-authz/authentication/#using-authentication-configuration)
+        type: "direct" # direct | structured-file
+        conf:
+          issuerUrl: "https://dex.local" # Issuer URL for OIDC, should be the same as Dex host when using Dex as OIDC provider
+          clientId: "your-client-id" # Client ID for OIDC, should be the same as Dex client ID when using Dex as OIDC provider
+          clientSecret: "your-client-secret" # Client Secret for OIDC, should be the same as Dex client secret when using Dex as OIDC provider
 
   # Setup Monitoring and Observability for the cluster with Prometheus and Grafana Stack with various options
   # Explore more at: https://prometheus-operator.dev/ or https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack

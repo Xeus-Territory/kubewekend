@@ -1,0 +1,64 @@
+{{- if .Values.concierge.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-config" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+data:
+  pinniped.yaml: |
+    discovery:
+      url: {{- if .Values.concierge.config.discoveryURL }} {{ .Values.concierge.config.discoveryURL | quote }}{{ else }} null{{ end }}
+    api:
+      servingCertificate:
+        durationSeconds: {{ printf "%.0f" .Values.concierge.config.apiServingCertificateDurationSeconds }}
+        renewBeforeSeconds: {{ printf "%.0f" .Values.concierge.config.apiServingCertificateRenewBeforeSeconds }}
+    apiGroupSuffix: {{ .Values.concierge.config.apiGroupSuffix | quote }}
+    aggregatedAPIServerDisableAdmissionPlugins: []
+    names:
+      servingCertificateSecret: {{ include "pinniped.concierge.apiTLSSecretName" . | quote }}
+      credentialIssuer: {{ printf "%s-config" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | quote }}
+      apiService: {{ printf "%s-api" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | quote }}
+      impersonationLoadBalancerService: {{ printf "%s-impersonation-proxy-load-balancer" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | quote }}
+      impersonationClusterIPService: {{ printf "%s-impersonation-proxy-cluster-ip" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | quote }}
+      impersonationTLSCertificateSecret: {{ include "pinniped.concierge.impersonationTLSSecretName" .| quote }}
+      impersonationCACertificateSecret: {{ printf "%s-impersonation-proxy-ca-certificate" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | quote }}
+      impersonationSignerSecret: {{ printf "%s-impersonation-proxy-signer-ca-certificate" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | quote }}
+      agentServiceAccount: {{ include "pinniped.concierge.serviceAccountName" (dict "root" . "suffix" "kube-cert-agent") | quote }}
+      impersonationProxyServiceAccount: {{ include "pinniped.concierge.serviceAccountName" (dict "root" . "suffix" "impersonation-proxy") | quote }}
+      impersonationProxyLegacySecret: {{ include "pinniped.concierge.serviceAccountName" (dict "root" . "suffix" "impersonation-proxy") | quote }}
+    labels:
+{{ include "pinniped.runtimeLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 6 }}
+    kubeCertAgent:
+      namePrefix: {{ printf "%s-kube-cert-agent-" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | quote }}
+      priorityClassName: {{ .Values.concierge.config.kubeCertAgentPriorityClassName | quote }}
+      image: {{ default (include "pinniped.image" (dict "root" . "image" .Values.concierge.image )) .Values.concierge.config.kubeCertAgentImage | quote }}
+{{- if .Values.concierge.imagePullSecret.create }}
+      imagePullSecrets:
+        - {{ .Values.concierge.imagePullSecret.name | quote }}
+{{- end }}
+{{- if .Values.concierge.config.logLevel }}
+    log:
+      level: {{ .Values.concierge.config.logLevel | quote }}
+{{- end }}
+    tls:
+      onedottwo:
+        allowedCiphers:
+{{ toYaml .Values.concierge.config.allowedCiphersForTLSOneDotTwo | indent 10 }}
+    audit:
+      logUsernamesAndGroups: {{ .Values.concierge.config.audit.logUsernamesAndGroups | quote }}
+{{- if .Values.concierge.imagePullSecret.create }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.concierge.imagePullSecret.name }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: {{ .Values.concierge.imagePullSecret.dockerconfigjson | quote }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,94 @@
+{{- if .Values.supervisor.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-api" (include "pinniped.componentName" (dict "root" . "component" "supervisor")) | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+{{ include "pinniped.componentSelectorLabels" (dict "root" . "component" "supervisor") | indent 4 }}
+  ports:
+    - protocol: TCP
+      port: {{ .Values.supervisor.service.api.port }}
+      targetPort: {{ .Values.supervisor.service.api.targetPort }}
+{{- if .Values.supervisor.service.public.nodePort.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pinniped.supervisor.publicServiceName" (dict "root" . "suffix" "nodeport") }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+spec:
+  type: NodePort
+  selector:
+{{ include "pinniped.componentSelectorLabels" (dict "root" . "component" "supervisor") | indent 4 }}
+  ports:
+    - name: https
+      protocol: TCP
+      port: {{ .Values.supervisor.service.public.nodePort.port }}
+      targetPort: 8443
+{{- if .Values.supervisor.service.public.nodePort.nodePort }}
+      nodePort: {{ .Values.supervisor.service.public.nodePort.nodePort }}
+{{- end }}
+{{- end }}
+{{- if or .Values.supervisor.service.public.clusterIP.enabled (eq (include "pinniped.supervisor.autoClusterIPForExposure" .) "true") }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pinniped.supervisor.publicServiceName" (dict "root" . "suffix" "clusterip") }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+{{ include "pinniped.componentSelectorLabels" (dict "root" . "component" "supervisor") | indent 4 }}
+  ports:
+    - name: https
+      protocol: TCP
+      port: {{ .Values.supervisor.service.public.clusterIP.port }}
+      targetPort: 8443
+{{- end }}
+{{- if .Values.supervisor.service.public.loadBalancer.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pinniped.supervisor.publicServiceName" (dict "root" . "suffix" "loadbalancer") }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+{{- with .Values.supervisor.service.public.loadBalancer.annotations }}
+  annotations:
+{{ toYaml . | indent 4 }}
+{{- end }}
+spec:
+  type: LoadBalancer
+  selector:
+{{ include "pinniped.componentSelectorLabels" (dict "root" . "component" "supervisor") | indent 4 }}
+{{- if .Values.supervisor.service.public.loadBalancer.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.supervisor.service.public.loadBalancer.loadBalancerIP | quote }}
+{{- end }}
+{{- if .Values.supervisor.service.public.loadBalancer.loadBalancerClass }}
+  loadBalancerClass: {{ .Values.supervisor.service.public.loadBalancer.loadBalancerClass | quote }}
+{{- end }}
+{{- if .Values.supervisor.service.public.loadBalancer.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ .Values.supervisor.service.public.loadBalancer.externalTrafficPolicy }}
+{{- end }}
+{{- if .Values.supervisor.service.public.loadBalancer.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+{{ toYaml .Values.supervisor.service.public.loadBalancer.loadBalancerSourceRanges | indent 4 }}
+{{- end }}
+  ports:
+    - name: https
+      protocol: TCP
+      port: {{ .Values.supervisor.service.public.loadBalancer.port }}
+      targetPort: 8443
+{{- end }}
+{{- end }}
