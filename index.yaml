@@ -71,4 +71,29 @@ entries:
     urls:
     - https://github.com/Xeus-Territory/kubewekend/releases/download/common-0.1.0/common-0.1.0.tgz
     version: 0.1.0
-generated: "2026-02-05T03:58:45.547427286Z"
+  pinniped:
+  - apiVersion: v2
+    appVersion: v0.46.0
+    created: "2026-05-16T13:29:31.817247877Z"
+    description: A Helm chart for Pinniped, a Kubernetes authentication via ImpersonationProxy
+      with Supervisor and Concierge components.
+    digest: b66fc6561e6e02b4acd249ed3f5365c16c3ad0a86d83d3b1570cbce6040bae2a
+    keywords:
+    - kubernetes-login
+    - secure-kubernetes-access
+    - authentication
+    - impersonation-proxy
+    - supervisor
+    - concierge
+    maintainers:
+    - email: xeusnguyen@gmail.com
+      name: Xeus Nguyen
+      url: https://wiki.xeusnguyen.xyz
+    name: pinniped
+    sources:
+    - https://github.com/vmware/pinniped
+    type: application
+    urls:
+    - https://github.com/Xeus-Territory/kubewekend/releases/download/pinniped-0.1.0/pinniped-0.1.0.tgz
+    version: 0.1.0
+generated: "2026-05-16T13:29:31.817262454Z"
