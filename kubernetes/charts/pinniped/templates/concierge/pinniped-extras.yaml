@@ -1,0 +1,79 @@
+{{- if .Values.concierge.enabled }}
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: {{ printf "v1alpha1.login.concierge.%s" .Values.concierge.config.apiGroupSuffix }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+spec:
+  version: v1alpha1
+  group: {{ printf "login.concierge.%s" .Values.concierge.config.apiGroupSuffix }}
+  groupPriorityMinimum: 9900
+  versionPriority: 15
+  service:
+    name: {{ printf "%s-api" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+    namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+    port: {{ .Values.concierge.service.api.port }}
+---
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: {{ printf "v1alpha1.identity.concierge.%s" .Values.concierge.config.apiGroupSuffix }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+spec:
+  version: v1alpha1
+  group: {{ printf "identity.concierge.%s" .Values.concierge.config.apiGroupSuffix }}
+  groupPriorityMinimum: 9900
+  versionPriority: 15
+  service:
+    name: {{ printf "%s-api" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+    namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+    port: {{ .Values.concierge.service.api.port }}
+{{- if .Values.concierge.credentialIssuer.create }}
+---
+apiVersion: {{ printf "config.concierge.%s/v1alpha1" .Values.concierge.config.apiGroupSuffix }}
+kind: CredentialIssuer
+metadata:
+  name: {{ printf "%s-config" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+spec:
+  impersonationProxy:
+    mode: {{ .Values.concierge.credentialIssuer.impersonationProxy.mode | quote }}
+{{- if .Values.concierge.credentialIssuer.impersonationProxy.externalEndpoint }}
+    externalEndpoint: {{ .Values.concierge.credentialIssuer.impersonationProxy.externalEndpoint | quote }}
+{{- end }}
+    service:
+      type: {{ .Values.concierge.credentialIssuer.impersonationProxy.service.type | quote }}
+{{- if .Values.concierge.credentialIssuer.impersonationProxy.service.loadBalancerIP }}
+      loadBalancerIP: {{ .Values.concierge.credentialIssuer.impersonationProxy.service.loadBalancerIP | quote }}
+{{- end }}
+      annotations:
+{{ toYaml .Values.concierge.credentialIssuer.impersonationProxy.service.annotations | indent 8 }}
+{{- end }}
+{{- end }}
+{{- if and .Values.concierge.enabled .Values.concierge.jwtAuthenticator.create }}
+---
+apiVersion: authentication.concierge.pinniped.dev/v1alpha1
+kind: JWTAuthenticator
+metadata:
+  name: {{ default (printf "%s-supervisor" (include "pinniped.componentName" (dict "root" . "component" "concierge"))) .Values.concierge.jwtAuthenticator.name | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+spec:
+  issuer: {{ required "concierge.jwtAuthenticator.issuer is required when jwtAuthenticator.create=true" .Values.concierge.jwtAuthenticator.issuer | quote }}
+  audience: {{ required "concierge.jwtAuthenticator.audience is required when jwtAuthenticator.create=true" .Values.concierge.jwtAuthenticator.audience | quote }}
+{{- if or .Values.concierge.jwtAuthenticator.certificateAuthorityData (and .Values.concierge.jwtAuthenticator.certificateAuthorityDataSource.kind .Values.concierge.jwtAuthenticator.certificateAuthorityDataSource.name) }}
+  tls:
+{{- if .Values.concierge.jwtAuthenticator.certificateAuthorityData }}
+    certificateAuthorityData: {{ .Values.concierge.jwtAuthenticator.certificateAuthorityData | quote }}
+{{- else if and .Values.concierge.jwtAuthenticator.certificateAuthorityDataSource.kind .Values.concierge.jwtAuthenticator.certificateAuthorityDataSource.name }}
+    certificateAuthorityDataSource:
+      kind: {{ .Values.concierge.jwtAuthenticator.certificateAuthorityDataSource.kind | quote }}
+      name: {{ .Values.concierge.jwtAuthenticator.certificateAuthorityDataSource.name | quote }}
+      key: {{ default "ca.crt" .Values.concierge.jwtAuthenticator.certificateAuthorityDataSource.key | quote }}
+{{- end }}
+{{- end }}
+{{- end }}

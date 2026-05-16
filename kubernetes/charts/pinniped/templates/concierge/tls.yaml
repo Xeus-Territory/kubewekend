@@ -1,0 +1,47 @@
+{{- if and .Values.concierge.enabled .Values.concierge.tls.certManager.enabled .Values.concierge.tls.certManager.createSelfSignedIssuer }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ default (printf "%s-selfsigned" (include "pinniped.componentName" (dict "root" . "component" "concierge"))) .Values.concierge.tls.certManager.issuerRef.name }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+spec:
+  selfSigned: {}
+{{- end }}
+{{- if and .Values.concierge.enabled .Values.concierge.tls.certManager.enabled .Values.concierge.tls.certManager.certificate.enabled }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ printf "%s-tls" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+spec:
+  secretName: {{ default (include "pinniped.concierge.impersonationTLSSecretName" .) .Values.concierge.tls.certManager.certificate.secretName }}
+  issuerRef:
+    name: {{ default (printf "%s-selfsigned" (include "pinniped.componentName" (dict "root" . "component" "concierge"))) .Values.concierge.tls.certManager.issuerRef.name }}
+    kind: {{ .Values.concierge.tls.certManager.issuerRef.kind }}
+    group: {{ .Values.concierge.tls.certManager.issuerRef.group }}
+{{- if .Values.concierge.tls.certManager.certificate.commonName }}
+  commonName: {{ .Values.concierge.tls.certManager.certificate.commonName | quote }}
+{{- end }}
+{{- $conciergeDnsNames := .Values.concierge.tls.certManager.certificate.dnsNames -}}
+{{- if and (eq (len $conciergeDnsNames) 0) .Values.concierge.ingress.hostname }}
+  dnsNames:
+    - {{ .Values.concierge.ingress.hostname | quote }}
+{{- else if gt (len $conciergeDnsNames) 0 }}
+  dnsNames:
+{{ toYaml $conciergeDnsNames | indent 4 }}
+{{- end }}
+{{- if .Values.concierge.tls.certManager.certificate.duration }}
+  duration: {{ .Values.concierge.tls.certManager.certificate.duration }}
+{{- end }}
+{{- if .Values.concierge.tls.certManager.certificate.renewBefore }}
+  renewBefore: {{ .Values.concierge.tls.certManager.certificate.renewBefore }}
+{{- end }}
+  privateKey:
+    algorithm: {{ .Values.concierge.tls.certManager.certificate.privateKey.algorithm }}
+    size: {{ .Values.concierge.tls.certManager.certificate.privateKey.size }}
+{{- end }}

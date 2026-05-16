@@ -7,3 +7,4 @@ _site
 Gemfile.lock
 k3s_token.txt
 hosts
+kubewekend-ca.crt

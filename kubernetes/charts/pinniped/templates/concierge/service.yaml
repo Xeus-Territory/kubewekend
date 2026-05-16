@@ -1,0 +1,52 @@
+{{- if .Values.concierge.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-api" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+{{ include "pinniped.componentSelectorLabels" (dict "root" . "component" "concierge") | indent 4 }}
+  ports:
+    - protocol: TCP
+      port: {{ .Values.concierge.service.api.port }}
+      targetPort: {{ .Values.concierge.service.api.targetPort }}
+---
+{{- if .Values.concierge.service.proxy.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pinniped.concierge.proxyServiceName" . }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+{{- with .Values.concierge.service.proxy.annotations }}
+  annotations:
+{{ toYaml . | indent 4 }}
+{{- end }}
+spec:
+  type: {{ .Values.concierge.service.proxy.type }}
+  selector:
+{{ include "pinniped.componentSelectorLabels" (dict "root" . "component" "concierge") | indent 4 }}
+{{- if and (eq .Values.concierge.service.proxy.type "LoadBalancer") .Values.concierge.service.proxy.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.concierge.service.proxy.loadBalancerIP | quote }}
+{{- end }}
+{{- if and (eq .Values.concierge.service.proxy.type "LoadBalancer") .Values.concierge.service.proxy.loadBalancerClass }}
+  loadBalancerClass: {{ .Values.concierge.service.proxy.loadBalancerClass | quote }}
+{{- end }}
+{{- if and (eq .Values.concierge.service.proxy.type "LoadBalancer") .Values.concierge.service.proxy.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ .Values.concierge.service.proxy.externalTrafficPolicy }}
+{{- end }}
+{{- if and (eq .Values.concierge.service.proxy.type "LoadBalancer") .Values.concierge.service.proxy.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+{{ toYaml .Values.concierge.service.proxy.loadBalancerSourceRanges | indent 4 }}
+{{- end }}
+  ports:
+    - protocol: TCP
+      port: {{ .Values.concierge.service.proxy.port }}
+      targetPort: {{ .Values.concierge.service.proxy.targetPort }}
+{{- end }}
+{{- end }}

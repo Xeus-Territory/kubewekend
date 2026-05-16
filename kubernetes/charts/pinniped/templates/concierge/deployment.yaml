@@ -1,0 +1,116 @@
+{{- if .Values.concierge.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pinniped.componentName" (dict "root" . "component" "concierge") }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+spec:
+  replicas: {{ .Values.concierge.replicaCount }}
+  selector:
+    matchLabels:
+{{ include "pinniped.componentSelectorLabels" (dict "root" . "component" "concierge") | indent 6 }}
+  template:
+    metadata:
+      labels:
+{{ include "pinniped.componentSelectorLabels" (dict "root" . "component" "concierge") | indent 8 }}
+    spec:
+      securityContext:
+{{ toYaml .Values.concierge.podSecurityContext | indent 8 }}
+      serviceAccountName: {{ include "pinniped.concierge.serviceAccountName" (dict "root" . "suffix" "") }}
+{{- if .Values.concierge.imagePullSecret.create }}
+      imagePullSecrets:
+        - name: {{ .Values.concierge.imagePullSecret.name }}
+{{- end }}
+      containers:
+        - name: {{ include "pinniped.componentName" (dict "root" . "component" "concierge") }}
+          image: {{ include "pinniped.image" (dict "root" . "image" .Values.concierge.image) }}
+          imagePullPolicy: {{ .Values.concierge.image.pullPolicy }}
+          command:
+            - pinniped-concierge
+            - --config=/etc/config/pinniped.yaml
+            - --downward-api-path=/etc/podinfo
+          securityContext:
+{{ toYaml .Values.concierge.containerSecurityContext | indent 12 }}
+          resources:
+{{ toYaml .Values.concierge.resources | indent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: config-volume
+              mountPath: /etc/config
+              readOnly: true
+            - name: podinfo
+              mountPath: /etc/podinfo
+              readOnly: true
+          env:
+{{- if .Values.concierge.config.httpsProxy }}
+            - name: HTTPS_PROXY
+              value: {{ .Values.concierge.config.httpsProxy | quote }}
+            - name: NO_PROXY
+              value: {{ .Values.concierge.config.noProxy | quote }}
+{{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.concierge.service.api.targetPort }}
+              scheme: HTTPS
+            initialDelaySeconds: 2
+            timeoutSeconds: 15
+            periodSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.concierge.service.api.targetPort }}
+              scheme: HTTPS
+            initialDelaySeconds: 2
+            timeoutSeconds: 3
+            periodSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 100Mi
+        - name: config-volume
+          configMap:
+            name: {{ printf "%s-config" (include "pinniped.componentName" (dict "root" . "component" "concierge")) | trunc 63 | trimSuffix "-" }}
+        - name: podinfo
+          downwardAPI:
+            items:
+              - path: labels
+                fieldRef:
+                  fieldPath: metadata.labels
+              - path: name
+                fieldRef:
+                  fieldPath: metadata.name
+              - path: namespace
+                fieldRef:
+                  fieldPath: metadata.namespace
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
+        - key: node-role.kubernetes.io/master
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/control-plane
+          effect: NoSchedule
+        - key: kubernetes.io/arch
+          effect: NoSchedule
+          operator: Equal
+          value: amd64
+        - key: kubernetes.io/arch
+          effect: NoSchedule
+          operator: Equal
+          value: arm64
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+{{ include "pinniped.componentSelectorLabels" (dict "root" . "component" "concierge") | indent 20 }}
+                topologyKey: kubernetes.io/hostname
+{{- end }}

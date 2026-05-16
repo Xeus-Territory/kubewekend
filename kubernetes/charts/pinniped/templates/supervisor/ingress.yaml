@@ -1,0 +1,72 @@
+{{- if and .Values.supervisor.enabled .Values.supervisor.ingress.enabled (eq .Values.supervisor.ingress.provider "traefik") }}
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: {{ printf "%s-ingress-tcp" (include "pinniped.componentName" (dict "root" . "component" "supervisor")) | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+{{- with .Values.supervisor.ingress.annotations }}
+  annotations:
+{{ toYaml . | indent 4 }}
+{{- end }}
+spec:
+{{- with .Values.supervisor.ingress.traefik.entryPoints }}
+  entryPoints:
+{{ toYaml . | indent 4 }}
+{{- end }}
+  routes:
+    - match: {{ default (printf "HostSNI(`%s`)" (required "supervisor.ingress.hostname is required when ingress is enabled" .Values.supervisor.ingress.hostname )) .Values.supervisor.ingress.traefik.match | quote }}
+      services:
+        - name: {{ include "pinniped.supervisor.ingressServiceName" . }}
+          port: {{ .Values.supervisor.ingress.service.port }}
+  tls:
+{{- if .Values.supervisor.ingress.traefik.tlsPassthrough }}
+    passthrough: true
+{{- end }}
+{{- if .Values.supervisor.ingress.traefik.tlsSecretName }}
+    secretName: {{ .Values.supervisor.ingress.traefik.tlsSecretName | quote }}
+{{- else if and .Values.supervisor.tls.certManager.enabled .Values.supervisor.tls.certManager.certificate.enabled }}
+    secretName: {{ default (include "pinniped.supervisor.defaultTLSSecretName" .) .Values.supervisor.tls.certManager.certificate.secretName | quote }}
+{{- end }}
+{{- end }}
+{{- if and .Values.supervisor.enabled .Values.supervisor.ingress.enabled (eq .Values.supervisor.ingress.provider "nginx") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ printf "%s-ingress" (include "pinniped.componentName" (dict "root" . "component" "supervisor")) | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+  annotations:
+{{- with .Values.supervisor.ingress.annotations }}
+{{ toYaml . | indent 4 }}
+{{- end }}
+    nginx.ingress.kubernetes.io/ssl-passthrough: {{ .Values.supervisor.ingress.nginx.sslPassthrough | quote }}
+    nginx.ingress.kubernetes.io/backend-protocol: {{ .Values.supervisor.ingress.nginx.backendProtocol | quote }}
+spec:
+  ingressClassName: "nginx"
+  rules:
+    - host: {{ required "supervisor.ingress.hostname is required when nginx passthrough ingress is enabled" .Values.supervisor.ingress.hostname | quote }}
+      http:
+        paths:
+          - path: {{ .Values.supervisor.ingress.nginx.path | quote }}
+            pathType: {{ .Values.supervisor.ingress.nginx.pathType }}
+            backend:
+              service:
+                name: {{ include "pinniped.supervisor.ingressServiceName" . }}
+                port:
+                  number: {{ .Values.supervisor.ingress.service.port }}
+  {{- if .Values.supervisor.ingress.nginx.tlsSecretName }}
+  tls:
+    - hosts:
+        - {{ required "supervisor.ingress.hostname is required when nginx passthrough ingress is enabled" .Values.supervisor.ingress.hostname | quote }}
+      secretName: {{ .Values.supervisor.ingress.nginx.tlsSecretName | quote }}
+  {{- else if and .Values.supervisor.tls.certManager.enabled .Values.supervisor.tls.certManager.certificate.enabled }}
+  tls:
+    - hosts:
+        - {{ required "supervisor.ingress.hostname is required when nginx passthrough ingress is enabled" .Values.supervisor.ingress.hostname | quote }}
+      secretName: {{ default (include "pinniped.supervisor.defaultTLSSecretName" .) .Values.supervisor.tls.certManager.certificate.secretName | quote }}
+  {{- end }}
+{{- end }}

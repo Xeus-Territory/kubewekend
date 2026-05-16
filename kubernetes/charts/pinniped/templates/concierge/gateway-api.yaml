@@ -1,0 +1,34 @@
+{{- if and .Values.concierge.enabled .Values.concierge.ingress.enabled (eq .Values.concierge.ingress.provider "gateway-api") .Values.concierge.ingress.gatewayAPI.enabled }}
+apiVersion: {{ .Values.concierge.ingress.gatewayAPI.apiVersion }}
+kind: {{ .Values.concierge.ingress.gatewayAPI.routeKind }}
+metadata:
+  name: {{ default (printf "%s-gateway-route" (include "pinniped.componentName" (dict "root" . "component" "concierge"))) .Values.concierge.ingress.gatewayAPI.routeName | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
+{{- with .Values.concierge.ingress.annotations }}
+  annotations:
+{{ toYaml . | indent 4 }}
+{{- end }}
+spec:
+  parentRefs:
+{{- if .Values.concierge.ingress.gatewayAPI.parentRefs }}
+{{ toYaml .Values.concierge.ingress.gatewayAPI.parentRefs | indent 4 }}
+{{- else }}
+    []
+{{- end }}
+{{- if eq .Values.concierge.ingress.gatewayAPI.routeKind "TLSRoute" }}
+{{- $hostnames := .Values.concierge.ingress.gatewayAPI.hostnames }}
+{{- if and (eq (len $hostnames) 0) .Values.concierge.ingress.hostname }}
+  hostnames:
+    - {{ .Values.concierge.ingress.hostname | quote }}
+{{- else if gt (len $hostnames) 0 }}
+  hostnames:
+{{ toYaml $hostnames | indent 4 }}
+{{- end }}
+{{- end }}
+  rules:
+    - backendRefs:
+        - name: {{ include "pinniped.concierge.ingressServiceName" . }}
+          port: {{ default .Values.concierge.service.proxy.port .Values.concierge.ingress.service.port }}
+{{- end }}

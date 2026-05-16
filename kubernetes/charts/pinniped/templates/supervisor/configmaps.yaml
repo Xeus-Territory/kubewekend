@@ -1,0 +1,46 @@
+{{- if .Values.supervisor.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-static-config" (include "pinniped.componentName" (dict "root" . "component" "supervisor")) | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+data:
+  pinniped.yaml: |
+    apiGroupSuffix: {{ .Values.supervisor.config.apiGroupSuffix | quote }}
+    names:
+      defaultTLSCertificateSecret: {{ include "pinniped.supervisor.defaultTLSSecretName" . | quote }}
+      apiService: {{ printf "%s-api" (include "pinniped.componentName" (dict "root" . "component" "supervisor")) | quote }}
+    labels:
+{{ include "pinniped.runtimeLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 6 }}
+    tls:
+      onedottwo:
+        allowedCiphers:
+{{ toYaml .Values.supervisor.config.allowedCiphersForTLSOneDotTwo | indent 10 }}
+    audit:
+      logUsernamesAndGroups: {{ .Values.supervisor.config.audit.logUsernamesAndGroups | quote }}
+      logInternalPaths: {{ .Values.supervisor.config.audit.logInternalPaths | quote }}
+    aggregatedAPIServerDisableAdmissionPlugins: []
+{{- if .Values.supervisor.config.logLevel }}
+    log:
+      level: {{ .Values.supervisor.config.logLevel | quote }}
+{{- end }}
+{{- if .Values.supervisor.config.endpoints }}
+    endpoints:
+{{ toYaml .Values.supervisor.config.endpoints | indent 6 }}
+{{- end }}
+{{- if .Values.supervisor.imagePullSecret.create }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.supervisor.imagePullSecret.name }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: {{ .Values.supervisor.imagePullSecret.dockerconfigjson | quote }}
+{{- end }}
+{{- end }}
