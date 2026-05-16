@@ -1,0 +1,122 @@
+{{- if .Values.supervisor.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "pinniped.componentName" (dict "root" . "component" "supervisor") }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create, get, list, patch, update, watch, delete]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch]
+  - apiGroups: [{{ printf "config.supervisor.%s" .Values.supervisor.config.apiGroupSuffix | quote }}]
+    resources: [federationdomains]
+    verbs: [get, list, watch]
+  - apiGroups: [{{ printf "config.supervisor.%s" .Values.supervisor.config.apiGroupSuffix | quote }}]
+    resources: [federationdomains/status, oidcclients/status]
+    verbs: [get, patch, update]
+  - apiGroups: [{{ printf "config.supervisor.%s" .Values.supervisor.config.apiGroupSuffix | quote }}]
+    resources: [oidcclients]
+    verbs: [get, list, watch]
+  - apiGroups: [{{ printf "idp.supervisor.%s" .Values.supervisor.config.apiGroupSuffix | quote }}]
+    resources: [oidcidentityproviders, ldapidentityproviders, activedirectoryidentityproviders, githubidentityproviders]
+    verbs: [get, list, watch]
+  - apiGroups: [{{ printf "idp.supervisor.%s" .Values.supervisor.config.apiGroupSuffix | quote }}]
+    resources: [oidcidentityproviders/status, ldapidentityproviders/status, activedirectoryidentityproviders/status, githubidentityproviders/status]
+    verbs: [get, patch, update]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get]
+  - apiGroups: [apps]
+    resources: [replicasets, deployments]
+    verbs: [get]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [create, get, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "pinniped.componentName" (dict "root" . "component" "supervisor") }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pinniped.supervisor.serviceAccountName" (dict "root" .) }}
+    namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "pinniped.componentName" (dict "root" . "component" "supervisor") }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ printf "%s-extension-apiserver-authentication-reader" (include "pinniped.componentName" (dict "root" . "component" "supervisor")) | trunc 63 | trimSuffix "-" }}
+  namespace: kube-system
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pinniped.supervisor.serviceAccountName" (dict "root" .) }}
+    namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "pinniped.componentName" (dict "root" . "component" "supervisor") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pinniped.supervisor.serviceAccountName" (dict "root" .) }}
+    namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-aggregated-api-server" (include "pinniped.componentName" (dict "root" . "component" "supervisor")) | trunc 63 | trimSuffix "-" }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [apiregistration.k8s.io]
+    resources: [apiservices]
+    verbs: [get, list, patch, update, watch]
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [validatingwebhookconfigurations, mutatingwebhookconfigurations, validatingadmissionpolicies, validatingadmissionpolicybindings, mutatingadmissionpolicies, mutatingadmissionpolicybindings]
+    verbs: [get, list, watch]
+  - apiGroups: [flowcontrol.apiserver.k8s.io]
+    resources: [flowschemas, prioritylevelconfigurations]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-aggregated-api-server" (include "pinniped.componentName" (dict "root" . "component" "supervisor")) | trunc 63 | trimSuffix "-" }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pinniped.supervisor.serviceAccountName" (dict "root" .) }}
+    namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s-aggregated-api-server" (include "pinniped.componentName" (dict "root" . "component" "supervisor")) | trunc 63 | trimSuffix "-" }}
+{{- end }}

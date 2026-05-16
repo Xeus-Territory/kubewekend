@@ -1,0 +1,629 @@
+# -- Install Pinniped CRDs as part of this chart render.
+installCRDs: true
+
+# -- Global namespace settings for Pinniped components.
+namespace:
+  # -- Create the component namespaces (`<name>-concierge` and `<name>-supervisor`).
+  create: true
+  # -- Base namespace prefix used to derive component namespaces. Empty defaults to `pinniped`.
+  name: ""
+
+# -- Common labels applied to all rendered resources.
+commonLabels: {}
+
+# -- Pinniped Concierge component configuration.
+concierge:
+  # -- Enable Concierge resources.
+  enabled: true
+  # -- Override the default Concierge resource name prefix.
+  nameOverride: ""
+  # -- Additional labels applied only to Concierge resources.
+  customLabels: {}
+
+  # -- Concierge container image settings.
+  image:
+    # -- Concierge image repository.
+    repository: ghcr.io/vmware/pinniped/pinniped-server
+    # -- Concierge image tag. Defaults to the chart appVersion when empty.
+    tag: ""
+    # -- Concierge image digest. Takes precedence over `tag` when set.
+    digest: ""
+    # -- Image pull policy for the Concierge container.
+    pullPolicy: IfNotPresent
+
+  # -- Optional image pull secret configuration for private registries.
+  imagePullSecret:
+    # -- Create a dockerconfigjson secret for pulling the Pinniped image.
+    create: false
+    # -- Name of the image pull secret.
+    name: image-pull-secret
+    # -- Base64-encoded `.dockerconfigjson` payload used when `create=true`.
+    dockerconfigjson: ""
+
+  # -- Number of Concierge replicas.
+  replicaCount: 1
+
+  # -- Pod-level security context for Concierge pods.
+  podSecurityContext:
+    # -- UID used to run the Concierge pod.
+    runAsUser: 65532
+    # -- GID used to run the Concierge pod.
+    runAsGroup: 65532
+
+  # -- Container-level security context for the Concierge container.
+  containerSecurityContext:
+    # -- Mount the root filesystem as read-only.
+    readOnlyRootFilesystem: true
+    # -- Require the Concierge container to run as a non-root user.
+    runAsNonRoot: true
+    # -- Disable privilege escalation in the Concierge container.
+    allowPrivilegeEscalation: false
+    # -- Linux capabilities configuration for the Concierge container.
+    capabilities:
+      # -- Capabilities dropped from the Concierge container.
+      drop:
+        - ALL
+    # -- Seccomp profile applied to the Concierge container.
+    seccompProfile:
+      # -- Seccomp profile type.
+      type: RuntimeDefault
+
+  # -- Resource requests and limits for the Concierge container.
+  resources:
+    # -- Resource requests for the Concierge container.
+    requests:
+      # -- Requested CPU for the Concierge container.
+      cpu: 100m
+      # -- Requested memory for the Concierge container.
+      memory: 128Mi
+    # -- Resource limits for the Concierge container.
+    limits:
+      # -- CPU limit for the Concierge container.
+      cpu: 100m
+      # -- Memory limit for the Concierge container.
+      memory: 128Mi
+
+  # -- Concierge static configuration rendered into the Pinniped config file.
+  config:
+    # -- Override the Kubernetes discovery URL published by Concierge.
+    discoveryURL: ""
+    # -- API group suffix for Concierge APIs.
+    apiGroupSuffix: pinniped.dev
+    # -- Lifetime of the Concierge API serving certificate in seconds.
+    apiServingCertificateDurationSeconds: 2592000
+    # -- Renew-before interval of the Concierge API serving certificate in seconds.
+    apiServingCertificateRenewBeforeSeconds: 2160000
+    # -- Concierge log level. Leave empty for Pinniped defaults.
+    logLevel: ""
+    # -- Override the kube-cert-agent image used by Concierge.
+    kubeCertAgentImage: ""
+    # -- PriorityClass name assigned to kube-cert-agent pods.
+    kubeCertAgentPriorityClassName: ""
+    # -- HTTPS proxy used by Concierge for outbound requests.
+    httpsProxy: ""
+    # -- NO_PROXY list used by Concierge for outbound requests.
+    noProxy: $(KUBERNETES_SERVICE_HOST),169.254.169.254,127.0.0.1,localhost,.svc,.cluster.local
+    # -- Allowed TLS 1.2 cipher suites for Concierge. Empty uses Pinniped defaults.
+    allowedCiphersForTLSOneDotTwo: []
+    # -- Concierge audit logging configuration.
+    audit:
+      # -- Include usernames and groups in Concierge audit logs.
+      logUsernamesAndGroups: disabled
+
+  # -- Service settings for Concierge internal and impersonation proxy traffic.
+  service:
+    # -- Service exposing the aggregated Concierge API.
+    api:
+      # -- External service port for the Concierge API service.
+      port: 443
+      # -- Container target port for the Concierge API service.
+      targetPort: 10250
+    # -- Service exposing the Concierge impersonation proxy.
+    proxy:
+      # -- Create the impersonation proxy service.
+      enabled: true
+      # -- Kubernetes service type for the impersonation proxy.
+      type: ClusterIP
+      # -- External service port for the impersonation proxy.
+      port: 443
+      # -- Container target port for the impersonation proxy.
+      targetPort: 8444
+      # -- Additional annotations for the impersonation proxy service.
+      annotations: {}
+      # -- Static load balancer IP for the impersonation proxy service.
+      loadBalancerIP: ""
+      # -- Optional `loadBalancerClass` for the impersonation proxy service.
+      loadBalancerClass: ""
+      # -- Optional external traffic policy for the impersonation proxy service.
+      externalTrafficPolicy: ""
+      # -- Optional source ranges allowed to reach the impersonation proxy load balancer.
+      loadBalancerSourceRanges: []
+
+  # -- CredentialIssuer bootstrap resource for Concierge impersonation support.
+  credentialIssuer:
+    # -- Create the default `CredentialIssuer` resource.
+    create: true
+    # -- CredentialIssuer impersonation proxy configuration.
+    impersonationProxy:
+      # -- Impersonation proxy mode (`auto`, `enabled`, or `disabled`).
+      mode: enabled
+      # -- External endpoint advertised by the impersonation proxy.
+      externalEndpoint: "https://pinniped-concierge.pinniped-concierge.svc.cluster.local"
+      # -- Service settings published in the CredentialIssuer status.
+      service:
+        # -- Service type reported for the impersonation proxy endpoint. (`ClusterIP` or `LoadBalancer` or `None`).
+        # Ref: https://github.com/vmware/pinniped/tree/main/generated/latest#impersonationproxyservicetype-string
+        type: ClusterIP
+        # -- Service annotations published for the impersonation proxy endpoint.
+        annotations: {}
+        # -- Static load balancer IP reported for the impersonation proxy endpoint.
+        loadBalancerIP: ""
+
+  # -- TLS secret and optional cert-manager configuration for Concierge.
+  tls:
+    # -- Explicit secret names used by Concierge.
+    secretNames:
+      # -- Secret name for the Concierge aggregated API serving certificate.
+      api: ""
+      # -- Secret name for the Concierge impersonation proxy serving certificate.
+      impersonationProxy: ""
+    # -- Optional cert-manager integration for Concierge certificates.
+    certManager:
+      # -- Enable cert-manager resources for Concierge.
+      enabled: true
+      # -- Create a simple self-signed `Issuer` in the Concierge namespace.
+      createSelfSignedIssuer: false
+      # -- cert-manager issuer reference used by the Concierge certificate.
+      issuerRef:
+        # -- Name of the cert-manager issuer.
+        name: "kubewekend-ca-issuer"
+        # -- Kind of the cert-manager issuer or clusterissuer resource.
+        kind: ClusterIssuer
+        # -- API group of the cert-manager issuer or clusterissuer resource.
+        group: cert-manager.io
+      # -- cert-manager certificate options for Concierge.
+      certificate:
+        # -- Create a cert-manager `Certificate` for Concierge.
+        enabled: true
+        # -- Override the secret name written by the cert-manager `Certificate`.
+        secretName: "concierge-tls-bundle"
+        # -- Optional common name used in the Concierge certificate.
+        commonName: ""
+        # -- DNS names included in the Concierge certificate.
+        dnsNames: []
+        # -- Optional certificate duration passed to cert-manager.
+        duration: ""
+        # -- Optional renew-before duration passed to cert-manager.
+        renewBefore: ""
+        # -- Private key settings used by cert-manager.
+        privateKey:
+          # -- Private key algorithm for the Concierge certificate.
+          algorithm: RSA
+          # -- Private key size for the Concierge certificate.
+          size: 2048
+
+  # -- Concierge exposure settings for Traefik, NGINX passthrough, or Gateway API.
+  ingress:
+    # -- Enable ingress or gateway-based exposure for Concierge.
+    enabled: true
+    # -- Exposure provider (`traefik`, `nginx`, or `gateway-api`).
+    provider: traefik
+    # -- Additional annotations applied to Concierge ingress or gateway resources.
+    annotations: {}
+    # -- Primary hostname used by Concierge passthrough exposure.
+    hostname: "pinniped-concierge.pinniped-concierge.svc.cluster.local"
+    # -- Backend service override used by ingress or gateway routes.
+    service:
+      # -- Explicit service name used as the ingress or gateway backend.
+      name: ""
+      # -- Service port used as the ingress or gateway backend.
+      port: 443
+    # -- Traefik `IngressRouteTCP` settings.
+    traefik:
+      # -- EntryPoints attached to the Traefik TCP route.
+      entryPoints:
+        - websecure
+      # -- Optional custom Traefik TCP match expression. Defaults to `HostSNI(hostname)`.
+      match: ""
+      # -- Enable TLS passthrough for Traefik TCP routing.
+      tlsPassthrough: true
+      # -- TLS secret name for SSL. Typically the cert-manager-managed secret name.
+      tlsSecretName: ""
+    # -- NGINX SSL passthrough ingress settings.
+    nginx:
+      # -- Value for the `nginx.ingress.kubernetes.io/ssl-passthrough` annotation.
+      sslPassthrough: "true"
+      # -- Value for the `nginx.ingress.kubernetes.io/backend-protocol` annotation.
+      backendProtocol: HTTPS
+      # -- HTTP path used by the compatibility ingress resource.
+      path: /
+      # -- Path type used by the compatibility ingress resource.
+      pathType: Prefix
+      # -- TLS secret name for SSL. Typically the cert-manager-managed secret name.
+      tlsSecretName: ""
+    # -- Gateway API route settings for Concierge.
+    gatewayAPI:
+      # -- Enable Gateway API route rendering for Concierge.
+      enabled: false
+      # -- API version used for the Gateway API route.
+      apiVersion: gateway.networking.k8s.io/v1beta1
+      # -- Gateway API route kind (`TLSRoute` or `TCPRoute`).
+      routeKind: TLSRoute
+      # -- Override the generated Gateway API route name.
+      routeName: ""
+      # -- Hostnames attached to the Gateway API route.
+      hostnames: []
+      # -- Parent references attached to the Gateway API route.
+      parentRefs: []
+      # -- Reserved field for future section name convenience helpers.
+      sectionName: ""
+    # -- Legacy L7 ingress hosts list retained for backward compatibility.
+    hosts: []
+    # -- Legacy L7 ingress TLS list retained for backward compatibility.
+    tls: []
+
+  # -- JWTAuthenticator that validates tokens issued by a Pinniped Supervisor FederationDomain.
+  jwtAuthenticator:
+    # -- Create a JWTAuthenticator resource on this cluster's Concierge.
+    create: true
+    # -- Name of the JWTAuthenticator resource.
+    name: kubewekend-jwt-authenticator
+    # -- Issuer URL of the Supervisor FederationDomain. Must exactly match `supervisor.federationDomain.issuer`.
+    issuer: "https://pinniped-supervisor-clusterip.pinniped-supervisor.svc.cluster.local"
+    # -- Unique audience identifier for this cluster.
+    audience: "kubewekend-cluster"
+    # -- Base64-encoded PEM CA bundle for validating the Supervisor TLS certificate. Leave empty when using a publicly trusted CA.
+    certificateAuthorityData: ""
+    # -- Dynamic CA bundle source watched by Pinniped for rotation (alternative to `certificateAuthorityData`).
+    certificateAuthorityDataSource:
+      # -- Kind of the source resource: `Secret` or `ConfigMap`.
+      kind: "Secret"
+      # -- Name of the Secret or ConfigMap containing the CA bundle.
+      name: "concierge-tls-bundle"
+      # -- Key within the resource that contains the PEM CA bundle.
+      key: "ca.crt"
+
+# -- Pinniped Supervisor component configuration.
+supervisor:
+  # -- Enable Supervisor resources.
+  enabled: true
+  # -- Override the default Supervisor resource name prefix.
+  nameOverride: ""
+  # -- Additional labels applied only to Supervisor resources.
+  customLabels: {}
+
+  # -- Supervisor container image settings.
+  image:
+    # -- Supervisor image repository.
+    repository: ghcr.io/vmware/pinniped/pinniped-server
+    # -- Supervisor image tag. Defaults to the chart appVersion when empty.
+    tag: ""
+    # -- Supervisor image digest. Takes precedence over `tag` when set.
+    digest: ""
+    # -- Image pull policy for the Supervisor container.
+    pullPolicy: IfNotPresent
+
+  # -- Optional image pull secret configuration for private registries.
+  imagePullSecret:
+    # -- Create a dockerconfigjson secret for pulling the Pinniped image.
+    create: false
+    # -- Name of the image pull secret.
+    name: image-pull-secret
+    # -- Base64-encoded `.dockerconfigjson` payload used when `create=true`.
+    dockerconfigjson: ""
+
+  # -- Number of Supervisor replicas.
+  replicaCount: 1
+
+  # -- Pod-level security context for Supervisor pods.
+  podSecurityContext:
+    # -- UID used to run the Supervisor pod.
+    runAsUser: 65532
+    # -- GID used to run the Supervisor pod.
+    runAsGroup: 65532
+
+  # -- Container-level security context for the Supervisor container.
+  containerSecurityContext:
+    # -- Mount the root filesystem as read-only.
+    readOnlyRootFilesystem: true
+    # -- Require the Supervisor container to run as a non-root user.
+    runAsNonRoot: true
+    # -- Disable privilege escalation in the Supervisor container.
+    allowPrivilegeEscalation: false
+    # -- Linux capabilities configuration for the Supervisor container.
+    capabilities:
+      # -- Capabilities dropped from the Supervisor container.
+      drop:
+        - ALL
+    # -- Seccomp profile applied to the Supervisor container.
+    seccompProfile:
+      # -- Seccomp profile type.
+      type: RuntimeDefault
+
+  # -- Resource requests and limits for the Supervisor container.
+  resources:
+    # -- Resource requests for the Supervisor container.
+    requests:
+      # -- Requested CPU for the Supervisor container.
+      cpu: 100m
+      # -- Requested memory for the Supervisor container.
+      memory: 128Mi
+    # -- Resource limits for the Supervisor container.
+    limits:
+      # -- CPU limit for the Supervisor container.
+      cpu: 1000m
+      # -- Memory limit for the Supervisor container.
+      memory: 128Mi
+
+  # -- Supervisor static configuration rendered into the Pinniped config file.
+  config:
+    # -- API group suffix for Supervisor APIs.
+    apiGroupSuffix: pinniped.dev
+    # -- Supervisor log level. Leave empty for Pinniped defaults.
+    logLevel: ""
+    # -- HTTPS proxy used by Supervisor for outbound requests.
+    httpsProxy: ""
+    # -- NO_PROXY list used by Supervisor for outbound requests.
+    noProxy: $(KUBERNETES_SERVICE_HOST),169.254.169.254,127.0.0.1,localhost,.svc,.cluster.local
+    # -- Raw Supervisor endpoint configuration merged into `pinniped.yaml`.
+    endpoints: {}
+    # -- Allowed TLS 1.2 cipher suites for Supervisor. Empty uses Pinniped defaults.
+    allowedCiphersForTLSOneDotTwo: []
+    # -- Supervisor audit logging configuration.
+    audit:
+      # -- Include usernames and groups in Supervisor audit logs.
+      logUsernamesAndGroups: disabled
+      # -- Include internal endpoints such as `/healthz` in Supervisor audit logs.
+      logInternalPaths: disabled
+
+  # -- TLS secret and optional cert-manager configuration for Supervisor.
+  tls:
+    # -- Secret name used by the Supervisor default TLS certificate.
+    secretName: ""
+    # -- Optional cert-manager integration for Supervisor certificates.
+    certManager:
+      # -- Enable cert-manager resources for Supervisor.
+      enabled: true
+      # -- Create a simple self-signed `Issuer` in the Supervisor namespace.
+      createSelfSignedIssuer: false
+      # -- cert-manager issuer reference used by the Supervisor certificate.
+      issuerRef:
+        # -- Name of the cert-manager issuer.
+        name: "kubewekend-ca-issuer"
+        # -- Kind of the cert-manager issuer or clusterissuer resource.
+        kind: ClusterIssuer
+        # -- API group of the cert-manager issuer or clusterissuer resource.
+        group: cert-manager.io
+      # -- cert-manager certificate options for Supervisor.
+      certificate:
+        # -- Create a cert-manager `Certificate` for Supervisor.
+        enabled: true
+        # -- Override the secret name written by the cert-manager `Certificate`.
+        secretName: "supervisor-tls-bundle"
+        # -- Optional common name used in the Supervisor certificate.
+        commonName: ""
+        # -- DNS names included in the Supervisor certificate.
+        dnsNames:
+          - "pinniped-supervisor-clusterip.pinniped-supervisor.svc.cluster.local"
+        # -- Optional certificate duration passed to cert-manager.
+        duration: ""
+        # -- Optional renew-before duration passed to cert-manager.
+        renewBefore: ""
+        # -- Private key settings used by cert-manager.
+        privateKey:
+          # -- Private key algorithm for the Supervisor certificate.
+          algorithm: RSA
+          # -- Private key size for the Supervisor certificate.
+          size: 2048
+
+  # -- Service settings for Supervisor API and public access.
+  service:
+    # -- Service exposing the aggregated Supervisor API.
+    api:
+      # -- External service port for the Supervisor API service.
+      port: 443
+      # -- Container target port for the Supervisor API service.
+      targetPort: 10250
+    # -- Public exposure service settings for the Supervisor HTTPS endpoint.
+    public:
+      # -- NodePort-based public exposure settings.
+      nodePort:
+        # -- Create a NodePort service for Supervisor HTTPS traffic.
+        enabled: false
+        # -- External port exposed by the NodePort service.
+        port: 443
+        # -- Fixed nodePort value. Leave null to let Kubernetes allocate one.
+        nodePort: null
+      # -- ClusterIP-based public exposure settings.
+      clusterIP:
+        # -- Create a dedicated ClusterIP service for Supervisor HTTPS traffic.
+        enabled: true
+        # -- External port exposed by the ClusterIP service.
+        port: 443
+      # -- LoadBalancer-based public exposure settings.
+      loadBalancer:
+        # -- Create a LoadBalancer service for Supervisor HTTPS traffic.
+        enabled: false
+        # -- External port exposed by the LoadBalancer service.
+        port: 443
+        # -- Static load balancer IP for the Supervisor LoadBalancer service.
+        loadBalancerIP: ""
+        # -- Additional annotations for the Supervisor LoadBalancer service.
+        annotations: {}
+        # -- Optional `loadBalancerClass` for the Supervisor LoadBalancer service.
+        loadBalancerClass: ""
+        # -- Optional external traffic policy for the Supervisor LoadBalancer service.
+        externalTrafficPolicy: ""
+        # -- Optional source ranges allowed to reach the Supervisor LoadBalancer service.
+        loadBalancerSourceRanges: []
+
+  # -- Supervisor exposure settings for Traefik, NGINX passthrough, or Gateway API.
+  ingress:
+    # -- Enable ingress or gateway-based exposure for Supervisor.
+    enabled: true
+    # -- Exposure provider (`traefik`, `nginx`, or `gateway-api`).
+    provider: traefik
+    # -- Additional annotations applied to Supervisor ingress or gateway resources.
+    annotations: {}
+    # -- Primary hostname used by Supervisor passthrough exposure.
+    hostname: "pinniped-supervisor-clusterip.pinniped-supervisor.svc.cluster.local"
+    # -- Backend service override used by ingress or gateway routes.
+    service:
+      # -- Explicit service name used as the ingress or gateway backend.
+      name: ""
+      # -- Service port used as the ingress or gateway backend.
+      port: 443
+    # -- Traefik `IngressRouteTCP` settings.
+    traefik:
+      # -- EntryPoints attached to the Traefik TCP route.
+      entryPoints:
+        - websecure
+      # -- Optional custom Traefik TCP match expression. Defaults to `HostSNI(hostname)`.
+      match: ""
+      # -- Enable TLS passthrough for Traefik TCP routing.
+      tlsPassthrough: true
+      # -- TLS secret name for SSL. Typically the cert-manager-managed secret name.
+      tlsSecretName: "supervisor-tls-bundle"
+    # -- NGINX SSL passthrough ingress settings.
+    nginx:
+      # -- Value for the `nginx.ingress.kubernetes.io/ssl-passthrough` annotation.
+      sslPassthrough: "true"
+      # -- Value for the `nginx.ingress.kubernetes.io/backend-protocol` annotation.
+      backendProtocol: HTTPS
+      # -- HTTP path used by the compatibility ingress resource.
+      path: /
+      # -- Path type used by the compatibility ingress resource.
+      pathType: Prefix
+      # -- TLS secret name for SSL. Typically the cert-manager-managed secret name.
+      tlsSecretName: ""
+    # -- Gateway API route settings for Supervisor.
+    gatewayAPI:
+      # -- Enable Gateway API route rendering for Supervisor.
+      enabled: false
+      # -- API version used for the Gateway API route.
+      apiVersion: gateway.networking.k8s.io/v1beta1
+      # -- Gateway API route kind (`TLSRoute` or `TCPRoute`).
+      routeKind: TLSRoute
+      # -- Override the generated Gateway API route name.
+      routeName: ""
+      # -- Hostnames attached to the Gateway API route.
+      hostnames: []
+      # -- Parent references attached to the Gateway API route.
+      parentRefs: []
+      # -- Reserved field for future section name convenience helpers.
+      sectionName: ""
+
+  # -- FederationDomain configures the Supervisor as an OIDC issuer for downstream clusters.
+  federationDomain:
+    # -- Create a FederationDomain resource.
+    create: true
+    # -- OIDC issuer URL. Must be a publicly reachable HTTPS URL and must exactly match `concierge.jwtAuthenticator.issuer`.
+    issuer: "https://pinniped-supervisor-clusterip.pinniped-supervisor.svc.cluster.local"
+    # -- Secret name for the Supervisor TLS serving certificate used by this FederationDomain.
+    # -- Defaults to the cert-manager-managed secret when `supervisor.tls.certManager.enabled=true`.
+    tlsSecretName: "supervisor-tls-bundle"
+    # -- Additional identity provider references appended verbatim to the FederationDomain identityProviders list.
+    # -- Each entry must have `displayName` and `objectRef.{apiGroup,kind,name}` fields.
+    identityProviders: []
+
+  # -- Identity provider resources created in the Supervisor namespace.
+  identityProviders:
+    # -- Dex OIDC identity provider configuration.
+    dex:
+      # -- Create an OIDCIdentityProvider for Dex.
+      create: true
+      # -- Name of the OIDCIdentityProvider resource.
+      name: dex-idp
+      # -- Display name shown to users at the login-chooser screen.
+      displayName: "Dex"
+      # -- Dex OIDC issuer URL (e.g. `https://dex.example.com`).
+      issuer: "https://dex.example.com"
+      # -- Base64-encoded PEM CA bundle for validating the Dex TLS certificate. Omit when Dex uses a publicly trusted CA.
+      certificateAuthorityData: ""
+      # -- Additional OIDC scopes to request from Dex beyond `openid`.
+      additionalScopes:
+        - offline_access
+        - groups
+        - email
+      # -- Allow the OIDC password grant flow. Requires Dex >= v2.31.0.
+      allowPasswordGrant: false
+      # -- OIDC claim mapped to the Kubernetes username.
+      usernameClaim: email
+      # -- OIDC claim mapped to Kubernetes group membership.
+      groupsClaim: groups
+      # -- Name of the Secret containing the Dex client credentials.
+      clientSecretName: ""
+      # -- Create the Dex client credentials Secret from the values below.
+      createClientSecret: true
+      # -- Dex OAuth client ID. Required when `createClientSecret=true`.
+      clientID: "pinniped-supervisor"
+      # -- Dex OAuth client secret. Required when `createClientSecret=true`.
+      clientSecret: "pinniped-supervisor-secret"
+
+    # -- GitHub identity provider configuration.
+    github:
+      # -- Create a GitHubIdentityProvider resource.
+      create: false
+      # -- Name of the GitHubIdentityProvider resource.
+      name: github
+      # -- Display name shown to users at the login-chooser screen.
+      displayName: "GitHub"
+      # -- GitHub API host. Leave empty for `github.com`; set for GitHub Enterprise Server.
+      host: ""
+      # -- Base64-encoded PEM CA bundle for GitHub Enterprise TLS. Omit for `github.com`.
+      certificateAuthorityData: ""
+      # -- GitHub organization membership policy: `AllGitHubUsers` or `OnlyUsersFromAllowedOrganizations`.
+      organizationPolicy: AllGitHubUsers
+      # -- List of GitHub organizations to allow when `organizationPolicy=OnlyUsersFromAllowedOrganizations`.
+      allowedOrganizations: []
+      # -- How to map the GitHub identity to a Kubernetes username: `id`, `login`, or `login:id`.
+      usernameClaim: "login:id"
+      # -- How to map GitHub teams to Kubernetes groups: `name` or `slug`.
+      groupsClaim: slug
+      # -- Name of the Secret containing the GitHub OAuth App client credentials.
+      clientSecretName: ""
+      # -- Create the GitHub client credentials Secret from the values below.
+      createClientSecret: false
+      # -- GitHub OAuth App or GitHub App client ID. Required when `createClientSecret=true`.
+      clientID: ""
+      # -- GitHub OAuth App or GitHub App client secret. Required when `createClientSecret=true`.
+      clientSecret: ""
+
+    # -- LDAP identity provider configuration.
+    ldap:
+      # -- Create an LDAPIdentityProvider resource.
+      create: false
+      # -- Name of the LDAPIdentityProvider resource.
+      name: openldap
+      # -- Display name shown to users at the login-chooser screen.
+      displayName: "LDAP"
+      # -- LDAP server host and optional port (e.g. `ldap.example.com:636`).
+      host: ""
+      # -- Base64-encoded PEM CA bundle for the LDAP server TLS certificate.
+      certificateAuthorityData: ""
+      # -- LDAP user search settings.
+      userSearch:
+        # -- Base DN for user searches.
+        base: ""
+        # -- LDAP filter expression for user lookups. Use `{}` as a placeholder for the supplied username.
+        filter: "&(objectClass=inetOrgPerson)(uid={})"
+        # -- LDAP attribute used as the Kubernetes username.
+        usernameAttribute: uid
+        # -- LDAP attribute used as the stable unique user identifier.
+        uidAttribute: uidNumber
+      # -- LDAP group search settings.
+      groupSearch:
+        # -- Base DN for group searches.
+        base: ""
+        # -- LDAP filter expression for group membership lookups.
+        filter: "&(objectClass=groupOfNames)(member={})"
+        # -- LDAP attribute used as the Kubernetes group name.
+        groupNameAttribute: cn
+      # -- Name of the Secret containing the LDAP bind account credentials.
+      bindSecretName: ""
+      # -- Create the LDAP bind account Secret from the values below.
+      createBindSecret: false
+      # -- LDAP bind account distinguished name. Required when `createBindSecret=true`.
+      bindUsername: ""
+      # -- LDAP bind account password. Required when `createBindSecret=true`.
+      bindPassword: ""

@@ -1,0 +1,185 @@
+{{- if .Values.supervisor.enabled }}
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: {{ printf "v1alpha1.clientsecret.supervisor.%s" .Values.supervisor.config.apiGroupSuffix }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+spec:
+  version: v1alpha1
+  group: {{ printf "clientsecret.supervisor.%s" .Values.supervisor.config.apiGroupSuffix }}
+  groupPriorityMinimum: 9900
+  versionPriority: 15
+  service:
+    name: {{ printf "%s-api" (include "pinniped.componentName" (dict "root" . "component" "supervisor")) | trunc 63 | trimSuffix "-" }}
+    namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+    port: {{ .Values.supervisor.service.api.port }}
+{{- end }}
+{{- if and .Values.supervisor.enabled .Values.supervisor.federationDomain.create }}
+---
+apiVersion: config.supervisor.pinniped.dev/v1alpha1
+kind: FederationDomain
+metadata:
+  name: {{ printf "%s-federation-domain" (include "pinniped.componentName" (dict "root" . "component" "supervisor")) | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+spec:
+  issuer: {{ required "supervisor.federationDomain.issuer is required when federationDomain.create=true" .Values.supervisor.federationDomain.issuer | quote }}
+  tls:
+    secretName: {{ default (include "pinniped.supervisor.defaultTLSSecretName" .) .Values.supervisor.federationDomain.tlsSecretName | quote }}
+{{- if or .Values.supervisor.identityProviders.dex.create .Values.supervisor.identityProviders.github.create .Values.supervisor.identityProviders.ldap.create .Values.supervisor.federationDomain.identityProviders }}
+  identityProviders:
+{{- if .Values.supervisor.identityProviders.dex.create }}
+    - displayName: {{ .Values.supervisor.identityProviders.dex.displayName | quote }}
+      objectRef:
+        apiGroup: idp.supervisor.pinniped.dev
+        kind: OIDCIdentityProvider
+        name: {{ .Values.supervisor.identityProviders.dex.name | quote }}
+{{- end }}
+{{- if .Values.supervisor.identityProviders.github.create }}
+    - displayName: {{ .Values.supervisor.identityProviders.github.displayName | quote }}
+      objectRef:
+        apiGroup: idp.supervisor.pinniped.dev
+        kind: GitHubIdentityProvider
+        name: {{ .Values.supervisor.identityProviders.github.name | quote }}
+{{- end }}
+{{- if .Values.supervisor.identityProviders.ldap.create }}
+    - displayName: {{ .Values.supervisor.identityProviders.ldap.displayName | quote }}
+      objectRef:
+        apiGroup: idp.supervisor.pinniped.dev
+        kind: LDAPIdentityProvider
+        name: {{ .Values.supervisor.identityProviders.ldap.name | quote }}
+{{- end }}
+{{- with .Values.supervisor.federationDomain.identityProviders }}
+{{ toYaml . | indent 4 }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if and .Values.supervisor.enabled .Values.supervisor.identityProviders.dex.create }}
+---
+apiVersion: idp.supervisor.pinniped.dev/v1alpha1
+kind: OIDCIdentityProvider
+metadata:
+  name: {{ .Values.supervisor.identityProviders.dex.name | quote }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+spec:
+  issuer: {{ required "supervisor.identityProviders.dex.issuer is required when dex.create=true" .Values.supervisor.identityProviders.dex.issuer | quote }}
+{{- if .Values.supervisor.identityProviders.dex.certificateAuthorityData }}
+  tls:
+    certificateAuthorityData: {{ .Values.supervisor.identityProviders.dex.certificateAuthorityData | quote }}
+{{- end }}
+  authorizationConfig:
+    additionalScopes:
+{{ toYaml .Values.supervisor.identityProviders.dex.additionalScopes | indent 6 }}
+    allowPasswordGrant: {{ .Values.supervisor.identityProviders.dex.allowPasswordGrant }}
+  claims:
+    username: {{ .Values.supervisor.identityProviders.dex.usernameClaim | quote }}
+    groups: {{ .Values.supervisor.identityProviders.dex.groupsClaim | quote }}
+  client:
+    secretName: {{ default (printf "%s-dex-client" (include "pinniped.componentName" (dict "root" . "component" "supervisor"))) .Values.supervisor.identityProviders.dex.clientSecretName | quote }}
+{{- if .Values.supervisor.identityProviders.dex.createClientSecret }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ default (printf "%s-dex-client" (include "pinniped.componentName" (dict "root" . "component" "supervisor"))) .Values.supervisor.identityProviders.dex.clientSecretName | quote }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+type: secrets.pinniped.dev/oidc-client
+stringData:
+  clientID: {{ required "supervisor.identityProviders.dex.clientID is required when createClientSecret=true" .Values.supervisor.identityProviders.dex.clientID | quote }}
+  clientSecret: {{ required "supervisor.identityProviders.dex.clientSecret is required when createClientSecret=true" .Values.supervisor.identityProviders.dex.clientSecret | quote }}
+{{- end }}
+{{- end }}
+{{- if and .Values.supervisor.enabled .Values.supervisor.identityProviders.github.create }}
+---
+apiVersion: idp.supervisor.pinniped.dev/v1alpha1
+kind: GitHubIdentityProvider
+metadata:
+  name: {{ .Values.supervisor.identityProviders.github.name | quote }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+spec:
+{{- if .Values.supervisor.identityProviders.github.host }}
+  githubAPI:
+    host: {{ .Values.supervisor.identityProviders.github.host | quote }}
+{{- if .Values.supervisor.identityProviders.github.certificateAuthorityData }}
+    tls:
+      certificateAuthorityData: {{ .Values.supervisor.identityProviders.github.certificateAuthorityData | quote }}
+{{- end }}
+{{- end }}
+  client:
+    secretName: {{ default (printf "%s-github-client" (include "pinniped.componentName" (dict "root" . "component" "supervisor"))) .Values.supervisor.identityProviders.github.clientSecretName | quote }}
+  allowAuthentication:
+    organizations:
+      policy: {{ .Values.supervisor.identityProviders.github.organizationPolicy | quote }}
+{{- with .Values.supervisor.identityProviders.github.allowedOrganizations }}
+      allowed:
+{{ toYaml . | indent 8 }}
+{{- end }}
+  claims:
+    username: {{ .Values.supervisor.identityProviders.github.usernameClaim | quote }}
+    groups: {{ .Values.supervisor.identityProviders.github.groupsClaim | quote }}
+{{- if .Values.supervisor.identityProviders.github.createClientSecret }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ default (printf "%s-github-client" (include "pinniped.componentName" (dict "root" . "component" "supervisor"))) .Values.supervisor.identityProviders.github.clientSecretName | quote }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+type: secrets.pinniped.dev/github-client
+stringData:
+  clientID: {{ required "supervisor.identityProviders.github.clientID is required when createClientSecret=true" .Values.supervisor.identityProviders.github.clientID | quote }}
+  clientSecret: {{ required "supervisor.identityProviders.github.clientSecret is required when createClientSecret=true" .Values.supervisor.identityProviders.github.clientSecret | quote }}
+{{- end }}
+{{- end }}
+{{- if and .Values.supervisor.enabled .Values.supervisor.identityProviders.ldap.create }}
+---
+apiVersion: idp.supervisor.pinniped.dev/v1alpha1
+kind: LDAPIdentityProvider
+metadata:
+  name: {{ .Values.supervisor.identityProviders.ldap.name | quote }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+spec:
+  host: {{ required "supervisor.identityProviders.ldap.host is required when ldap.create=true" .Values.supervisor.identityProviders.ldap.host | quote }}
+{{- if .Values.supervisor.identityProviders.ldap.certificateAuthorityData }}
+  tls:
+    certificateAuthorityData: {{ .Values.supervisor.identityProviders.ldap.certificateAuthorityData | quote }}
+{{- end }}
+  userSearch:
+    base: {{ required "supervisor.identityProviders.ldap.userSearch.base is required when ldap.create=true" .Values.supervisor.identityProviders.ldap.userSearch.base | quote }}
+    filter: {{ .Values.supervisor.identityProviders.ldap.userSearch.filter | quote }}
+    attributes:
+      username: {{ .Values.supervisor.identityProviders.ldap.userSearch.usernameAttribute | quote }}
+      uid: {{ .Values.supervisor.identityProviders.ldap.userSearch.uidAttribute | quote }}
+  groupSearch:
+    base: {{ required "supervisor.identityProviders.ldap.groupSearch.base is required when ldap.create=true" .Values.supervisor.identityProviders.ldap.groupSearch.base | quote }}
+    filter: {{ .Values.supervisor.identityProviders.ldap.groupSearch.filter | quote }}
+    attributes:
+      groupName: {{ .Values.supervisor.identityProviders.ldap.groupSearch.groupNameAttribute | quote }}
+  bind:
+    secretName: {{ default (printf "%s-ldap-bind" (include "pinniped.componentName" (dict "root" . "component" "supervisor"))) .Values.supervisor.identityProviders.ldap.bindSecretName | quote }}
+{{- if .Values.supervisor.identityProviders.ldap.createBindSecret }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ default (printf "%s-ldap-bind" (include "pinniped.componentName" (dict "root" . "component" "supervisor"))) .Values.supervisor.identityProviders.ldap.bindSecretName | quote }}
+  namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
+  labels:
+{{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
+type: kubernetes.io/basic-auth
+stringData:
+  username: {{ required "supervisor.identityProviders.ldap.bindUsername is required when createBindSecret=true" .Values.supervisor.identityProviders.ldap.bindUsername | quote }}
+  password: {{ required "supervisor.identityProviders.ldap.bindPassword is required when createBindSecret=true" .Values.supervisor.identityProviders.ldap.bindPassword | quote }}
+{{- end }}
+{{- end }}
