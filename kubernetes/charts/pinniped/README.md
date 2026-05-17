@@ -6,8 +6,6 @@ A Helm chart for Pinniped, a Kubernetes authentication via ImpersonationProxy wi
 
 >[!NOTE]
 >This chart bootstraps the Pinniped Concierge and Supervisor server-side resources on Kubernetes. CRDs can be managed by this chart using `installCRDs=true`. Set `installCRDs=false` when CRDs are installed separately or managed outside Helm.
-
->[!INFO]
 >The main customization surface lives in `values.yaml` under the `concierge` and `supervisor` sections.
 
 ## Networking requirements
