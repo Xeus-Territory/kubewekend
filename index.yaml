@@ -2,6 +2,25 @@ apiVersion: v1
 entries:
   common:
   - apiVersion: v2
+    created: "2026-06-02T16:11:13.176887847Z"
+    description: A Helm chart for Kubewekend's application
+    digest: d36635ac6d788278c73e140de79013cd23c8fb9c9e9945ded5a8eb0f755203d8
+    home: https://github.com/xeusnguyen/kubewekend
+    keywords:
+    - kubewekend
+    - application
+    - common
+    - deployment
+    maintainers:
+    - email: xeusnguyen@gmail.com
+      name: Xeus Nguyen
+      url: https://wiki.xeusnguyen.xyz
+    name: common
+    type: application
+    urls:
+    - https://github.com/Xeus-Territory/kubewekend/releases/download/common-0.3.2/common-0.3.2.tgz
+    version: 0.3.2
+  - apiVersion: v2
     created: "2026-06-02T15:20:45.245061236Z"
     description: A Helm chart for Kubewekend's application
     digest: 5c5e39b739e834134112a46108eaac475425578a15ee9392c6582cd281a55b42
@@ -134,4 +153,4 @@ entries:
     urls:
     - https://github.com/Xeus-Territory/kubewekend/releases/download/pinniped-0.1.0/pinniped-0.1.0.tgz
     version: 0.1.0
-generated: "2026-06-02T15:20:45.245089499Z"
+generated: "2026-06-02T16:11:13.176921753Z"
