@@ -1,11 +1,12 @@
 {{- $createRole := default .Values.rbac.create .Values.rbac.role.create }}
 {{- if $createRole }}
+{{- $roleKind := default "Role" .Values.rbac.role.kind -}}
 apiVersion: rbac.authorization.k8s.io/v1
-kind: {{ default "Role" .Values.rbac.role.kind }}
+kind: {{ $roleKind }}
 metadata:
-  name: {{ template "common.fullname" . }}
-  {{- if ne (default "Role" .Values.rbac.role.kind) "ClusterRole" }}
-  namespace: {{ include "common.namespace" . }}
+  name: {{ default (include "common.fullname" .) .Values.rbac.role.name }}
+  {{- if ne $roleKind "ClusterRole" }}
+  namespace: {{ default (include "common.namespace" .) .Values.rbac.role.namespace }}
   {{- end }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
