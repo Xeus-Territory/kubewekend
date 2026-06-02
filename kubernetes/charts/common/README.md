@@ -1,6 +1,6 @@
 # common
 
-![Version: 0.3.1](https://img.shields.io/badge/Version-0.3.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square)
+![Version: 0.3.2](https://img.shields.io/badge/Version-0.3.2-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square)
 
 A Helm chart for Kubewekend's application
 
@@ -46,9 +46,13 @@ $ helm install appwekend kubewekend/common
 | podAnnotations | object | `{}` | This is for setting Kubernetes Annotations to a Pod. For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/  |
 | podLabels | object | `{}` | This is for setting Kubernetes Labels to a Pod. For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/ |
 | podSecurityContext | object | `{}` | This holds pod-level security attributes and common container settings. |
-| probes | object | `{"disableProbes":[],"livenessProbe":{"failureThreshold":30,"httpGet":{"path":"/","port":"http"},"initialDelaySeconds":15,"periodSeconds":15,"successThreshold":1,"timeoutSeconds":10},"port":"","readinessProbe":{"failureThreshold":30,"httpGet":{"path":"/","port":"http"},"initialDelaySeconds":15,"periodSeconds":15,"successThreshold":1,"timeoutSeconds":10},"startupProbe":{"failureThreshold":30,"httpGet":{},"periodSeconds":10,"timeoutSeconds":5}}` | This is to setup the liveness,readiness and startupProbe probes  More information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/ |
+| probes | object | `{"disableProbes":[],"livenessProbe":{"failureThreshold":30,"httpGet":{},"initialDelaySeconds":15,"periodSeconds":15,"successThreshold":1,"timeoutSeconds":10},"path":"/","port":"","readinessProbe":{"failureThreshold":30,"httpGet":{},"initialDelaySeconds":15,"periodSeconds":15,"successThreshold":1,"timeoutSeconds":10},"startupProbe":{"failureThreshold":30,"httpGet":{},"initialDelaySeconds":15,"periodSeconds":10,"timeoutSeconds":5}}` | This is to setup the liveness,readiness and startupProbe probes  More information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/ |
 | probes.disableProbes | list | `[]` | Probe list to disable. Accepted values: `livenessProbe`, `readinessProbe`, `startupProbe`, `all`. Ex: ["livenessProbe", "readinessProbe"] -> enable `startupProbe` only |
+| probes.livenessProbe.httpGet | object | `{}` | Leave `httpGet` empty to inherit `probes.path` and `probes.port` defaults. |
+| probes.path | string | `"/"` | Default probe path used by all HTTP probes when a probe does not set `httpGet.path` explicitly. |
 | probes.port | string | `""` | Leave empty to auto-select `http`, otherwise the first declared container port name, then the first container port number. |
+| probes.readinessProbe.httpGet | object | `{}` | Leave `httpGet` empty to inherit `probes.path` and `probes.port` defaults. |
+| probes.startupProbe.httpGet | object | `{}` | Leave `httpGet` empty to inherit `probes.path` and `probes.port` defaults. |
 | probesOverride | object | `{}` | This set the override probes base on your decision |
 | rbac | object | `{"create":false,"role":{"annotations":{},"create":null,"kind":"Role","name":"","namespace":"","rules":[]},"roleBinding":{"annotations":{},"create":null,"kind":"","name":"","namespace":"","roleRef":{},"subjects":[]}}` | RBAC configuration for this workload. Common patterns: 1. Create both Role/ClusterRole and RoleBinding/ClusterRoleBinding: `rbac.create=true` 2. Create only a binding to a pre-existing role: `rbac.create=false`, `rbac.roleBinding.create=true` 3. Create only the role object: `rbac.create=false`, `rbac.role.create=true` |
 | rbac.create | bool | `false` | This is used as the fallback for `rbac.role.create` and `rbac.roleBinding.create` when those values are `null`. |

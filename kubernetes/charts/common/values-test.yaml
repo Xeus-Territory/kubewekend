@@ -107,16 +107,15 @@ rbac:
 #         name: kubewekend-sc
 #         namespace: default
 probes:
+  path: /
   port: http
-  disableProbes: ["all"]
+  # disableProbes: ["all"]
   livenessProbe:
     httpGet:
-      path: /
-      port: http
+      path: /healthz
   readinessProbe:
     httpGet:
-      path: /
-      port: http
+      port: 8000
 ingress:
   enabled: true
   className: "nginx"
