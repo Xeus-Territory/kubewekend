@@ -3,12 +3,13 @@
 {{- $roleKind := default "Role" .Values.rbac.role.kind -}}
 {{- $bindingKind := default (ternary "ClusterRoleBinding" "RoleBinding" (eq $roleKind "ClusterRole")) .Values.rbac.roleBinding.kind -}}
 {{- $roleRef := get .Values.rbac.roleBinding "roleRef" | default dict -}}
+{{- $defaultRoleName := default (include "common.fullname" .) .Values.rbac.role.name -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: {{ $bindingKind }}
 metadata:
-  name: {{ template "common.fullname" . }}
+  name: {{ default (include "common.fullname" .) .Values.rbac.roleBinding.name }}
   {{- if ne $bindingKind "ClusterRoleBinding" }}
-  namespace: {{ include "common.namespace" . }}
+  namespace: {{ default (include "common.namespace" .) .Values.rbac.roleBinding.namespace }}
   {{- end }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
@@ -19,7 +20,7 @@ metadata:
 roleRef:
   apiGroup: {{ default "rbac.authorization.k8s.io" (get $roleRef "apiGroup") }}
   kind: {{ default $roleKind (get $roleRef "kind") }}
-  name: {{ default (include "common.fullname" .) (get $roleRef "name") }}
+  name: {{ default $defaultRoleName (get $roleRef "name") }}
 subjects:
 {{- if .Values.rbac.roleBinding.subjects }}
   {{- toYaml .Values.rbac.roleBinding.subjects | nindent 2 }}

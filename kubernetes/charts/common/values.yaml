@@ -205,9 +205,7 @@ probes:
     failureThreshold: 30
     successThreshold: 1
   startupProbe:
-    httpGet:
-      path: /
-      port: http
+    httpGet: {}
     periodSeconds: 10
     timeoutSeconds: 5
     failureThreshold: 30
@@ -269,6 +267,10 @@ rbac:
     # -- `null` means "follow rbac.create". Set to `false` when you want to bind to a pre-existing `Role` or `ClusterRole`.
     # -- RBAC role kind. Accepted values: `Role`, `ClusterRole`.
     kind: Role
+    # -- RBAC role name override. Defaults to the chart fullname.
+    name: ""
+    # -- RBAC role namespace override. Defaults to `common.namespace`. Ignored for `ClusterRole`.
+    namespace: ""
     annotations: {}
     rules: []
       # - apiGroups: [""]
@@ -281,11 +283,15 @@ rbac:
     # -- RBAC binding kind. Accepted values: `""` (auto), `RoleBinding`, `ClusterRoleBinding`.
     # -- `""` means auto-select: `RoleBinding` for `Role`, `ClusterRoleBinding` for `ClusterRole`.
     kind: ""
+    # -- RBAC binding name override. Defaults to the chart fullname.
+    name: ""
+    # -- RBAC binding namespace override. Defaults to `common.namespace`. Ignored for `ClusterRoleBinding`.
+    namespace: ""
     annotations: {}
     roleRef: {}
       # apiGroup: rbac.authorization.k8s.io
       # kind: Role # Accepted values usually follow `rbac.role.kind`: `Role` or `ClusterRole`
-      # name: my-role
+      # name: my-role # Defaults to `rbac.role.name` if set, otherwise the chart fullname
     subjects: []
       # - kind: ServiceAccount
       #   name: my-service-account

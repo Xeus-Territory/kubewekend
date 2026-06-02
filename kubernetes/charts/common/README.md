@@ -1,6 +1,6 @@
 # common
 
-![Version: 0.3.0](https://img.shields.io/badge/Version-0.3.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square)
+![Version: 0.3.1](https://img.shields.io/badge/Version-0.3.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square)
 
 A Helm chart for Kubewekend's application
 
@@ -46,16 +46,20 @@ $ helm install appwekend kubewekend/common
 | podAnnotations | object | `{}` | This is for setting Kubernetes Annotations to a Pod. For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/  |
 | podLabels | object | `{}` | This is for setting Kubernetes Labels to a Pod. For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/ |
 | podSecurityContext | object | `{}` | This holds pod-level security attributes and common container settings. |
-| probes | object | `{"disableProbes":[],"livenessProbe":{"failureThreshold":30,"httpGet":{"path":"/","port":"http"},"initialDelaySeconds":15,"periodSeconds":15,"successThreshold":1,"timeoutSeconds":10},"port":"","readinessProbe":{"failureThreshold":30,"httpGet":{"path":"/","port":"http"},"initialDelaySeconds":15,"periodSeconds":15,"successThreshold":1,"timeoutSeconds":10},"startupProbe":{"failureThreshold":30,"httpGet":{"path":"/","port":"http"},"periodSeconds":10,"timeoutSeconds":5}}` | This is to setup the liveness,readiness and startupProbe probes  More information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/ |
+| probes | object | `{"disableProbes":[],"livenessProbe":{"failureThreshold":30,"httpGet":{"path":"/","port":"http"},"initialDelaySeconds":15,"periodSeconds":15,"successThreshold":1,"timeoutSeconds":10},"port":"","readinessProbe":{"failureThreshold":30,"httpGet":{"path":"/","port":"http"},"initialDelaySeconds":15,"periodSeconds":15,"successThreshold":1,"timeoutSeconds":10},"startupProbe":{"failureThreshold":30,"httpGet":{},"periodSeconds":10,"timeoutSeconds":5}}` | This is to setup the liveness,readiness and startupProbe probes  More information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/ |
 | probes.disableProbes | list | `[]` | Probe list to disable. Accepted values: `livenessProbe`, `readinessProbe`, `startupProbe`, `all`. Ex: ["livenessProbe", "readinessProbe"] -> enable `startupProbe` only |
 | probes.port | string | `""` | Leave empty to auto-select `http`, otherwise the first declared container port name, then the first container port number. |
 | probesOverride | object | `{}` | This set the override probes base on your decision |
-| rbac | object | `{"create":false,"role":{"annotations":{},"create":null,"kind":"Role","rules":[]},"roleBinding":{"annotations":{},"create":null,"kind":"","roleRef":{},"subjects":[]}}` | RBAC configuration for this workload. Common patterns: 1. Create both Role/ClusterRole and RoleBinding/ClusterRoleBinding: `rbac.create=true` 2. Create only a binding to a pre-existing role: `rbac.create=false`, `rbac.roleBinding.create=true` 3. Create only the role object: `rbac.create=false`, `rbac.role.create=true` |
+| rbac | object | `{"create":false,"role":{"annotations":{},"create":null,"kind":"Role","name":"","namespace":"","rules":[]},"roleBinding":{"annotations":{},"create":null,"kind":"","name":"","namespace":"","roleRef":{},"subjects":[]}}` | RBAC configuration for this workload. Common patterns: 1. Create both Role/ClusterRole and RoleBinding/ClusterRoleBinding: `rbac.create=true` 2. Create only a binding to a pre-existing role: `rbac.create=false`, `rbac.roleBinding.create=true` 3. Create only the role object: `rbac.create=false`, `rbac.role.create=true` |
 | rbac.create | bool | `false` | This is used as the fallback for `rbac.role.create` and `rbac.roleBinding.create` when those values are `null`. |
 | rbac.role.create | string | `nil` | Per-object override for role creation. Accepted values: `true`, `false`, `null`. |
 | rbac.role.kind | string | `"Role"` | RBAC role kind. Accepted values: `Role`, `ClusterRole`. |
+| rbac.role.name | string | `""` | RBAC role name override. Defaults to the chart fullname. |
+| rbac.role.namespace | string | `""` | RBAC role namespace override. Defaults to `common.namespace`. Ignored for `ClusterRole`. |
 | rbac.roleBinding.create | string | `nil` | Per-object override for binding creation. Accepted values: `true`, `false`, `null`. |
 | rbac.roleBinding.kind | string | `""` | `""` means auto-select: `RoleBinding` for `Role`, `ClusterRoleBinding` for `ClusterRole`. |
+| rbac.roleBinding.name | string | `""` | RBAC binding name override. Defaults to the chart fullname. |
+| rbac.roleBinding.namespace | string | `""` | RBAC binding namespace override. Defaults to `common.namespace`. Ignored for `ClusterRoleBinding`. |
 | replicaCount | int | `1` | This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/ |
 | resources | object | `{}` | This define resource for your application **(BE CAREFUL TO SET THIS VALUE)** Best practice: Not set **cpu limit** for preventing CPU Throttle,  set **memory request/limit** for bring up and preventing OOM. For more information checkout: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/ |
 | runtimeArgs | list | `[]` | This will set the runtimeArgs for your application Let it null if you feel pleasure with cmd command in your application Add more if you want to override it |
