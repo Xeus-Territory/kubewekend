@@ -51,9 +51,16 @@ spec:
           args: {{- include "common.tplvalues.render" (dict "value" .Values.runtimeArgs "context" $) | nindent 12 }}
           {{- end }}
           {{- with .Values.env }}
-          env: {{ include "common.keyvalues.render" . | nindent 12 }}  
+          env:
+            {{- include "common.env.render" (dict "values" . "context" $) | nindent 12 }}
           {{- end }}
-          {{- if .Values.service.enabled }}          
+          {{- with .Values.envFrom }}
+          envFrom: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.containerPorts }}
+          ports:
+            {{- toYaml .Values.containerPorts | nindent 12 }}
+          {{- else if .Values.service.enabled }}
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}

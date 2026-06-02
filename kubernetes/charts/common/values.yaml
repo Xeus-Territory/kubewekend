@@ -5,7 +5,7 @@
 # -- This will define Chart enabled or not
 enabled: true
 
-# -- Definition what type of your application (e.g: deployment, statefulset or daemonset)
+# -- Workload type for this chart. Accepted values: `deployment`. `statefulset` and `daemonset` are not implemented in this chart yet.
 deploymentType: deployment
 
 # -- This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
@@ -14,7 +14,7 @@ replicaCount: 1
 # -- This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
 image:
   repository: nginx
-  # -- This sets the pull policy for images.
+  # -- Image pull policy. Accepted values: `Always`, `IfNotPresent`, `Never`.
   pullPolicy: IfNotPresent
   # -- Overrides the image tag whose default is the chart appVersion.
   tag: "latest"
@@ -31,7 +31,39 @@ runtimeArgs: []
 # -- This sets the environment for your deployment
 # For more information checkout: https://kubernetes.io/docs/tasks/inject-data-application/define-environment-variable-container/
 env: {}
+  # Simple key-value pair name and value environment variables
+  # ref: https://kubernetes.io/docs/tasks/inject-data-application/define-environment-variable-container/#define-an-environment-variable-for-a-container
+  # Usage:
   # KEY: "value"
+  # e.g:
+  # ENV_VAR: "your-value-here"
+  # 
+  # Complex environment variables with valueFrom, e.g: SecretKeyRef, ConfigMapKeyRef, FieldRef or ResourceFieldRef
+  # 1. SecretKeyRef ref: https://kubernetes.io/docs/tasks/inject-data-application/distribute-credentials-secure/#define-container-environment-variables-using-secret-data
+  # 2. ConfigMapKeyRef ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/#use-configmap-defined-environment-variables-in-pod-commands
+  # 3. FieldRef ref: https://kubernetes.io/docs/tasks/inject-data-application/environment-variable-expose-pod-information/#use-pod-fields-as-values-for-environment-variables
+  # 4. ResourceFieldRef ref: https://kubernetes.io/docs/tasks/inject-data-application/environment-variable-expose-pod-information/#use-container-fields-as-values-for-environment-variables
+  # Usage:
+  # 1. SecretKeyRef: ENV_VAR_FROM_SECRET: "secret:secret-name:secret-key"
+  # 2. ConfigMapKeyRef: ENV_VAR_FROM_CONFIGMAP: "configmap:configmap-name:configmap-key"
+  # 3. FieldRef: ENV_VAR_FROM_FIELD: "field:field-path"
+  # 4. ResourceFieldRef: ENV_VAR_FROM_RESOURCE: "resource:resource-name[:divisor]"
+  # 4-1. Divisor is optional for rendering the value as a quantity. Default is 1, e.g: "100m" for CPU or "128Mi" for memory. If not set, the raw value will be used.
+  # TODO: Support ResourceFieldRef for multiple containers in the future, currently only support for current container
+  # e.g:
+  # ENV_VAR_FROM_SECRET: "secret:my-secret:password"
+  # ENV_VAR_FROM_CONFIGMAP: "configmap:my-configmap:configKey"
+  # ENV_VAR_FROM_FIELD: "field:metadata.namespace"
+  # ENV_VAR_FROM_RESOURCE: "resource:limits.cpu" or "resource:limits.memory:128Mi"
+# -- This sets the envFrom for your deployment, but load entire configmap or secret as environment variables
+# ref: https://kubernetes.io/docs/tasks/inject-data-application/define-environment-variable-container/
+envFrom: []
+  # - configMapRef:
+  #     name: my-configmap
+  #     optional: false # Set to true to specify whether the ConfigMap or its keys must be defined
+  # - secretRef:
+  #     name: my-secret
+  #     optional: false # Set to true to specify whether the Secret or its keys must be defined
 
 # -- This is for the secretes for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
 imagePullSecrets: []
@@ -73,14 +105,42 @@ securityContext: {}
 podSecurityContext: {}
   # fsGroup: 2000
 
+# -- Additional container ports exposed by the main application container.
+# If empty, the chart falls back to a single port derived from `service.port` when `service.enabled` is true.
+# If you keep the default HTTP probes or Service targetPort behavior, include a port named `http`.
+containerPorts: []
+  # - name: http
+  #   containerPort: 3000
+  #   protocol: TCP
+  # - name: metrics
+  #   containerPort: 9090
+  #   protocol: TCP
+
 # -- This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
 service:
   # -- Enable service creation
   enabled: true
-  # -- This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+  # -- Kubernetes Service type. Accepted values: `ClusterIP`, `NodePort`, `LoadBalancer`, `ExternalName`.
   type: ClusterIP
-  # -- This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
+  # -- External DNS name used only when `service.type=ExternalName`.
+  externalName: ""
+  # -- Legacy single service port. When `service.ports` is empty, this port is exposed and targets `service.targetPort`.
   port: 80
+  # -- Legacy single service targetPort. Accepted values: a container port name such as `http` or a numeric port such as `3000`. Defaults to `http` when not set.
+  targetPort: http
+  # -- Primary Service port name used by ingress, NOTES, and test hooks when `service.ports` contains multiple entries.
+  # -- Leave empty to use the first entry from `service.ports`.
+  primaryPortName: ""
+  # -- Explicit service ports. Use this when you need multiple service ports or non-default targetPort mappings.
+  ports: []
+    # - name: web
+    #   port: 80
+    #   targetPort: http
+    #   protocol: TCP
+    # - name: metrics
+    #   port: 9090
+    #   targetPort: metrics
+    #   protocol: TCP
   # -- Set this to true to create a headless service
   headless: false
 
@@ -120,7 +180,10 @@ resources: {}
 # -- This is to setup the liveness,readiness and startupProbe probes 
 # More information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
 probes:
-  # -- Probe list that you want to disable, accepted values: "livenessProbe", "readinessProbe", "startupProbe", "all"
+  # -- Default probe port. Accepted values: a named container port such as `http` or a numeric port such as `3000`.
+  # -- Leave empty to auto-select `http`, otherwise the first declared container port name, then the first container port number.
+  port: ""
+  # -- Probe list to disable. Accepted values: `livenessProbe`, `readinessProbe`, `startupProbe`, `all`.
   # Ex: ["livenessProbe", "readinessProbe"] -> enable `startupProbe` only
   disableProbes: []
   livenessProbe:
@@ -191,9 +254,42 @@ affinity: {}
 # -- To add your extra manifest into your applications
 extraManifests: {}
 
-# -- To enable/disable the rbac for deployment
+# -- RBAC configuration for this workload.
+# Common patterns:
+# 1. Create both Role/ClusterRole and RoleBinding/ClusterRoleBinding: `rbac.create=true`
+# 2. Create only a binding to a pre-existing role: `rbac.create=false`, `rbac.roleBinding.create=true`
+# 3. Create only the role object: `rbac.create=false`, `rbac.role.create=true`
 rbac:
+  # -- Global default for RBAC object creation. Accepted values: `true`, `false`.
+  # -- This is used as the fallback for `rbac.role.create` and `rbac.roleBinding.create` when those values are `null`.
   create: false
+  role:
+    # -- Per-object override for role creation. Accepted values: `true`, `false`, `null`.
+    create: null
+    # -- `null` means "follow rbac.create". Set to `false` when you want to bind to a pre-existing `Role` or `ClusterRole`.
+    # -- RBAC role kind. Accepted values: `Role`, `ClusterRole`.
+    kind: Role
+    annotations: {}
+    rules: []
+      # - apiGroups: [""]
+      #   resources: ["pods"]
+      #   verbs: ["get", "list", "watch"]
+  roleBinding:
+    # -- Per-object override for binding creation. Accepted values: `true`, `false`, `null`.
+    create: null
+    # -- `null` means "follow rbac.create". Set to `true` when you want to create only the binding for a pre-existing `roleRef`.
+    # -- RBAC binding kind. Accepted values: `""` (auto), `RoleBinding`, `ClusterRoleBinding`.
+    # -- `""` means auto-select: `RoleBinding` for `Role`, `ClusterRoleBinding` for `ClusterRole`.
+    kind: ""
+    annotations: {}
+    roleRef: {}
+      # apiGroup: rbac.authorization.k8s.io
+      # kind: Role # Accepted values usually follow `rbac.role.kind`: `Role` or `ClusterRole`
+      # name: my-role
+    subjects: []
+      # - kind: ServiceAccount
+      #   name: my-service-account
+      #   namespace: default
 
 # -- To enable/disable the testconnection for deployment
 testConnection: false

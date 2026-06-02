@@ -8,9 +8,42 @@ image:
 imagePullSecrets: []
 command: ["/bin/sh", "-c"]
 runtimeArgs: ["yarn run dev"]
+env:
+  app_mode: development
+  db_password: "secret:todo-app-secret:password"
+  app_config: "configmap:todo-app-config:app-config.yaml"
+  pod_name: "field:metadata.name"
+  pod_namespace: "field:metadata.namespace"
+  cpu_limit: "resource:limits.cpu"
+  memory_limit_mib: "resource:limits.memory:1Mi"
+envFrom:
+  - configMapRef:
+      name: todo-app-config
+      optional: true
+  - secretRef:
+      name: todo-app-secret
+      optional: true
+containerPorts:
+  - name: http
+    containerPort: 3000
+    protocol: TCP
+  - name: metrics
+    containerPort: 9090
+    protocol: TCP
 service:
   enabled: true
   port: 3000
+  targetPort: http
+  primaryPortName: web
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+    - name: web
+      port: 3000
+      targetPort: http
+      protocol: TCP
   headless: false
 volumeMounts: []
 volumes: []
@@ -24,8 +57,57 @@ resources:
     cpu: 100m
     memory: 128Mi
 rbac:
-  create: false
+  create: true
+  role:
+    create: true
+    kind: Role
+    rules:
+      - apiGroups: [""]
+        resources: ["pods"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: [""]
+        resources: ["configmaps"]
+        verbs: ["get"]
+  roleBinding:
+    create: true
+    kind: RoleBinding
+    subjects:
+      - kind: ServiceAccount
+        name: kubewekend-sc
+        namespace: default
+# Pre-existing role example:
+# rbac:
+#   create: false
+#   role:
+#     create: false
+#     kind: ClusterRole
+#   roleBinding:
+#     create: true
+#     roleRef:
+#       apiGroup: rbac.authorization.k8s.io
+#       kind: ClusterRole
+#       name: view
+#     subjects:
+#       - kind: ServiceAccount
+#         name: kubewekend-sc
+#         namespace: default
+# Cluster-scoped example:
+# rbac:
+#   create: true
+#   role:
+#     kind: ClusterRole
+#     rules:
+#       - apiGroups: [""]
+#         resources: ["nodes"]
+#         verbs: ["get", "list", "watch"]
+#   roleBinding:
+#     # kind defaults to ClusterRoleBinding when role.kind is ClusterRole
+#     subjects:
+#       - kind: ServiceAccount
+#         name: kubewekend-sc
+#         namespace: default
 probes:
+  port: http
   disableProbes: ["all"]
   livenessProbe:
     httpGet:
