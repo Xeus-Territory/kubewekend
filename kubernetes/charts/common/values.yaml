@@ -180,32 +180,44 @@ resources: {}
 # -- This is to setup the liveness,readiness and startupProbe probes 
 # More information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
 probes:
+  # -- Default probe path used by all HTTP probes when a probe does not set `httpGet.path` explicitly.
+  path: /
   # -- Default probe port. Accepted values: a named container port such as `http` or a numeric port such as `3000`.
+  # -- Default probe port used by all HTTP probes when a probe does not set `httpGet.port` explicitly.
   # -- Leave empty to auto-select `http`, otherwise the first declared container port name, then the first container port number.
   port: ""
   # -- Probe list to disable. Accepted values: `livenessProbe`, `readinessProbe`, `startupProbe`, `all`.
   # Ex: ["livenessProbe", "readinessProbe"] -> enable `startupProbe` only
   disableProbes: []
   livenessProbe:
-    httpGet:
-      path: /
-      port: http
+    # -- Leave `httpGet` empty to inherit `probes.path` and `probes.port` defaults.
+    httpGet: {}
+    # httpGet:
+    #   path: /healthz
+    #   port: http
     initialDelaySeconds: 15
     periodSeconds: 15
     timeoutSeconds: 10
     failureThreshold: 30
     successThreshold: 1
   readinessProbe:
-    httpGet:
-      path: /
-      port: http
+    # -- Leave `httpGet` empty to inherit `probes.path` and `probes.port` defaults.
+    httpGet: {}
+    # httpGet:
+    #   path: /ready
+    #   port: http
     initialDelaySeconds: 15
     periodSeconds: 15
     timeoutSeconds: 10
     failureThreshold: 30
     successThreshold: 1
   startupProbe:
+    # -- Leave `httpGet` empty to inherit `probes.path` and `probes.port` defaults.
     httpGet: {}
+    # httpGet:
+    #   path: /
+    #   port: http
+    initialDelaySeconds: 15
     periodSeconds: 10
     timeoutSeconds: 5
     failureThreshold: 30

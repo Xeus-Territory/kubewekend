@@ -253,12 +253,13 @@ Render probes in pod template for healthcheck
 {{- define "common.probes" -}}
 {{- $probes := .Values.probes -}}
 {{- $probePort := include "common.probes.defaultPort" . -}}
+{{- $probePath := default "/" $probes.path -}}
 {{- if not (mustHas "all" $probes.disableProbes) -}}
 {{- if not (mustHas "livenessProbe" $probes.disableProbes) -}}
 {{- if not (hasKey $probes.livenessProbe "httpGet") }}
 {{- $_ := set $probes.livenessProbe "httpGet" dict -}}
 {{- end }}
-{{- $_ := set $probes.livenessProbe.httpGet "path" (default "/" $probes.livenessProbe.httpGet.path) -}}
+{{- $_ := set $probes.livenessProbe.httpGet "path" (default $probePath $probes.livenessProbe.httpGet.path) -}}
 {{- $_ := set $probes.livenessProbe.httpGet "port" (default $probePort $probes.livenessProbe.httpGet.port) -}}
 livenessProbe: {{ toYaml $probes.livenessProbe | nindent 2 }}
 {{ end }}
@@ -266,7 +267,7 @@ livenessProbe: {{ toYaml $probes.livenessProbe | nindent 2 }}
 {{- if not (hasKey $probes.readinessProbe "httpGet") }}
 {{- $_ := set $probes.readinessProbe "httpGet" dict -}}
 {{- end }}
-{{- $_ := set $probes.readinessProbe.httpGet "path" (default "/" $probes.readinessProbe.httpGet.path) -}}
+{{- $_ := set $probes.readinessProbe.httpGet "path" (default $probePath $probes.readinessProbe.httpGet.path) -}}
 {{- $_ := set $probes.readinessProbe.httpGet "port" (default $probePort $probes.readinessProbe.httpGet.port) -}}
 readinessProbe: {{ toYaml $probes.readinessProbe | nindent 2 }}
 {{ end }}
@@ -274,7 +275,7 @@ readinessProbe: {{ toYaml $probes.readinessProbe | nindent 2 }}
 {{- if not (hasKey $probes.startupProbe "httpGet") }}
 {{- $_ := set $probes.startupProbe "httpGet" dict -}}
 {{- end }}
-{{- $_ := set $probes.startupProbe.httpGet "path" (default "/" $probes.startupProbe.httpGet.path) -}}
+{{- $_ := set $probes.startupProbe.httpGet "path" (default $probePath $probes.startupProbe.httpGet.path) -}}
 {{- $_ := set $probes.startupProbe.httpGet "port" (default $probePort $probes.startupProbe.httpGet.port) -}}
 startupProbe: {{ toYaml $probes.startupProbe | nindent 2 }}
 {{ end }}
