@@ -1,4 +1,4 @@
-{{- if .Values.testConnection }}
+{{- if and .Values.testConnection .Values.service.enabled }}
 apiVersion: v1
 kind: Pod
 metadata:
@@ -12,6 +12,6 @@ spec:
     - name: wget
       image: busybox
       command: ['wget']
-      args: ['{{ include "common.fullname" . }}:{{ .Values.service.port }}']
+      args: ['{{ include "common.fullname" . }}:{{ include "common.service.primaryPort" . }}']
   restartPolicy: Never
 {{- end -}}
