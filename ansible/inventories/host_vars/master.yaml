@@ -250,7 +250,7 @@ utilities:
 
   # Utilities extensions for the cluster
   extensions:
-    enable: false
+    enable: true
     # Used to replicate secrets, configmaps and certificates.
     # GitHub: https://github.com/emberstack/kubernetes-reflector
     reflector:
@@ -264,7 +264,7 @@ utilities:
     # Used to sync external secrets from external secret management systems
     # https://github.com/external-secrets/external-secrets
     externalsecrets:
-      enable: false
+      enable: true
 
     # A Kubernetes controller and tool for one-way encrypted Secrets
     # GitHub: https://github.com/bitnami-labs/sealed-secrets
@@ -375,7 +375,7 @@ utilities:
   # 4. OWASP Kubernetes Security: https://cheatsheetseries.owasp.org/cheatsheets/Kubernetes_Security_Cheat_Sheet.html
   # 5. Kubernetes Security Tools: https://www.wiz.io/academy/container-security/top-kubernetes-security-tools
   security:
-    enable: false
+    enable: true
     policyEngine:
       enable: true
       type: "kyverno"  # opa-gatekeeper | kyverno
@@ -385,7 +385,7 @@ utilities:
     # For fully managed identity and access management, you can use KeyCloak, Authentik, Ory, or more (Recommended for production with complex learn curve)
     # About Dex case study: https://b-nova.com/en/home/content/dex-the-game-changer-in-app-authentication-see-how-it-works/
     identity:
-      enable: true
+      enable: false
       type: "dex"  # dex
       namespace: "dex"
       host: "dex.local"
