@@ -6,5 +6,6 @@ vault-init-output.json
 _site
 Gemfile.lock
 k3s_token.txt
+rke2_token.txt
 hosts
 kubewekend-ca.crt

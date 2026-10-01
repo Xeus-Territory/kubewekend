@@ -1,0 +1,11 @@
+# NOTE: Using Jinja Indent to load the YAML as Values for Helm Chart
+# ref: https://jinja.palletsprojects.com/en/stable/templates/#jinja-filters.indent
+---
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: rke2-traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+{{ rke2Cluster.ingress.config.traefik | indent(4, true) }}

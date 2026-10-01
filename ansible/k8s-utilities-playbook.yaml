@@ -354,7 +354,7 @@
             if [ 1 -eq "$(echo "$KUBE_VERSION < 1.30" | bc)" ]; then
               VERSION="0.6.0"
             else
-              VERSION="0.23.2"
+              VERSION="0.29.6"
             fi
             helm upgrade --install openbao openbao/openbao \
               --namespace {{ utilities.secretManagement.namespace }} --create-namespace --version $VERSION --wait \

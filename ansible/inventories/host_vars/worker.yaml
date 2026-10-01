@@ -7,7 +7,7 @@ k3sCluster:
   ###############################################################################
 
   # Kubernetes version for k3s, find more at https://github.com/k3s-io/k3s/releases
-  # Stable Version (Recommended): v1.28.9+k3s1, v1.32.13+k3s1, v1.33.9+k3s1, v1.34.5+k3s1, v1.35.2+k3s1 (latest)
+  # Stable Version (Recommended): v1.34.5+k3s1, v1.34.11+k3s1, v1.35.8+k3s1, v1.36.4+k3s1, v1.37.0+k3s1 (latest)
   version: "v1.34.5+k3s1"
 
   # Add additional SANs for the API server certificate, default is "localhost" and "127.0.0.1"
@@ -15,5 +15,27 @@ k3sCluster:
   # Registering and starting kubelet with set of labels
   nodeLabels:
     - "svccontroller.k3s.cattle.io/enablelb=false"
+  # Registering kubelet with set of taints
+  nodeTaints: []
+
+rke2Cluster:
+  ################### NOTICE ####################################################
+  ## This configuration is setup for agent node, including
+  ## 1. Join worker node to master node as fixed registration address
+  ## Read more at: https://docs.rke2.io/install/ha
+  ## Agent configuration at: https://docs.rke2.io/reference/linux_agent_config
+  ## Architecture: https://docs.rke2.io/architecture
+  ###############################################################################
+
+  # Kubernetes version for rke2, find more at https://github.com/rancher/rke2/releases
+  # Stable Version (Recommended): v1.34.5+rke2r1, v1.34.11+rke2r1, v1.35.8+rke2r1, v1.36.4+rke2r1, v1.37.0+rke2r1 (latest)
+  version: "v1.34.5+rke2r1"
+
+  # Add additional SANs for the API server certificate, default is "localhost" and "127.0.0.1"
+  tlsSANs: []
+  # Registering and starting kubelet with set of labels
+  nodeLabels:
+    - "svccontroller.rke2.cattle.io/enablelb=false"
+    - "node.kubernetes.io/exclude-from-external-load-balancers=true"
   # Registering kubelet with set of taints
   nodeTaints: []
