@@ -1,0 +1,508 @@
+---
+# =============================================================================
+# RKE2 High Availability Playbook
+# Architecture: https://docs.rke2.io/install/ha
+#
+# This playbook provisions a production-ready rke2 HA cluster with two
+# supported datastore backends (configured via host_vars/master.yaml):
+#
+#   etcd     – embedded etcd, no external dependency; odd-member quorum (3+)
+#              https://docs.rke2.io/datastore/embedded#embedded-etcd
+#   postgres – external PostgreSQL; every server connects to the same DSN
+#              https://docs.rke2.io/datastore/external
+#
+# Agent (worker) nodes can be added on demand for either backend.
+#
+# Required inventory groups (see inventories/hosts):
+#   ha_master_init  – exactly 1 node: bootstraps the embedded etcd cluster
+#   ha_master_join  – 2+ nodes: additional control-plane servers joining init
+#   ha_master       – meta-group (children: ha_master_init + ha_master_join)
+#   ha_worker       – any number of agent nodes
+#   ha_all          – meta-group (children: ha_master + ha_worker)
+#
+# Tags:
+#   install_common  – install OS packages, kubectl, helm, vault on all nodes
+#   setup_rke2      – provision / join the rke2 cluster
+#
+# Usage:
+#   Full setup:               ansible-playbook -i ./inventories/hosts --tags="setup_rke2"    rke2-ha-playbook.yaml
+#   Install deps:             ansible-playbook -i ./inventories/hosts --tags="install_common" rke2-ha-playbook.yaml
+#   Run only specific group   ansible-playbook -i ./inventories/hosts --limit=ha_master_join --tags="setup_rke2" rke2-ha-playbook.yaml
+# =============================================================================
+
+
+# ---------------------------------------------------------------------------
+# Play 1 – Install common libraries and dependencies on every HA node
+# ---------------------------------------------------------------------------
+- name: Install common libraries and dependencies on the HA init node
+  hosts: ha_master_init
+  vars:
+    user: "{{ ansible_user_id }}"
+  tasks:
+    - name: Install common libraries, and dependencies for your host
+      tags: install_common
+      # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/shell_module.html
+      ansible.builtin.shell: |
+        # Update package index and install system dependencies
+        sudo apt update
+        sudo apt install -y apt-transport-https ca-certificates curl gpg wget bash-completion socat unzip jq
+
+        # Install kubectl
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x ./kubectl
+        sudo mv ./kubectl /usr/local/bin/kubectl
+
+        # Install helm
+        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+        # Enable bash-completion for kubectl and helm
+        echo 'source /etc/bash_completion' >> /home/{{ user }}/.bashrc
+        kubectl completion bash | sudo tee /etc/bash_completion.d/kubectl >/dev/null
+        helm completion bash | sudo tee /etc/bash_completion.d/helm >/dev/null
+
+        # Useful kubectl aliases
+        echo 'export KUBE_EDITOR="nano"' >> /home/{{ user }}/.bashrc
+        echo 'alias k="kubectl"' >> /home/{{ user }}/.bashrc
+        echo 'alias kgp="kubectl get pods"' >> /home/{{ user }}/.bashrc
+        echo 'alias kn="kubectl config set-context --current --namespace"' >> /home/{{ user }}/.bashrc
+        echo 'alias kaf="kubectl apply -f "' >> /home/{{ user }}/.bashrc
+        echo 'alias kr="kubectl run --dry-run=client -o yaml "' >> /home/{{ user }}/.bashrc
+        echo 'alias krcp="k resource-capacity -p --util"' >> /home/{{ user }}/.bashrc
+        echo 'alias krca="k resource-capacity -a"' >> /home/{{ user }}/.bashrc
+
+        # Install vault CLI (latest version updated Mar 2026)
+        wget https://releases.hashicorp.com/vault/1.21.4/vault_1.21.4_linux_amd64.zip && \
+          unzip -p vault_1.21.4_linux_amd64.zip vault > vault && \
+          chmod +x vault && sudo mv vault /usr/local/bin && \
+          rm -rf vault_1.21.4_linux_amd64.zip
+
+        # Install bao CLI
+        wget https://github.com/openbao/openbao/releases/download/v2.7.0/openbao_2.7.0_linux_amd64.tar.gz && \
+          tar -xzf openbao_2.7.0_linux_amd64.tar.gz bao && \
+          chmod +x bao && sudo mv bao /usr/local/bin && \
+          rm -rf openbao_2.7.0_linux_amd64.tar.gz
+      changed_when: false
+      args:
+        executable: /bin/bash
+      register: install_output
+      become: true
+
+    - name: Log output of common libraries installation
+      tags: install_common
+      ansible.builtin.debug:
+        msg: "{{ install_output.stdout_lines }}"
+
+
+# ---------------------------------------------------------------------------
+# Play 2 – Bootstrap the HA cluster on the init master (--cluster-init)
+#
+# This is the first server to start.  It writes the embedded etcd data
+# directory and generates the cluster join token that all other nodes use.
+# Read more: https://docs.rke2.io/datastore/ha-embedded
+# ---------------------------------------------------------------------------
+- name: Setup RKE2 HA Master Init Node (cluster-init)
+  hosts: ha_master_init
+  vars:
+    user: "{{ ansible_user_id }}"
+  tasks:
+    - name: Include HA master vars
+      tags: setup_rke2
+      ansible.builtin.include_vars:
+        file: "./inventories/host_vars/master.yaml"
+
+    # --- Setup block --------------------------------------------------------
+    - name: Setup RKE2 HA Master Init Node
+      tags: setup_rke2
+      block:
+        - name: Create directories for rke2 configuration
+          ansible.builtin.shell: |
+            sudo mkdir -p /etc/rancher/rke2
+            sudo mkdir -p /etc/rancher/rke2/config.yaml.d
+          become: true
+
+        - name: Copy rke2 config template to init master
+          vars:
+            role: "master"
+          ansible.builtin.template:
+            src: "./templates/rke2-config.yaml.j2"
+            dest: "/etc/rancher/rke2/config.yaml"
+            owner: root
+            mode: "0644"
+          become: true
+
+        - name: Create the directory for RKE2 Ingress Controller configuration
+          ansible.builtin.shell: |
+            sudo mkdir -p /var/lib/rancher/rke2/server/manifests
+          become: true
+
+        - name: Copy template configuration for RKE2 Ingress Controller Traefik for Master Node Init
+          ansible.builtin.template:
+            src: "./templates/rke2-traefik-config.yaml.j2"
+            dest: "/var/lib/rancher/rke2/server/manifests/rke2-traefik-config.yaml"
+            owner: root
+            mode: "0644"
+          become: true
+          when: rke2Cluster.ingress.class | default('traefik') == 'traefik'
+
+        - name: Copy template configuration for RKE2 Ingress Controller Ingress-Nginx for Master Node
+          ansible.builtin.template:
+            src: "./templates/rke2-ingress-nginx-config.yaml.j2"
+            dest: "/var/lib/rancher/rke2/server/manifests/rke2-ingress-nginx-config.yaml"
+            owner: root
+            mode: "0644"
+          become: true
+          when: rke2Cluster.ingress.class | default('traefik') == 'ingress-nginx'
+
+        - name: Copy template configuration for RKE2 Flannel CNI
+          ansible.builtin.template:
+            src: "./templates/rke2-flannel-config.yaml.j2"
+            dest: "/var/lib/rancher/rke2/server/manifests/rke2-flannel-config.yaml"
+            owner: root
+            mode: "0644"
+          become: true
+          when: rke2Cluster.cni.type | default('canal') == 'flannel'
+
+        - name: Install RKE2 HA Master Init Node - Fixed Registration (embedded etcd)
+          # Used only when dataStorage type is "etcd".
+          # https://docs.rke2.io/datastore/ha-embedded
+          when: rke2Cluster.highAvailability.dataStorage.type | default('etcd') == 'etcd'
+          ansible.builtin.shell: |
+            echo "write-kubeconfig-mode: \"0644\"" | sudo tee -a /etc/rancher/rke2/config.yaml
+            echo "node-ip: {{ hostvars[inventory_hostname]['node_ip'] }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+            echo "cni: {{ rke2Cluster.cni.type | default('canal') }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+
+            # using ternary filter: https://docs.ansible.com/projects/ansible/latest/collections/ansible/builtin/ternary_filter.html
+            # to convert boolean to true or false in Ansible, instead of default with not work for Bash
+            if {{ rke2Cluster.loadBalancer.enable | default(true) | ternary('true', 'false') }} && [ "{{ rke2Cluster.loadBalancer.type }}" = "servicelb" ]; then
+              echo "enable-servicelb: true" | sudo tee -a /etc/rancher/rke2/config.yaml
+            fi
+            if ! {{ rke2Cluster.ingress.enable | default(true) | ternary('true', 'false') }}; then
+              echo "ingress-controller: none" | sudo tee -a /etc/rancher/rke2/config.yaml
+            else
+              echo "ingress-controller: {{ rke2Cluster.ingress.class | default('traefik') }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+            fi
+
+            # Install RKE2 with configuration from host_vars/master.yaml
+            # bk-install-ref: https://raw.githubusercontent.com/rancher/rke2/refs/heads/master/install.sh 
+            curl -sfL https://get.rke2.io | INSTALL_RKE2_VERSION={{ rke2Cluster.version }} INSTALL_RKE2_TYPE="server" sh -s - 
+
+          register: install_init_node_etcd
+          become: true
+
+        - name: Log output of RKE2 HA Master Init Node installation (embedded etcd)
+          when: rke2Cluster.highAvailability.dataStorage.type | default('etcd') == 'etcd'
+          ansible.builtin.debug:
+            msg: "{{ install_init_node_etcd.stdout_lines }}"
+
+        - name: Install RKE2 HA Master Init Node (external PostgreSQL datastore)
+          # With an external database, --cluster-init is not used.
+          # Every server node connects independently to the same PostgreSQL DSN.
+          # https://docs.rke2.io/datastore/ha
+          when: rke2Cluster.highAvailability.dataStorage.type == 'postgres'
+          vars:
+            _pg: "{{ rke2Cluster.highAvailability.dataStorage.externalDatabase }}"
+            _pg_dsn: "postgres://{{ _pg.user }}:{{ _pg.password }}@{{ _pg.host }}:{{ _pg.port }}/{{ _pg.database }}?sslmode={{ _pg.sslmode | default('disable') }}"
+          ansible.builtin.shell: |
+            echo "write-kubeconfig-mode: \"0644\"" | sudo tee -a /etc/rancher/rke2/config.yaml
+            echo "node-ip: {{ hostvars[inventory_hostname]['node_ip'] }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+            echo "datastore-endpoint: {{ _pg_dsn }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+            echo "cni: {{ rke2Cluster.cni.type | default('canal') }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+
+            # using ternary filter: https://docs.ansible.com/projects/ansible/latest/collections/ansible/builtin/ternary_filter.html
+            # to convert boolean to true or false in Ansible, instead of default with not work for Bash
+            if {{ rke2Cluster.loadBalancer.enable | default(true) | ternary('true', 'false') }} && [ "{{ rke2Cluster.loadBalancer.type }}" = "servicelb" ]; then
+              echo "enable-servicelb: true" | sudo tee -a /etc/rancher/rke2/config.yaml
+            fi
+            if ! {{ rke2Cluster.ingress.enable | default(true) | ternary('true', 'false') }}; then
+              echo "ingress-controller: none" | sudo tee -a /etc/rancher/rke2/config.yaml
+            else
+              echo "ingress-controller: {{ rke2Cluster.ingress.class | default('traefik') }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+            fi
+
+            # Install RKE2 with configuration from host_vars/master.yaml
+            # bk-install-ref: https://raw.githubusercontent.com/rancher/rke2/refs/heads/master/install.sh 
+            curl -sfL https://get.rke2.io | INSTALL_RKE2_VERSION={{ rke2Cluster.version }} INSTALL_RKE2_TYPE="server" sh -s - 
+          register: install_init_node_pg
+          become: true
+
+        - name: Log output of RKE2 HA Master Init Node installation (PostgreSQL)
+          when: rke2Cluster.highAvailability.dataStorage.type == 'postgres'
+          ansible.builtin.debug:
+            msg: "{{ install_init_node_pg.stdout_lines }}"
+
+        - name: Enable and start RKE2 service
+          ansible.builtin.systemd:
+            name: rke2-server
+            enabled: true
+            state: started
+          become: true
+
+        - name: Wait for RKE2 API server to be ready on init master
+          # Ensure the token file exists before fetching it
+          ansible.builtin.wait_for:
+            path: /var/lib/rancher/rke2/server/node-token
+            state: present
+            timeout: 120
+          become: true
+
+        - name: Fetch RKE2 cluster token to the Ansible controller
+          # This token is shared by all joining masters and all worker agents.
+          # https://docs.rke2.io/cli/server#cluster-options
+          ansible.builtin.fetch:
+            src: "/var/lib/rancher/rke2/server/node-token"
+            dest: "./rke2_token.txt"
+            flat: yes
+          become: true
+
+        - name: Save RKE2 kubeconfig for Ansible use
+          ansible.builtin.shell: |
+            mkdir -p /home/{{ user }}/.kube
+            sudo cp /etc/rancher/rke2/rke2.yaml /home/{{ user }}/.kube/config
+            sudo chown $(id -u {{ user }}):$(id -g {{ user }}) /home/{{ user }}/.kube/config
+          register: save_kubeconfig
+          become: true
+
+        - name: Log output of kubeconfig save
+          ansible.builtin.debug:
+            msg: "{{ save_kubeconfig.stdout_lines }}"
+
+    # Setup RKE2 Load Balancer for Master Init Node
+    - name: Setup RKE2 Load Balancer for Master Init Node
+      when: rke2Cluster.loadBalancer.enable
+      tags: setup_rke2
+      block:
+        # Documentation: https://metallb.io/
+        # Usage: https://metallb.io/usage/
+        # L2 Advertisement: https://metallb.io/configuration/_advanced_l2_configuration/
+        - name: Install MetalLB Load Balancer for RKE2 cluster
+          tags: setup_rke2
+          when: rke2Cluster.loadBalancer.type | default('servicelb') == 'metallb'
+          ansible.builtin.shell: |-
+            helm repo add metallb https://metallb.github.io/metallb
+            helm repo update
+            helm upgrade --install metallb metallb/metallb \
+              --namespace kube-system --create-namespace --version 0.15.3 --wait
+            cat <<EOF | kubectl apply -f -
+            apiVersion: metallb.io/v1beta1
+            kind: IPAddressPool
+            metadata:
+              name: rke2-loadbalancer-ippool
+              namespace: kube-system
+            spec:
+              addresses:
+              - {{ rke2Cluster.loadBalancer.ippool.cidr }}
+            ---
+            apiVersion: metallb.io/v1beta1
+            kind: L2Advertisement
+            metadata:
+              name: rke2-loadbalancer-l2adv
+              namespace: kube-system
+            spec:
+              ipAddressPools:
+              - rke2-loadbalancer-ippool
+            EOF
+          register: metallb_log
+          changed_when: false
+        
+        - name: Log the results of Install MetalLB Load Balancer for RKE2 cluster
+          tags: setup_rke2
+          ansible.builtin.debug:
+            msg: "{{ metallb_log.stdout_lines }}"
+          when: rke2Cluster.loadBalancer.type | default('servicelb') == 'metallb'
+
+# ---------------------------------------------------------------------------
+# Play 3 – Join additional control-plane servers to the HA cluster
+#
+# Each join master connects to the init master's API and etcd endpoint.
+# Nodes are joined one at a time (serial: 1) to maintain etcd quorum
+# stability while the cluster is growing.
+# Read more: https://docs.rke2.io/install/ha#3-launch-additional-server-nodes
+# ---------------------------------------------------------------------------
+- name: Setup HA Master Join Nodes
+  hosts: ha_master_join
+  # Join one server at a time — prevents split-brain during etcd membership changes
+  serial: 1
+  tasks:
+    - name: Include HA master vars
+      tags: setup_rke2
+      ansible.builtin.include_vars:
+        file: "./inventories/host_vars/master.yaml"
+
+    # --- Setup block --------------------------------------------------------
+    - name: Setup RKE2 HA Master Join Node
+      tags: setup_rke2
+      block:
+        - name: Create directories for rke2 configuration
+          ansible.builtin.shell: |
+            sudo mkdir -p /etc/rancher/rke2
+            sudo mkdir -p /etc/rancher/rke2/config.yaml.d
+          become: true
+
+        - name: Copy RKE2 config template to join master
+          vars:
+            role: "master"
+          ansible.builtin.template:
+            src: "./templates/rke2-config.yaml.j2"
+            dest: "/etc/rancher/rke2/config.yaml"
+            owner: root
+            mode: "0644"
+          become: true
+
+        - name: Load the RKE2 token from Ansible controller (fetched from init master)
+          ansible.builtin.slurp:
+            src: "./rke2_token.txt"
+          delegate_to: localhost
+          register: rke2_token_content
+
+        - name: Wait for init master API server to be accessible (embedded etcd only)
+          # With etcd, join nodes point --server at the init master for etcd peer discovery.
+          # With postgres, each server connects independently to the DB — no wait needed.
+          when: rke2Cluster.highAvailability.dataStorage.type | default('etcd') == 'etcd'
+          ansible.builtin.wait_for:
+            host: "{{ hostvars[groups['ha_master_init'][0]]['node_ip'] }}"
+            port: 9345
+            delay: 5
+            timeout: 180
+          delegate_to: localhost
+
+        - name: Install RKE2 HA Master Join Node (embedded etcd — join cluster)
+          # --server points to the init master for etcd cluster membership.
+          # https://docs.rke2.io/datastore/ha-embedded#existing-clusters
+          when: rke2Cluster.highAvailability.dataStorage.type | default('etcd') == 'etcd'
+          ansible.builtin.shell: |
+            echo "server: https://{{ hostvars[groups['ha_master_init'][0]]['node_ip'] }}:9345" | sudo tee -a /etc/rancher/rke2/config.yaml
+            echo "token: {{ rke2_token_content.content | b64decode | trim }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+            echo "node-ip: {{ hostvars[inventory_hostname]['node_ip'] }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+            echo "cni: {{ rke2Cluster.cni.type | default('canal') }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+
+            # using ternary filter: https://docs.ansible.com/projects/ansible/latest/collections/ansible/builtin/ternary_filter.html
+            # to convert boolean to true or false in Ansible, instead of default with not work for Bash
+            if {{ rke2Cluster.loadBalancer.enable | default(true) | ternary('true', 'false') }} && [ "{{ rke2Cluster.loadBalancer.type }}" = "servicelb" ]; then
+              echo "enable-servicelb: true" | sudo tee -a /etc/rancher/rke2/config.yaml
+            fi
+            if ! {{ rke2Cluster.ingress.enable | default(true) | ternary('true', 'false') }}; then
+              echo "ingress-controller: none" | sudo tee -a /etc/rancher/rke2/config.yaml
+            else
+              echo "ingress-controller: {{ rke2Cluster.ingress.class | default('traefik') }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+            fi
+
+            curl -sfL https://get.rke2.io | INSTALL_RKE2_VERSION={{ rke2Cluster.version }} INSTALL_RKE2_TYPE="server" sh -s - 
+          register: install_join_node_etcd
+          become: true
+
+        - name: Log output of RKE2 HA Master Join Node installation (embedded etcd)
+          when: rke2Cluster.highAvailability.dataStorage.type | default('etcd') == 'etcd'
+          ansible.builtin.debug:
+            msg: "{{ install_join_node_etcd.stdout_lines }}"
+
+        - name: Install RKE2 HA Master Join Node (external PostgreSQL datastore)
+          # With postgres, every server uses the same datastore-endpoint.
+          # No --server flag pointing to another rke2 node is required.
+          # https://docs.rke2.io/datastore/ha
+          when: rke2Cluster.highAvailability.dataStorage.type == 'postgres'
+          vars:
+            _pg: "{{ rke2Cluster.highAvailability.dataStorage.externalDatabase }}"
+            _pg_dsn: "postgres://{{ _pg.user }}:{{ _pg.password }}@{{ _pg.host }}:{{ _pg.port }}/{{ _pg.database }}?sslmode={{ _pg.sslmode | default('disable') }}"
+          ansible.builtin.shell: |
+            echo "token: {{ rke2_token_content.content | b64decode | trim }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+            echo "node-ip: {{ hostvars[inventory_hostname]['node_ip'] }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+            echo "datastore-endpoint: {{ _pg_dsn }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+            echo "cni: {{ rke2Cluster.cni.type | default('canal') }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+
+            # using ternary filter: https://docs.ansible.com/projects/ansible/latest/collections/ansible/builtin/ternary_filter.html
+            # to convert boolean to true or false in Ansible, instead of default with not work for Bash
+            if {{ rke2Cluster.loadBalancer.enable | default(true) | ternary('true', 'false') }} && [ "{{ rke2Cluster.loadBalancer.type }}" = "servicelb" ]; then
+              echo "enable-servicelb: true" | sudo tee -a /etc/rancher/rke2/config.yaml
+            fi
+            if ! {{ rke2Cluster.ingress.enable | default(true) | ternary('true', 'false') }}; then
+              echo "ingress-controller: none" | sudo tee -a /etc/rancher/rke2/config.yaml
+            else
+              echo "ingress-controller: {{ rke2Cluster.ingress.class | default('traefik') }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+            fi
+
+            curl -sfL https://get.rke2.io | INSTALL_RKE2_VERSION={{ rke2Cluster.version }} INSTALL_RKE2_TYPE="server" sh -s - 
+          register: install_join_node_pg
+          become: true
+
+        - name: Log output of RKE2 HA Master Join Node installation (PostgreSQL)
+          when: rke2Cluster.highAvailability.dataStorage.type == 'postgres'
+          ansible.builtin.debug:
+            msg: "{{ install_join_node_pg.stdout_lines }}"
+
+        - name: Enable and start RKE2 service
+          ansible.builtin.systemd:
+            name: rke2-server
+            enabled: true
+            state: started
+          become: true
+
+# ---------------------------------------------------------------------------
+# Play 4 – Join worker / agent nodes
+#
+# Agents connect to the fixed registration address, which is the init master
+# IP by default.  For true HA resilience, replace the init master IP with a
+# VIP or load balancer endpoint (e.g. kube-vip, HAProxy) that fronts all
+# control-plane nodes.
+# Read more: https://docs.rke2.io/architecture#fixed-registration-address-for-agent-nodes
+# ---------------------------------------------------------------------------
+- name: Setup rke2 HA Worker Nodes
+  hosts: ha_worker
+  # Allow to fail if worker nodes not found or defined but don't online yet, but don't ignore error when hit the erros
+  gather_facts: false
+  tasks:
+    - name: Include HA worker vars
+      tags: setup_rke2
+      ansible.builtin.include_vars:
+        file: "./inventories/host_vars/worker.yaml"
+
+    # --- Setup block --------------------------------------------------------
+    - name: Setup rke2 HA Worker Node
+      tags: setup_rke2
+      # Allow to fail if worker nodes not found or defined but don't online yet, but don't ignore error when hit the erros
+      ignore_unreachable: true
+      block:
+        - name: Create directories for rke2 configuration
+          ansible.builtin.shell: |
+            sudo mkdir -p /etc/rancher/rke2
+            sudo mkdir -p /etc/rancher/rke2/config.yaml.d
+          become: true
+
+        - name: Copy rke2 config template to worker node
+          vars:
+            role: "worker"
+          ansible.builtin.template:
+            src: "./templates/rke2-config.yaml.j2"
+            dest: "/etc/rancher/rke2/config.yaml"
+            owner: root
+            mode: "0644"
+          become: true
+
+        - name: Load the rke2 token from Ansible controller (fetched from init master)
+          ansible.builtin.slurp:
+            src: "./rke2_token.txt"
+          delegate_to: localhost
+          register: rke2_token_content
+
+        - name: Install rke2 HA Worker Node (agent)
+          # Workers use the init master as the fixed registration address.
+          # Swap the IP below for a VIP / LB endpoint if clusterLB is enabled.
+          ansible.builtin.shell: |
+            echo "server: https://{{ hostvars[groups['ha_master_init'][0]]['node_ip'] }}:9345" | sudo tee -a /etc/rancher/rke2/config.yaml
+            echo "token: {{ rke2_token_content.content | b64decode | trim }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+            echo "node-ip: {{ hostvars[inventory_hostname]['node_ip'] }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+
+            curl -sfL https://get.rke2.io | INSTALL_RKE2_VERSION={{ rke2Cluster.version }} INSTALL_RKE2_TYPE="agent" sh -s - 
+          register: install_worker_node
+          become: true
+
+        - name: Log output of rke2 HA Worker Node installation
+          ansible.builtin.debug:
+            msg: "{{ install_worker_node.stdout_lines }}"
+          ignore_errors: true
+
+        - name: Enable and start RKE2 service
+          ansible.builtin.systemd:
+            name: rke2-agent
+            enabled: true
+            state: started
+          become: true

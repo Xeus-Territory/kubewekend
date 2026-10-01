@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Kubewekend CLI - Setup & Operate Kind / K3s Kubernetes Clusters
+# Kubewekend CLI - Setup & Operate Kind / K3s / RKE2 Kubernetes Clusters
 # =============================================================================
 # A unified CLI for provisioning VMs (Vagrant/VPS), configuring ansible
-# inventories, deploying Kind/K3s clusters, and managing K8s utilities.
+# inventories, deploying Kind/K3s/RKE2 clusters, and managing K8s utilities.
 #
 # Usage:  ./scripts/setup.sh <command> [subcommand] [options]
 # Help:   ./scripts/setup.sh help
@@ -473,7 +473,7 @@ SUBCOMMANDS
 OPTIONS
   --host, -H <name>    Ansible host target (default: k8s-master-machine)
   --dry-run             Show ansible command without executing
-  --skip-tags <tags>    Comma-separated tags to skip
+  --skip-tags <tags>    Comma-separated tags to skip (e.g: install_common)
   --extra-vars <vars>   Additional ansible extra-vars (key=value)
 
 AVAILABLE UTILITY TAGS
@@ -530,7 +530,7 @@ cmd_kind() {
     esac
 }
 
-# Parse common ansible flags used by kind/k3s commands
+# Parse common ansible flags used by kind/k3s/rke2 commands
 parse_ansible_opts() {
     HOST_NAME="k8s-master-machine"
     DRY_RUN=false
@@ -640,7 +640,7 @@ SUBCOMMANDS
 OPTIONS
   --host, -H <name>    Ansible host target (default: k8s-master-machine)
   --dry-run             Show ansible command without executing
-  --skip-tags <tags>    Comma-separated tags to skip
+  --skip-tags <tags>    Comma-separated tags to skip (e.g: install_common)
   --extra-vars <vars>   Additional ansible extra-vars (key=value)
   --ask-become-pass      Prompt for sudo password when needed
 
@@ -714,7 +714,7 @@ k3s_setup() {
     if [[ "$HOST_NAME" == *master* ]]; then
         echo ""
         info "Retrieve kubeconfig after all nodes are set up:"
-        echo "  ssh <master> 'sudo cat -S /etc/rancher/k3s/k3s.yaml' > ~/.kube/config"
+        echo "  ssh <master> 'sudo cat /etc/rancher/k3s/k3s.yaml' > ~/.kube/config"
     fi
 }
 
@@ -755,6 +755,148 @@ k3s_utils() {
         echo ""
         echo "Example: ./scripts/setup.sh k3s utils certmanager monitoring"
         echo "         ./scripts/setup.sh k3s utils security idp gitops"
+        return 1
+    fi
+
+    local tags_str
+    tags_str=$(IFS=,; echo "${ANSIBLE_TAGS[*]}")
+    header "Installing K8s utilities: $tags_str (target: $HOST_NAME)"
+    run_ansible_playbook "k8s-utilities-playbook.yaml" "$tags_str"
+    info "Utilities installed: $tags_str"
+}
+
+# ---------------------------------------------------------------------------
+# COMMAND: rke2
+# ---------------------------------------------------------------------------
+cmd_rke2_help() {
+    cat <<'EOF'
+kubewekend rke2 - RKE2 (security-focused Kubernetes) cluster management
+
+SUBCOMMANDS
+  setup                 Setup standalone RKE2 cluster (1 master + N workers)
+  ha-setup              Setup HA RKE2 cluster (3+ masters + N workers)
+  destroy               Remove RKE2 from all nodes
+  utils [tags...]       Run K8s utilities (same tags as kind utils)
+
+OPTIONS
+  --host, -H <name>    Ansible host target (default: k8s-master-machine)
+  --dry-run             Show ansible command without executing
+  --skip-tags <tags>    Comma-separated tags to skip (e.g: install_common)
+  --extra-vars <vars>   Additional ansible extra-vars (key=value)
+  --ask-become-pass      Prompt for sudo password when needed
+
+EXAMPLES
+  # --- Standalone RKE2 (Vagrant VMs) ---
+  # The playbook targets one host at a time and auto-detects master vs worker
+  # from the hostname pattern (*master* / *worker*). Run per host: master first.
+
+  # 1. Provision VMs
+  ./scripts/setup.sh vagrant up k8s-master-machine k8s-worker-machine-1
+
+  # 2. Generate inventory
+  ./scripts/setup.sh inventory generate
+
+  # 3. Setup master
+  ./scripts/setup.sh rke2 setup --host k8s-master-machine
+
+  # 4. Setup each worker (skipping install_common if already done on master)
+  ./scripts/setup.sh rke2 setup --host k8s-worker-machine-1
+  ./scripts/setup.sh rke2 setup --host k8s-worker-machine-2 --skip-tags install_common
+
+  # --- Standalone RKE2 (Remote VPS) ---
+
+  # 1. Configure remote inventory
+  ./scripts/setup.sh inventory set-remote
+
+  # 2. Test connectivity
+  ./scripts/setup.sh inventory ping
+
+  # 3. Setup master then workers
+  ./scripts/setup.sh rke2 setup --host k8s-master-machine
+  ./scripts/setup.sh rke2 setup --host k8s-worker-machine-1
+
+  # --- HA RKE2 (3 masters + worker) ---
+
+  # 1. Edit ansible/inventories/hosts with HA groups (ha_master_init, ha_master_join, ha_worker)
+  # 2. Edit ansible/inventories/host_vars/master.yaml and enable highAvailability
+  ./scripts/setup.sh rke2 ha-setup
+
+  # --- Re-run without reinstalling tools ---
+  ./scripts/setup.sh rke2 setup --host k8s-master-machine --skip-tags install_common
+
+  # --- Utilities ---
+  ./scripts/setup.sh rke2 utils certmanager gitops dashboard
+
+  # --- Teardown ---
+  ./scripts/setup.sh rke2 destroy
+EOF
+}
+
+cmd_rke2() {
+    local sub="${1:-help}"; shift || true
+    case "$sub" in
+        setup)    rke2_setup "$@" ;;
+        ha-setup) rke2_ha_setup "$@" ;;
+        destroy)  rke2_destroy "$@" ;;
+        utils)    rke2_utils "$@" ;;
+        *)        cmd_rke2_help ;;
+    esac
+}
+
+rke2_setup() {
+    parse_ansible_opts "$@"
+    header "Setting up RKE2 node: $HOST_NAME"
+    # The playbook detects master vs worker via hostname pattern:
+    #   *master* → loads master.yaml → installs RKE2 server
+    #   *worker* → loads worker.yaml → joins cluster as agent
+    # Call once per host: master first, then each worker.
+    run_ansible_playbook "rke2-playbook.yaml" "install_common,setup_rke2"
+    info "RKE2 node setup complete: $HOST_NAME"
+    if [[ "$HOST_NAME" == *master* ]]; then
+        echo ""
+        info "Retrieve kubeconfig after all nodes are set up:"
+        echo "  ssh <master> 'sudo cat /etc/rancher/rke2/rke2.yaml' > ~/.kube/config"
+        echo "  # Then replace 127.0.0.1 with the master node IP in the kubeconfig"
+    fi
+}
+
+rke2_ha_setup() {
+    parse_ansible_opts "$@"
+    header "Setting up HA RKE2 cluster"
+
+    info "Ensure you have configured:"
+    echo "  - ansible/inventories/hosts (ha_master_init, ha_master_join, ha_worker groups)"
+    echo "  - ansible/inventories/host_vars/master.yaml (highAvailability.enable: true)"
+    echo ""
+    confirm "Proceed with HA RKE2 setup?" || return 0
+
+    run_ansible_playbook "rke2-ha-playbook.yaml" ""
+    info "HA RKE2 cluster setup complete!"
+}
+
+rke2_destroy() {
+    parse_ansible_opts "$@"
+    header "Removing RKE2 from all nodes"
+    confirm "This will uninstall RKE2 from all inventory nodes. Continue?" || return 0
+    run_ansible_playbook "rke2-remove-playbook.yaml" ""
+    info "RKE2 removed from all nodes"
+}
+
+rke2_utils() {
+    parse_ansible_opts "$@"
+    if [[ ${#ANSIBLE_TAGS[@]} -eq 0 ]]; then
+        error "Specify at least one utility tag."
+        echo ""
+        echo "Available tags:"
+        echo "  Test:        ingress_test, apigateway_test"
+        echo "  Cluster:     certmanager, dashboard, storage, secret_management, k8s_extensions"
+        echo "  GitOps:      gitops"
+        echo "  Security:    security, idp"
+        echo "  Observ.:     monitoring"
+        echo "  Networking:  service_mesh"
+        echo ""
+        echo "Example: ./scripts/setup.sh rke2 utils certmanager monitoring"
+        echo "         ./scripts/setup.sh rke2 utils security idp gitops"
         return 1
     fi
 
@@ -898,12 +1040,16 @@ SUBCOMMANDS
   kind-vagrant          Kind cluster using Vagrant VMs
   k3s-vagrant           K3s cluster using Vagrant VMs
   k3s-remote            K3s cluster on remote VPS
+  rke2-vagrant          RKE2 cluster using Vagrant VMs
+  rke2-remote           RKE2 cluster on remote VPS
 
 EXAMPLES
   ./scripts/setup.sh quickstart kind-local
   ./scripts/setup.sh quickstart kind-vagrant
   ./scripts/setup.sh quickstart k3s-vagrant
   ./scripts/setup.sh quickstart k3s-remote
+  ./scripts/setup.sh quickstart rke2-vagrant
+  ./scripts/setup.sh quickstart rke2-remote
 EOF
 }
 
@@ -914,14 +1060,18 @@ cmd_quickstart() {
         kind-vagrant) qs_kind_vagrant "$@" ;;
         k3s-vagrant)  qs_k3s_vagrant "$@" ;;
         k3s-remote)   qs_k3s_remote "$@" ;;
+        rke2-vagrant) qs_rke2_vagrant "$@" ;;
+        rke2-remote)  qs_rke2_remote "$@" ;;
         *)            cmd_quickstart_help ;;
     esac
 }
 
 qs_kind_local() {
     header "Quick Start: Kind on Localhost"
-    echo "This workflow sets up a Kind cluster directly on your machine."
+    echo "This workflow sets up a Kind cluster directly on your machine (not recommended)."
     echo "Requirements: docker, ansible"
+    echo "NOTE: With networkForwarding enabled, socat services bind host port 80/443."
+    echo "      Remember to run 'kind destroy' (or disable the services) when you finish."
     echo ""
     confirm "Start Kind local setup?" || return 0
 
@@ -929,13 +1079,13 @@ qs_kind_local() {
 
 Step-by-step:
   1. Make sure Docker is running
-  2. Configure your inventory to use localhost:
+  2. Point the master host to your own machine (keep the hostname k8s-master-machine):
 
      [standalone-masters]
-     localhost ansible_host=127.0.0.1 ansible_connection=local
+     k8s-master-machine ansible_host=127.0.0.1 ansible_connection=local
 
   3. Run setup:
-     ./scripts/setup.sh kind setup --host localhost
+     ./scripts/setup.sh kind setup --host k8s-master-machine
 
   4. Verify:
      kubectl cluster-info --context kind-kubewekend
@@ -1007,8 +1157,9 @@ Step-by-step:
      ./scripts/setup.sh k3s setup
 
   7. Get kubeconfig:
-     ssh vagrant@192.168.56.99 'sudo cat -S /etc/rancher/k3s/k3s.yaml' > ~/.kube/config
+     ssh vagrant@192.168.56.99 'sudo cat /etc/rancher/k3s/k3s.yaml' > ~/.kube/config
      # Replace 127.0.0.1 with 192.168.56.99 in the kubeconfig
+     sed -i "s/127.0.0.1/192.168.56.99/g" ~/.kube/config
 
   8. Install utilities:
      ./scripts/setup.sh k3s utils ingress_test certmanager
@@ -1048,14 +1199,102 @@ Step-by-step:
      ./scripts/setup.sh k3s setup
 
   5. Get kubeconfig:
-     ssh <user>@<vps-ip> 'sudo cat -S /etc/rancher/k3s/k3s.yaml' > ~/.kube/config
+     ssh <user>@<vps-ip> 'sudo cat /etc/rancher/k3s/k3s.yaml' > ~/.kube/config
+     or
+     ssh <user>@<vps-ip> 'cat /home/<user>/.kube/config' > ~/.kube/config
      # Replace 127.0.0.1 with your VPS IP in the kubeconfig
+     sed -i "s/127.0.0.1/<vps-ip>/g" ~/.kube/config
 
   6. Install utilities:
      ./scripts/setup.sh k3s utils certmanager gitops
 
   7. Teardown:
      ./scripts/setup.sh k3s destroy
+
+GUIDE
+}
+
+qs_rke2_vagrant() {
+    header "Quick Start: RKE2 on Vagrant VMs"
+    cat <<'GUIDE'
+
+Step-by-step:
+
+  1. Initialize environment:
+     ./scripts/setup.sh env init
+
+  2. Provision VMs (1 master + 1 worker):
+     ./scripts/setup.sh vagrant up k8s-master-machine k8s-worker-machine-1
+
+  3. Generate inventory:
+     ./scripts/setup.sh inventory generate
+
+  4. Test connectivity:
+     ./scripts/setup.sh inventory ping
+
+  5. Configure cluster settings:
+     # Edit ansible/inventories/host_vars/master.yaml
+     # Key settings: rke2Cluster.version, cni.type, loadBalancer, ingress
+
+  6. Setup RKE2 cluster (master first, then each worker; RKE2 takes a few minutes to start):
+     ./scripts/setup.sh rke2 setup --host k8s-master-machine
+     ./scripts/setup.sh rke2 setup --host k8s-worker-machine-1
+
+  7. Get kubeconfig:
+     ssh vagrant@192.168.56.99 'sudo cat /etc/rancher/rke2/rke2.yaml' > ~/.kube/config
+     # Replace 127.0.0.1 with 192.168.56.99 in the kubeconfig
+     sed -i "s/127.0.0.1/192.168.56.99/g" ~/.kube/config
+
+  8. Install utilities:
+     ./scripts/setup.sh rke2 utils ingress_test certmanager
+
+  9. Teardown:
+     ./scripts/setup.sh rke2 destroy
+     ./scripts/setup.sh vagrant destroy
+
+  --- HA Variant (3 masters + 1 worker) ---
+
+  a. Edit ansible/inventories/hosts with HA groups
+  b. Enable highAvailability in master.yaml
+  c. Run: ./scripts/setup.sh rke2 ha-setup
+
+GUIDE
+}
+
+qs_rke2_remote() {
+    header "Quick Start: RKE2 on Remote VPS"
+    cat <<'GUIDE'
+
+Step-by-step:
+
+  1. Configure remote inventory:
+     ./scripts/setup.sh inventory set-remote
+     # Follow the interactive prompts
+
+  2. Test connectivity:
+     ./scripts/setup.sh inventory ping
+
+  3. Configure cluster settings:
+     # Edit ansible/inventories/host_vars/master.yaml
+     # Important: set rke2Cluster.tlsSANs to include your VPS IP/domain
+     # Important: set loadBalancer.ippool.cidr to your VPS network range
+
+  4. Setup RKE2 (master first, then each worker):
+     ./scripts/setup.sh rke2 setup --host k8s-master-machine
+     ./scripts/setup.sh rke2 setup --host k8s-worker-machine-1
+
+  5. Get kubeconfig:
+     ssh <user>@<vps-ip> 'sudo cat /etc/rancher/rke2/rke2.yaml' > ~/.kube/config
+     or
+     ssh <user>@<vps-ip> 'cat /home/<user>/.kube/config' > ~/.kube/config
+     # Replace 127.0.0.1 with your VPS IP in the kubeconfig
+     sed -i "s/127.0.0.1/<vps-ip>/g" ~/.kube/config
+
+  6. Install utilities:
+     ./scripts/setup.sh rke2 utils certmanager gitops
+
+  7. Teardown:
+     ./scripts/setup.sh rke2 destroy
 
 GUIDE
 }
@@ -1167,9 +1406,10 @@ config_show_master() {
     header "Master Node Configuration"
     printf "  File: ${BOLD}%s${NC}\n" "$file"
 
-    local kind k3s util
+    local kind k3s rke2 util
     kind=$(_yblock "kindCluster" "$file")
     k3s=$( _yblock "k3sCluster"  "$file")
+    rke2=$(_yblock "rke2Cluster" "$file")
     util=$(_yblock "utilities"   "$file")
 
     # ---- KIND CLUSTER -------------------------------------------------------
@@ -1230,7 +1470,7 @@ config_show_master() {
     version=$(    echo "$k3s"         | _yval "version")
     ha_en=$(      echo "$k3_ha"       | _yval "enable")
     ha_rep=$(     echo "$k3_ha"       | _yval "replicas")
-    ha_db_type=$( echo "$k3_db"       | _yval "type")
+    ha_db_type=$( echo "$k3_ds"       | _yval "type")
     cni_type=$(   echo "$k3_cni"      | _yval "type")
     lb_en=$(      echo "$k3_lb"       | _yval "enable")
     lb_type=$(    echo "$k3_lb"       | _yval "type")
@@ -1253,6 +1493,46 @@ config_show_master() {
     _row "  LB IP Pool"     "$lb_cidr"
     _row "Ingress"          "$(_badge "$ing_en" "$ing_cls")"
     _row "  Dashboard"      "$(_badge "$dash_en" "$dash_host")"
+    _row "Node Labels"      "$labels"
+    _row "TLS SANs"         "$tlssans"
+
+    # ---- RKE2 CLUSTER --------------------------------------------------------
+    _sec "RKE2 CLUSTER"
+
+    local rk_ha rk_ds rk_db rk_cni rk_lb rk_lb_pool rk_ing
+    rk_ha=$(      echo "$rke2"    | _ysub "highAvailability" 2)
+    rk_ds=$(      echo "$rk_ha"  | _ysub "dataStorage"      4)
+    rk_db=$(      echo "$rk_ds"  | _ysub "externalDatabase" 6)
+    rk_cni=$(     echo "$rke2"    | _ysub "cni"              2)
+    rk_lb=$(      echo "$rke2"    | _ysub "loadBalancer"     2)
+    rk_lb_pool=$( echo "$rk_lb"  | _ysub "ippool"           4)
+    rk_ing=$(     echo "$rke2"    | _ysub "ingress"          2)
+
+    local version ha_en ha_rep ha_db_type cni_type lb_en lb_type lb_cidr
+    local ing_en ing_cls labels tlssans
+    version=$(    echo "$rke2"         | _yval "version")
+    ha_en=$(      echo "$rk_ha"       | _yval "enable")
+    ha_rep=$(     echo "$rk_ha"       | _yval "replicas")
+    ha_db_type=$( echo "$rk_ds"       | _yval "type")
+    cni_type=$(   echo "$rk_cni"      | _yval "type")
+    lb_en=$(      echo "$rk_lb"       | _yval "enable")
+    lb_type=$(    echo "$rk_lb"       | _yval "type")
+    lb_cidr=$(    echo "$rk_lb_pool"  | _yval "cidr")
+    ing_en=$(     echo "$rk_ing"      | _yval "enable")
+    ing_cls=$(    echo "$rk_ing"      | _yval "class")
+    labels=$(     echo "$rke2"         | _ysub "nodeLabels" 2 | _ylist)
+    tlssans=$(    echo "$rke2"         | _ysub "tlsSANs"    2 | _ylist)
+
+    _row "Version"          "$version"
+    if [[ "$ha_en" == "true" ]]; then
+        _row "High Availability" "$(_badge "$ha_en" "replicas: $ha_rep  datastore: $ha_db_type")"
+    else
+        _row "High Availability" "$(_badge "$ha_en")"
+    fi
+    _row "CNI"              "$cni_type"
+    _row "Load Balancer"    "$(_badge "$lb_en" "$lb_type")"
+    _row "  LB IP Pool"     "$lb_cidr"
+    _row "Ingress"          "$(_badge "$ing_en" "$ing_cls")"
     _row "Node Labels"      "$labels"
     _row "TLS SANs"         "$tlssans"
 
@@ -1333,8 +1613,9 @@ config_show_worker() {
     header "Worker Node Configuration"
     printf "  File: ${BOLD}%s${NC}\n" "$file"
 
-    local k3s
+    local k3s rke2
     k3s=$(_yblock "k3sCluster" "$file")
+    rke2=$(_yblock "rke2Cluster" "$file")
 
     _sec "K3S AGENT"
 
@@ -1342,6 +1623,17 @@ config_show_worker() {
     version=$(echo "$k3s" | _yval "version")
     labels=$( echo "$k3s" | _ysub "nodeLabels" 2 | _ylist)
     taints=$( echo "$k3s" | _ysub "nodeTaints" 2 | _ylist)
+
+    _row "Version"     "$version"
+    _row "Node Labels" "$labels"
+    _row "Node Taints" "$taints"
+
+    _sec "RKE2 AGENT"
+
+    local version labels taints
+    version=$(echo "$rke2" | _yval "version")
+    labels=$( echo "$rke2" | _ysub "nodeLabels" 2 | _ylist)
+    taints=$( echo "$rke2" | _ysub "nodeTaints" 2 | _ylist)
 
     _row "Version"     "$version"
     _row "Node Labels" "$labels"
@@ -1409,6 +1701,7 @@ ${BOLD}COMMANDS${NC}
   ${CYAN}inventory${NC}      Ansible inventory management (generate, ping, remote VPS)
   ${CYAN}kind${NC}           Kind cluster operations (setup, destroy, utilities)
   ${CYAN}k3s${NC}            K3s cluster operations (setup, ha-setup, destroy, utilities)
+  ${CYAN}rke2${NC}           RKE2 cluster operations (setup, ha-setup, destroy, utilities)
   ${CYAN}network${NC}        VirtualBox NAT network management
   ${CYAN}quickstart${NC}     Guided quick-start workflows with examples
   ${CYAN}config${NC}         View/edit cluster configuration (master.yaml, worker.yaml)
@@ -1440,6 +1733,17 @@ ${BOLD}QUICK REFERENCE${NC}
   # (edit hosts + master.yaml first)
   ./scripts/setup.sh k3s ha-setup
 
+  # --- RKE2 on Vagrant (standalone) ---
+  ./scripts/setup.sh vagrant up k8s-master-machine k8s-worker-machine-1
+  ./scripts/setup.sh inventory generate
+  ./scripts/setup.sh rke2 setup --host k8s-master-machine
+  ./scripts/setup.sh rke2 setup --host k8s-worker-machine-1
+  ./scripts/setup.sh rke2 utils certmanager gitops
+
+  # --- RKE2 HA Cluster ---
+  # (edit hosts + master.yaml first)
+  ./scripts/setup.sh rke2 ha-setup
+
 ${BOLD}SUBCOMMAND HELP${NC}
   ./scripts/setup.sh <command> help
 
@@ -1457,6 +1761,7 @@ main() {
         inventory)  cmd_inventory "$@" ;;
         kind)       cmd_kind "$@" ;;
         k3s)        cmd_k3s "$@" ;;
+        rke2)       cmd_rke2 "$@" ;;
         network)    cmd_network "$@" ;;
         quickstart) cmd_quickstart "$@" ;;
         config)     cmd_config "$@" ;;

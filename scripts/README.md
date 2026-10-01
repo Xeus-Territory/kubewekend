@@ -1,6 +1,6 @@
 # Kubewekend CLI
 
-> Unified Bash CLI to setup and operate **Kind** / **K3s** Kubernetes clusters for workshops, demos, and local experiments.
+> Unified Bash CLI to setup and operate **Kind** / **K3s** / **RKE2** Kubernetes clusters for workshops, demos, and local experiments.
 
 ---
 
@@ -16,11 +16,12 @@
     - [inventory — Ansible Inventory](#inventory--ansible-inventory)
     - [kind — Kind Cluster Operations](#kind--kind-cluster-operations)
     - [k3s — K3s Cluster Operations](#k3s--k3s-cluster-operations)
+    - [rke2 — RKE2 Cluster Operations](#rke2--rke2-cluster-operations)
     - [network — VirtualBox NAT Network](#network--virtualbox-nat-network)
     - [config — Cluster Configuration](#config--cluster-configuration)
     - [status — Project Dashboard](#status--project-dashboard)
     - [quickstart — Guided Workflows](#quickstart--guided-workflows)
-  - [Global Options (kind / k3s)](#global-options-kind--k3s)
+  - [Global Options (kind / k3s / rke2)](#global-options-kind--k3s--rke2)
   - [Workflow Examples](#workflow-examples)
     - [1. Kind on Vagrant (VirtualBox)](#1-kind-on-vagrant-virtualbox)
     - [2. K3s Standalone on Vagrant](#2-k3s-standalone-on-vagrant)
@@ -28,6 +29,8 @@
     - [4. K3s High-Availability (HA)](#4-k3s-high-availability-ha)
     - [5. Kind on Localhost (No Vagrant)](#5-kind-on-localhost-no-vagrant)
     - [6. LGTM Observability Stack + Testing Application](#6-lgtm-observability-stack--testing-application)
+    - [7. RKE2 Standalone on Vagrant / Remote VPS](#7-rke2-standalone-on-vagrant--remote-vps)
+    - [8. RKE2 High-Availability (HA)](#8-rke2-high-availability-ha)
   - [Available Utility Tags](#available-utility-tags)
   - [Project Structure](#project-structure)
   - [Configuration Files](#configuration-files)
@@ -75,6 +78,8 @@ chmod +x ./scripts/setup.sh
 ./scripts/setup.sh quickstart kind-vagrant
 ./scripts/setup.sh quickstart k3s-vagrant
 ./scripts/setup.sh quickstart k3s-remote
+./scripts/setup.sh quickstart rke2-vagrant
+./scripts/setup.sh quickstart rke2-remote
 ```
 
 ---
@@ -201,6 +206,30 @@ chmod +x ./scripts/setup.sh
 ./scripts/setup.sh k3s utils certmanager gitops dashboard
 ```
 
+### rke2 — RKE2 Cluster Operations
+
+| Subcommand | Description |
+|------------|-------------|
+| `rke2 setup` | Setup standalone RKE2 cluster (1 master + N workers), one node per `--host` |
+| `rke2 ha-setup` | Setup HA RKE2 cluster (3+ masters + N workers) |
+| `rke2 destroy` | Uninstall RKE2 from all inventory nodes |
+| `rke2 utils <tags...>` | Install K8s utilities by [tag](#available-utility-tags) |
+
+```bash
+# Standalone setup (master first, then workers)
+./scripts/setup.sh rke2 setup --host k8s-master-machine
+./scripts/setup.sh rke2 setup --host k8s-worker-machine-1
+
+# HA setup (requires inventory + master.yaml pre-configured)
+./scripts/setup.sh rke2 ha-setup
+
+# Destroy
+./scripts/setup.sh rke2 destroy
+
+# Utilities
+./scripts/setup.sh rke2 utils certmanager gitops dashboard
+```
+
 ### network — VirtualBox NAT Network
 
 | Subcommand | Description |
@@ -246,6 +275,8 @@ Shows Vagrant VMs, inventory groups, kubectl contexts, and Docker Kind container
 | `quickstart kind-vagrant` | Kind on Vagrant VMs |
 | `quickstart k3s-vagrant` | K3s on Vagrant VMs |
 | `quickstart k3s-remote` | K3s on remote VPS |
+| `quickstart rke2-vagrant` | RKE2 on Vagrant VMs |
+| `quickstart rke2-remote` | RKE2 on remote VPS |
 
 ```bash
 ./scripts/setup.sh quickstart kind-vagrant
@@ -254,9 +285,9 @@ Shows Vagrant VMs, inventory groups, kubectl contexts, and Docker Kind container
 
 ---
 
-## Global Options (kind / k3s)
+## Global Options (kind / k3s / rke2)
 
-These options are available on `kind setup/destroy/utils` and `k3s setup/ha-setup/destroy/utils`:
+These options are available on `kind setup/destroy/utils` `k3s setup/ha-setup/destroy/utils` and `rke2 setup/ha-setup/destroy/utils`:
 
 | Option | Description |
 |--------|-------------|
@@ -383,11 +414,17 @@ ssh root@<vps-ip> 'sudo cat /etc/rancher/k3s/k3s.yaml' > ~/.kube/config
 
 ### 5. Kind on Localhost (No Vagrant)
 
+> [!WARNING]
+> Not recommended for your main machine. With `kindCluster.networkForwarding.enable: true`, Kind creates `socat-netforward-port-80/443`
+> systemd services that route host traffic on port 80/443 into the cluster. **Remember to run `./scripts/setup.sh kind destroy`
+> (or `sudo systemctl disable --now socat-netforward-port-80 socat-netforward-port-443`) when you are done**, or set
+> `networkForwarding.enable: false` to skip them.
+
 ```bash
-# Manually set inventory for localhost
+# Point the master host (same hostname) to your own machine
 cat > ansible/inventories/hosts <<'EOF'
 [standalone-masters]
-localhost ansible_host=127.0.0.1 ansible_connection=local
+k8s-master-machine ansible_host=127.0.0.1 ansible_connection=local
 
 [standalone-all:children]
 standalone-masters
@@ -397,7 +434,7 @@ ansible_user=$USER
 EOF
 
 # Setup Kind
-./scripts/setup.sh kind setup --host localhost
+./scripts/setup.sh kind setup --host k8s-master-machine
 
 # Verify
 kubectl cluster-info --context kind-kubewekend
@@ -461,11 +498,49 @@ echo "Data sources: Prometheus, Loki, Tempo, Pyroscope"
 
 > See [`examples/lgtm-testing/README.md`](../examples/lgtm-testing/README.md) for the full test scenario guide and custom metric reference.
 
+### 7. RKE2 Standalone on Vagrant / Remote VPS
+
+```bash
+# Vagrant: provision VMs, generate inventory (Remote VPS: `inventory set-remote`)
+./scripts/setup.sh vagrant up k8s-master-machine k8s-worker-machine-1
+./scripts/setup.sh inventory generate
+./scripts/setup.sh inventory ping
+
+# Review rke2Cluster (version, cni, loadBalancer, ingress, tlsSANs)
+./scripts/setup.sh config edit
+
+# Setup RKE2 (master first, then workers)
+./scripts/setup.sh rke2 setup --host k8s-master-machine
+./scripts/setup.sh rke2 setup --host k8s-worker-machine-1
+
+# Get kubeconfig
+ssh vagrant@192.168.56.99 'sudo cat /etc/rancher/rke2/rke2.yaml' > ~/.kube/config
+sed -i "s/127.0.0.1/192.168.56.99/g" ~/.kube/config
+
+# Utilities and teardown
+./scripts/setup.sh rke2 utils certmanager gitops ingress_test
+./scripts/setup.sh rke2 destroy
+```
+
+### 8. RKE2 High-Availability (HA)
+
+```bash
+# 1. Edit inventory with HA groups (ha_master_init / ha_master_join / ha_worker)
+# 2. Review HA settings in master.yaml
+./scripts/setup.sh config edit
+# Set: rke2Cluster.highAvailability.enable: true
+# Set: rke2Cluster.highAvailability.dataStorage.type: etcd   # etcd | postgres
+
+# 3. Run HA setup, then teardown when done
+./scripts/setup.sh rke2 ha-setup
+./scripts/setup.sh rke2 destroy
+```
+
 ---
 
 ## Available Utility Tags
 
-Used with `kind utils <tags...>` or `k3s utils <tags...>`:
+Used with `kind utils <tags...>` `k3s utils <tags...>` or `rke2 utils <tags...>`:
 
 | Tag | Description | Playbook |
 |-----|-------------|----------|
@@ -511,15 +586,22 @@ ansible/
 ├── k3s-playbook.yaml             # K3s standalone setup
 ├── k3s-ha-playbook.yaml          # K3s HA setup (embedded etcd / external postgres)
 ├── k3s-remove-playbook.yaml      # K3s teardown
+├── rke2-playbook.yaml            # RKE2 standalone setup
+├── rke2-ha-playbook.yaml         # RKE2 HA setup (embedded etcd / external postgres)
+├── rke2-remove-playbook.yaml     # RKE2 teardown
 ├── kind-playbook.yaml            # Kind setup (CNI, LB, ingress, gateway)
 ├── k8s-utilities-playbook.yaml   # Post-cluster utilities (cert-manager, vault, monitoring, gitops, etc.)
 ├── inventories/
 │   ├── hosts                     # Ansible inventory (auto-generated or manual)
 │   └── host_vars/
-│       ├── master.yaml           # Master node config (Kind + K3s + utilities)
-│       └── worker.yaml           # Worker node config (K3s only)
+│       ├── master.yaml           # Master node config (Kind + K3s + RKE2 + utilities)
+│       └── worker.yaml           # Worker node config (K3s + RKE2)
 └── templates/
     ├── k3s-config.yaml.j2
+    ├── rke2-config.yaml.j2
+    ├── rke2-flannel-config.yaml.j2
+    ├── rke2-traefik-config.yaml.j2
+    ├── rke2-ingress-nginx-config.yaml.j2
     ├── kind-config.yaml.j2
     ├── kube-prometheus-stack-values.yaml.j2
     ├── alloy-values.yaml.j2
@@ -548,16 +630,16 @@ examples/
 |------|---------|
 | `.env` | SSH credentials (from `template.env`) |
 | `ansible/inventories/hosts` | Ansible inventory (hosts, groups, SSH config) |
-| `ansible/inventories/host_vars/master.yaml` | **Primary config** — Kind networking, K3s version/CNI/LB/ingress, utilities toggles |
-| `ansible/inventories/host_vars/worker.yaml` | Worker-specific config (K3s version, labels, taints) |
+| `ansible/inventories/host_vars/master.yaml` | **Primary config** — Kind networking, K3s/RKE2 version/CNI/LB/ingress, utilities toggles |
+| `ansible/inventories/host_vars/worker.yaml` | Worker-specific config (K3s/RKE2 version, labels, taints) |
 | `ansible.cfg` | Ansible SSH options (host key checking disabled) |
-| `Vagrantfile` | VM definitions (master + 3 workers, VirtualBox) |
+| `Vagrantfile` | VM definitions (init master + 2 join masters + 3 workers, VirtualBox) |
 
 Key settings in `master.yaml`:
 
 ```yaml
 # Kind
-kindCluster.image: "kindest/node:v1.28.9"
+kindCluster.image: "kindest/node:v1.34.3"
 kindCluster.ingress.class: "traefik"     # nginx | traefik | cilium | kong
 kindCluster.loadbalancer.type: "cloud-provider-kind"  # metallb | cloud-provider-kind
 
@@ -566,7 +648,14 @@ k3sCluster.version: "v1.34.5+k3s1"
 k3sCluster.cni.type: "flannel"           # flannel | calico | cilium
 k3sCluster.loadBalancer.type: "servicelb" # servicelb | metallb
 k3sCluster.ingress.class: "traefik"
-k3sCluster.highAvailability.enable: false # true for HA
+k3sCluster.highAvailability.dataStorage.type: "etcd" # etcd | postgres
+
+# RKE2
+rke2Cluster.version: "v1.34.5+rke2r1"
+rke2Cluster.cni.type: "canal"             # canal | flannel | calico | cilium
+rke2Cluster.loadBalancer.type: "servicelb" # servicelb | metallb
+rke2Cluster.ingress.class: "traefik"      # traefik | ingress-nginx
+rke2Cluster.highAvailability.dataStorage.type: "etcd" # etcd | postgres
 
 # Utilities
 utilities.certmanager.enable: true

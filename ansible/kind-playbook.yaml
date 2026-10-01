@@ -45,11 +45,17 @@
         echo 'alias krcp="k resource-capacity -p --util"' >> ~/.bashrc
         echo 'alias krca="k resource-capacity -a"' >> ~/.bashrc
 
-        # Install vault
-        wget https://releases.hashicorp.com/vault/1.18.5/vault_1.18.5_linux_amd64.zip && \
-          unzip -p vault_1.18.5_linux_amd64.zip vault > vault && \
+        # Install vault CLI (latest version updated Mar 2026)
+        wget https://releases.hashicorp.com/vault/1.21.4/vault_1.21.4_linux_amd64.zip && \
+          unzip -p vault_1.21.4_linux_amd64.zip vault > vault && \
           chmod +x vault && sudo mv vault /usr/local/bin && \
-          rm -rf vault_1.18.5_linux_amd64.zip
+          rm -rf vault_1.21.4_linux_amd64.zip
+
+        # Install bao CLI
+        wget https://github.com/openbao/openbao/releases/download/v2.7.0/openbao_2.7.0_linux_amd64.tar.gz && \
+          tar -xzf openbao_2.7.0_linux_amd64.tar.gz bao && \
+          chmod +x bao && sudo mv bao /usr/local/bin && \
+          rm -rf openbao_2.7.0_linux_amd64.tar.gz
       changed_when: false
       args:
         executable: /bin/bash
@@ -509,6 +515,8 @@
     # Setup Network Forwarding for Kind Cluster (from host to kind cluster) with forwarding rules by socat
     - name: Setup Network Forwarding for port 80/443 from home to Kind cluster
       tags: setup_kind
+      # NOTE: When the target is your own machine (e.g: ansible_connection=local), the socat services bind port 80/443 on the host.
+      # Remember to run `kind destroy` (or disable the services) when you finish, or set `networkForwarding.enable: false`
       when: kindCluster.networkForwarding.enable | default(false)
       block:
         - name: Setup Network Forwarding for Kind cluster

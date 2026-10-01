@@ -1,0 +1,281 @@
+---
+- name: Playbook to setup RKE2 Cluster
+  vars:
+    cluster_name: "{{ host_name }}"
+    user: "{{ ansible_user_id }}"
+  hosts: "{{ host_name }}"
+  # Distinguish between master and worker node with group name in inventory file
+  tasks:
+    - name: Install common libraries, and dependencies for your host
+      tags: install_common
+      # Help to do inline script and multiple line
+      # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/shell_module.html
+      ansible.builtin.shell: |
+        # Update package index and install dependencies
+        sudo apt update
+        sudo apt install -y apt-transport-https ca-certificates curl gpg wget bash-completion socat unzip jq
+
+        # Install kubectl
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x ./kubectl
+        sudo mv ./kubectl /usr/local/bin/kubectl
+
+        # Install helm
+        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+        # Add bash-completion into ~/.bashrc
+        echo 'source /etc/bash_completion' >> /home/{{ user }}/.bashrc
+        kubectl completion bash | sudo tee /etc/bash_completion.d/kubectl >/dev/null
+        helm completion bash | sudo tee /etc/bash_completion.d/helm >/dev/null
+
+        # Add the alias and kubectl with couple of useful options
+        echo 'export KUBE_EDITOR="nano"' >> /home/{{ user }}/.bashrc
+        echo 'alias k="kubectl"' >> /home/{{ user }}/.bashrc
+        echo 'alias kgp="kubectl get pods"' >> /home/{{ user }}/.bashrc
+        echo 'alias kn="kubectl config set-context --current --namespace"' >> /home/{{ user }}/.bashrc
+        echo 'alias kaf="kubectl apply -f "' >> /home/{{ user }}/.bashrc
+        echo 'alias kr="kubectl run --dry-run=client -o yaml "' >> /home/{{ user }}/.bashrc
+        echo 'alias krcp="k resource-capacity -p --util"' >> /home/{{ user }}/.bashrc
+        echo 'alias krca="k resource-capacity -a"' >> /home/{{ user }}/.bashrc
+
+        # Install vault CLI (latest version updated Mar 2026)
+        wget https://releases.hashicorp.com/vault/1.21.4/vault_1.21.4_linux_amd64.zip && \
+          unzip -p vault_1.21.4_linux_amd64.zip vault > vault && \
+          chmod +x vault && sudo mv vault /usr/local/bin && \
+          rm -rf vault_1.21.4_linux_amd64.zip
+
+        # Install bao
+        wget https://github.com/openbao/openbao/releases/download/v2.7.0/openbao_2.7.0_linux_amd64.tar.gz && \
+          tar -xzf openbao_2.7.0_linux_amd64.tar.gz bao && \
+          chmod +x bao && sudo mv bao /usr/local/bin && \
+          rm -rf openbao_2.7.0_linux_amd64.tar.gz
+      changed_when: false
+      args:
+        executable: /bin/bash
+      register: shell_output
+      become: true
+
+    - name: Log output of common libraries installation
+      ansible.builtin.debug:
+        msg: "{{ shell_output.stdout_lines }}"
+      tags: install_common
+
+    - name: Access Master Vars files
+      tags: setup_rke2
+      # Use `include_vars` to handling to task to import
+      # host_vars base on conditional
+      # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/include_vars_module.html
+      ansible.builtin.include_vars:
+        file: "./inventories/host_vars/master.yaml"
+      # `when` conditional inside the ansible which help handle configuration,
+      # and give the flexible to dynamic tasks on ansible
+      # https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_conditionals.html
+      when: cluster_name is search("master")
+
+    - name: Access Worker Vars files
+      tags: setup_rke2
+      ansible.builtin.include_vars:
+        file: "./inventories/host_vars/worker.yaml"
+      when: cluster_name is search("worker")
+
+    # Setup RKE2 Master Node with configuration from host_vars/master.yaml
+    - name: Setup RKE2 Master Node
+      tags: setup_rke2
+      block:
+        - name: Create the directory for RKE2 configuration
+          ansible.builtin.shell: |
+            sudo mkdir -p /etc/rancher/rke2
+            sudo mkdir -p /etc/rancher/rke2/config.yaml.d
+          become: true
+
+        - name: Copy template configuration for RKE2 Master Node
+          vars:
+            role: "master"
+          ansible.builtin.template:
+            src: "./templates/rke2-config.yaml.j2"
+            dest: "/etc/rancher/rke2/config.yaml"
+            owner: root
+            mode: "0644"
+          become: true
+
+        - name: Create the directory for RKE2 Ingress Controller configuration
+          ansible.builtin.shell: |
+            sudo mkdir -p /var/lib/rancher/rke2/server/manifests
+          become: true
+
+        - name: Copy template configuration for RKE2 Ingress Controller Traefik for Master Node
+          ansible.builtin.template:
+            src: "./templates/rke2-traefik-config.yaml.j2"
+            dest: "/var/lib/rancher/rke2/server/manifests/rke2-traefik-config.yaml"
+            owner: root
+            mode: "0644"
+          become: true
+          when: rke2Cluster.ingress.class | default('traefik') == 'traefik'
+
+        - name: Copy template configuration for RKE2 Ingress Controller Ingress-Nginx for Master Node
+          ansible.builtin.template:
+            src: "./templates/rke2-ingress-nginx-config.yaml.j2"
+            dest: "/var/lib/rancher/rke2/server/manifests/rke2-ingress-nginx-config.yaml"
+            owner: root
+            mode: "0644"
+          become: true
+          when: rke2Cluster.ingress.class | default('traefik') == 'ingress-nginx'
+
+        - name: Copy template configuration for RKE2 Flannel CNI
+          ansible.builtin.template:
+            src: "./templates/rke2-flannel-config.yaml.j2"
+            dest: "/var/lib/rancher/rke2/server/manifests/rke2-flannel-config.yaml"
+            owner: root
+            mode: "0644"
+          become: true
+          when: rke2Cluster.cni.type | default('canal') == 'flannel'
+
+        - name: Install RKE2 Master Node (Standalone Architecture)
+          ansible.builtin.shell: |
+            # Add additional configuration for standalone architecture master node
+            echo "write-kubeconfig-mode: \"0644\"" | sudo tee -a /etc/rancher/rke2/config.yaml
+            echo "node-ip: {{ hostvars[cluster_name]['node_ip'] }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+            echo "cni: {{ rke2Cluster.cni.type | default('canal') }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+
+            # using ternary filter: https://docs.ansible.com/projects/ansible/latest/collections/ansible/builtin/ternary_filter.html
+            # to convert boolean to true or false in Ansible, instead of default with not work for Bash
+            if {{ rke2Cluster.loadBalancer.enable | default(true) | ternary('true', 'false') }} && [ "{{ rke2Cluster.loadBalancer.type }}" = "servicelb" ]; then
+              echo "enable-servicelb: true" | sudo tee -a /etc/rancher/rke2/config.yaml
+            fi
+            if ! {{ rke2Cluster.ingress.enable | default(true) | ternary('true', 'false') }}; then
+              echo "ingress-controller: none" | sudo tee -a /etc/rancher/rke2/config.yaml
+            else
+              echo "ingress-controller: {{ rke2Cluster.ingress.class | default('traefik') }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+            fi
+
+            # Install RKE2 with configuration from host_vars/master.yaml
+            # bk-install-ref: https://raw.githubusercontent.com/rancher/rke2/refs/heads/master/install.sh 
+            curl -sfL https://get.rke2.io | INSTALL_RKE2_VERSION={{ rke2Cluster.version }} INSTALL_RKE2_TYPE="server" sh -s - 
+          become: true
+          register: install_registration_node
+
+        - name: Log output of RKE2 Master Node installation with standalone architecture
+          ansible.builtin.debug:
+            msg: "{{ install_registration_node.stdout_lines }}"
+
+        - name: Enable and start RKE2 service
+          ansible.builtin.systemd:
+            name: rke2-server
+            enabled: true
+            state: started
+          become: true
+
+        - name: Save the RKE2 token for worker nodes to join the cluster to the local file
+          ansible.builtin.fetch:
+            src: "/var/lib/rancher/rke2/server/node-token"
+            dest: "./rke2_token.txt"
+            flat: yes
+          become: true
+
+        - name: Save the RKE2 kubeconfig for ansible used
+          ansible.builtin.shell: |
+            mkdir -p /home/{{ user }}/.kube
+            sudo cp /etc/rancher/rke2/rke2.yaml /home/{{ user }}/.kube/config
+            sudo chown -R $(id -u {{ user }}):$(id -g {{ user }}) /home/{{ user }}/.kube/
+          become: true
+      
+      when: cluster_name is search("master")
+
+    # Setup RKE2 Worker Node with configuration from host_vars/worker.yaml
+    - name: Setup RKE2 Worker Node
+      tags: setup_rke2
+      block:
+        - name: Create the directory for RKE2 configuration
+          ansible.builtin.shell: |
+            sudo mkdir -p /etc/rancher/rke2
+            sudo mkdir -p /etc/rancher/rke2/config.yaml.d
+          become: true
+
+        - name: Copy template configuration for RKE2 Worker Node
+          vars:
+            role: "worker"
+          ansible.builtin.template:
+            src: "./templates/rke2-config.yaml.j2"
+            dest: "/etc/rancher/rke2/config.yaml"
+            owner: root
+            mode: "0644"
+          become: true
+
+        - name: Load the RKE2 token from the control node (previously fetched)
+          ansible.builtin.slurp:
+            src: "./rke2_token.txt"
+          delegate_to: localhost
+          register: rke2_token_content
+
+        - name: Install RKE2 Worker Node
+          vars:
+            # Logic: Use master_registration if provided, otherwise pick the first host from the 'master' group,
+            # and finally fallback to 'k8s-master-machine' if neither exists.
+            registration_node: "{{ master_registration | default(groups['master'] | first | default('k8s-master-machine')) }}"
+          ansible.builtin.shell: |
+            # Add additional configuration for dynamic registration
+            echo "server: https://{{ hostvars[registration_node]['node_ip'] }}:9345" | sudo tee -a /etc/rancher/rke2/config.yaml
+            echo "token: {{ rke2_token_content.content | b64decode | trim }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+            echo "node-ip: {{ hostvars[cluster_name]['node_ip'] }}" | sudo tee -a /etc/rancher/rke2/config.yaml
+
+            # Install RKE2 with configuration from host_vars/worker.yaml
+            # bk-install-ref: https://raw.githubusercontent.com/rancher/rke2/refs/heads/master/install.sh 
+            curl -sfL https://get.rke2.io | INSTALL_RKE2_VERSION={{ rke2Cluster.version }} INSTALL_RKE2_TYPE="agent" sh -s - 
+          register: install_worker_node
+          become: true
+
+        - name: Log output of RKE2 Worker Node installation
+          ansible.builtin.debug:
+            msg: "{{ install_worker_node.stdout_lines }}"
+
+        - name: Enable and start RKE2 service
+          ansible.builtin.systemd:
+            name: rke2-agent
+            enabled: true
+            state: started
+          become: true
+      when: cluster_name is search("worker")
+
+    # Setup RKE2 Load Balancer for Master Node
+    - name: Setup RKE2 Load Balancer for Master Node
+      when: cluster_name is search("master") and rke2Cluster.loadBalancer.enable
+      tags: setup_rke2
+      block:
+        # Documentation: https://metallb.io/
+        # Usage: https://metallb.io/usage/
+        # L2 Advertisement: https://metallb.io/configuration/_advanced_l2_configuration/
+        - name: Install MetalLB Load Balancer for RKE2 cluster
+          tags: setup_rke2
+          when: rke2Cluster.loadBalancer.type | default('servicelb') == 'metallb'
+          ansible.builtin.shell: |-
+            helm repo add metallb https://metallb.github.io/metallb
+            helm repo update
+            helm upgrade --install metallb metallb/metallb \
+              --namespace kube-system --create-namespace --version 0.15.3 --wait
+            cat <<EOF | kubectl apply -f -
+            apiVersion: metallb.io/v1beta1
+            kind: IPAddressPool
+            metadata:
+              name: rke2-loadbalancer-ippool
+              namespace: kube-system
+            spec:
+              addresses:
+              - {{ rke2Cluster.loadBalancer.ippool.cidr }}
+            ---
+            apiVersion: metallb.io/v1beta1
+            kind: L2Advertisement
+            metadata:
+              name: rke2-loadbalancer-l2adv
+              namespace: kube-system
+            spec:
+              ipAddressPools:
+              - rke2-loadbalancer-ippool
+            EOF
+          register: metallb_log
+          changed_when: false
+        
+        - name: Log the results of Install MetalLB Load Balancer for RKE2 cluster
+          tags: setup_rke2
+          ansible.builtin.debug:
+            msg: "{{ metallb_log.stdout_lines }}"
+          when: rke2Cluster.loadBalancer.type | default('servicelb') == 'metallb'

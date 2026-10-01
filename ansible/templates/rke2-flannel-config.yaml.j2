@@ -1,0 +1,23 @@
+# NOTE:
+# Setup network flannel with using the different port 8472 (RKE2 use 4789 for both Window & Linux) for backend: VXLAN
+# Recommend to expose the flannel with iptables, even it doens't require. But if happens problems, using
+# `sudo iptables -A OUTPUT -p udp -m udp --dport 8472 -j MARK --set-xmark 0x0/0xffffffff`
+# ref: https://github.com/flannel-io/flannel/blob/master/Documentation/backends.md#vxlan
+---
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: rke2-flannel
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    # ref: https://github.com/rancher/rke2-charts/blob/main/charts/rke2-flannel/rke2-flannel/v0.28.104/values.yaml
+    flannel:
+      # MTU to use for outgoing packets (VXLAN and Wiregurad) if not defined the MTU of the external interface is used.
+      mtu: 1450
+      # Backend for kube-flannel. Backend should not be changed
+      # at runtime. (vxlan, host-gw, wireguard, udp)
+      # NOTE: Only the vxlan backend is supported for RKE2 with Flannel CNI
+      backend: vxlan
+      # Port used by the backend 0 means default value (VXLAN: 8472, Wireguard: 51821, UDP: 8285)
+      backendPort: 8472

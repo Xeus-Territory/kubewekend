@@ -8,6 +8,9 @@ A Helm chart for Pinniped, a Kubernetes authentication via ImpersonationProxy wi
 >This chart bootstraps the Pinniped Concierge and Supervisor server-side resources on Kubernetes. CRDs can be managed by this chart using `installCRDs=true`. Set `installCRDs=false` when CRDs are installed separately or managed outside Helm.
 >The main customization surface lives in `values.yaml` under the `concierge` and `supervisor` sections.
 
+>[!WARNING]
+>This Chart is moving and continuous maintaining for open-source project [W'xOps IDP](https://www.wxops.cloud/) - Internal Developer Platform Ecosystem. From the next version, you can find them at [W'xOps IDP Helm Chart](https://github.com/wxops-idp/charts) 🚀🚀🚀
+
 ## Networking requirements
 
 Pinniped expects end-to-end TLS. When exposing the Supervisor or Concierge through an ingress controller, use TCP/TLS passthrough instead of regular Layer 7 HTTP termination.

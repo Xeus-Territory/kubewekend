@@ -79,8 +79,8 @@ Vagrant.configure("2") do |config|
 
       config.vm.provider "virtualbox" do |config|
         config.name = "k8s-master-machine-#{i}"
-        config.memory = 1024
-        config.cpus = 1
+        config.memory = 2048
+        config.cpus = 2
       end
 
       # # Resize disk for primary storage
