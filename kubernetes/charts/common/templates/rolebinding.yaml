@@ -1,16 +1,32 @@
-{{- if .Values.rbac.create -}}
+{{- $createRoleBinding := default .Values.rbac.create .Values.rbac.roleBinding.create -}}
+{{- if $createRoleBinding -}}
+{{- $roleKind := default "Role" .Values.rbac.role.kind -}}
+{{- $bindingKind := default (ternary "ClusterRoleBinding" "RoleBinding" (eq $roleKind "ClusterRole")) .Values.rbac.roleBinding.kind -}}
+{{- $roleRef := get .Values.rbac.roleBinding "roleRef" | default dict -}}
+{{- $defaultRoleName := default (include "common.fullname" .) .Values.rbac.role.name -}}
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: {{ $bindingKind }}
 metadata:
-  name: {{ template "common.fullname" . }}
-  namespace: {{ include "common.namespace" . }}
+  name: {{ default (include "common.fullname" .) .Values.rbac.roleBinding.name }}
+  {{- if ne $bindingKind "ClusterRoleBinding" }}
+  namespace: {{ default (include "common.namespace" .) .Values.rbac.roleBinding.namespace }}
+  {{- end }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
+  {{- with .Values.rbac.roleBinding.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: {{ template "common.fullname" . }}
+  apiGroup: {{ default "rbac.authorization.k8s.io" (get $roleRef "apiGroup") }}
+  kind: {{ default $roleKind (get $roleRef "kind") }}
+  name: {{ default $defaultRoleName (get $roleRef "name") }}
 subjects:
-- kind: ServiceAccount
-  name: {{ template "common.serviceAccountName" . }}
+{{- if .Values.rbac.roleBinding.subjects }}
+  {{- toYaml .Values.rbac.roleBinding.subjects | nindent 2 }}
+{{- else }}
+  - kind: ServiceAccount
+    name: {{ template "common.serviceAccountName" . }}
+    namespace: {{ include "common.namespace" . }}
+{{- end }}
 {{- end -}}

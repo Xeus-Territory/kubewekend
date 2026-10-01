@@ -38,11 +38,17 @@
         echo 'alias krcp="k resource-capacity -p --util"' >> /home/{{ user }}/.bashrc
         echo 'alias krca="k resource-capacity -a"' >> /home/{{ user }}/.bashrc
 
-        # Install vault
-        wget https://releases.hashicorp.com/vault/1.18.5/vault_1.18.5_linux_amd64.zip && \
-          unzip -p vault_1.18.5_linux_amd64.zip vault > vault && \
+        # Install vault CLI (latest version updated Mar 2026)
+        wget https://releases.hashicorp.com/vault/1.21.4/vault_1.21.4_linux_amd64.zip && \
+          unzip -p vault_1.21.4_linux_amd64.zip vault > vault && \
           chmod +x vault && sudo mv vault /usr/local/bin && \
-          rm -rf vault_1.18.5_linux_amd64.zip
+          rm -rf vault_1.21.4_linux_amd64.zip
+
+        # Install bao CLI
+        wget https://github.com/openbao/openbao/releases/download/v2.7.0/openbao_2.7.0_linux_amd64.tar.gz && \
+          tar -xzf openbao_2.7.0_linux_amd64.tar.gz bao && \
+          chmod +x bao && sudo mv bao /usr/local/bin && \
+          rm -rf openbao_2.7.0_linux_amd64.tar.gz
       changed_when: false
       args:
         executable: /bin/bash
@@ -55,7 +61,7 @@
       tags: install_common
 
     - name: Access Master Vars files
-      tags: setup_k3s, remove_k3s
+      tags: setup_k3s
       # Use `include_vars` to handling to task to import
       # host_vars base on conditional
       # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/include_vars_module.html
@@ -67,7 +73,7 @@
       when: cluster_name is search("master")
 
     - name: Access Worker Vars files
-      tags: setup_k3s, remove_k3s
+      tags: setup_k3s
       ansible.builtin.include_vars:
         file: "./inventories/host_vars/worker.yaml"
       when: cluster_name is search("worker")
@@ -120,9 +126,9 @@
 
         - name: Save the K3s kubeconfig for ansible used
           ansible.builtin.shell: |
-            mkdir -p ~/.kube
+            mkdir -p /home/{{ user }}/.kube
             sudo cp /etc/rancher/k3s/k3s.yaml /home/{{ user }}/.kube/config
-            sudo chown $(id -u {{ user }}):$(id -g {{ user }}) /home/{{ user }}/.kube/config
+            sudo chown -R $(id -u {{ user }}):$(id -g {{ user }}) /home/{{ user }}/.kube/
           become: true
       
       when: cluster_name is search("master")
@@ -176,7 +182,7 @@
 
     # Setup K3s Load Balancer for Master Node
     - name: Setup K3s Load Balancer for Master Node
-      when: cluster_name is search("master") and k3sCluster.loadBalancer.enable == false
+      when: cluster_name is search("master") and k3sCluster.loadBalancer.enable
       tags: setup_k3s
       block:
         # Documentation: https://metallb.io/

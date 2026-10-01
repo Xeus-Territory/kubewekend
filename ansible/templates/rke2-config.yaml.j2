@@ -1,0 +1,21 @@
+# Read more for looping: https://forum.ansible.com/t/iterating-over-a-list-in-a-dictionary-within-a-jinja2-template/19960
+{% if role == 'master' %}
+tls-san:
+{% for item in rke2Cluster.tlsSANs %}
+  - "{{ item }}"
+{% endfor %}
+{% endif %}
+{% if rke2Cluster.nodeLabels %}
+# If the list label not empty
+node-label:
+{% for item in rke2Cluster.nodeLabels %}
+  - "{{ item }}"
+{% endfor %}
+{% endif %}
+{% if rke2Cluster.nodeTaints %}
+# If the list nodeTaints not empty
+node-taint:
+{% for item in rke2Cluster.nodeTaints %}
+  - "{{ item }}"
+{% endfor %}
+{% endif %}

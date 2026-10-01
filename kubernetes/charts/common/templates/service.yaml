@@ -6,17 +6,19 @@ metadata:
   labels:
     {{- include "common.labels" . | nindent 4 }}
 spec:
-  {{- if and .Values.service.type (not .Values.service.headless ) }}
+  {{- if eq .Values.service.type "ExternalName" }}
+  type: ExternalName
+  externalName: {{ required "service.externalName is required when service.type is ExternalName" .Values.service.externalName }}
+  {{- else if and .Values.service.type (not .Values.service.headless ) }}
   type: {{ .Values.service.type }}
   {{- else }}
   clusterIP: None
   {{- end }}
   ports:
-    - port: {{ .Values.service.port }}
-      targetPort: http
-      protocol: TCP
-      name: http
+    {{- include "common.servicePorts.render" . | nindent 4 }}
+  {{- if ne .Values.service.type "ExternalName" }}
   selector:
     {{- include "common.selectorLabels" . | nindent 4 }}
+  {{- end }}
   
 {{- end }}

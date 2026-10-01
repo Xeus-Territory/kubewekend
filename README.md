@@ -43,13 +43,29 @@
 > [!NOTE]
 >
 > Supported K8s Distribution with Kubewekend
+> Readmore to select what distribution for yourself
+> 1. [SUSE - When to Use K3s and RKE2](https://www.suse.com/c/rancher_blog/when-to-use-k3s-and-rke2/)
+> 2. [Dev.to - The Definitive Guide to Lightweight Kubernetes: KIND, Minikube, MicroK8s, K3s, Vcluster, k0s, and RKE2 Compared](https://dev.to/pendelabhargavasai/the-definitive-guide-to-lightweight-kubernetes-kind-minikube-microk8s-k3s-vcluster-k0s-and-3be1)
+> 3. [Plural - K3s Alternatives: A Guide for Platform Teams](https://www.plural.sh/blog/k3s-alternatives-guide/)
+
+> [!WARNING]
+>
+> **Disclaimer:** Kubewekend is designed to run the scripts on an **Ansible controller** and deploy clusters to target hosts: **VM**
+> (e.g: Vagrant + VirtualBox) or **VPS Remote** over SSH. Using your current machine as the target (**Local**) is only supported for **Kind**,
+> because it runs inside Docker, and it is still not recommended on your main machine: with `networkForwarding` enabled, Kind creates
+> `socat-netforward-port-80/443` systemd services that bind host port 80/443, so remember to run `kind destroy` (or disable the services)
+> when you finish. K3s and RKE2 are not supported on Local: they install system services, write `/etc/rancher` and change host networking,
+> and can break your local system.
 
 | Kubewekend Cluster Distribution        | Local | VM  | VPS Remote |
 | -------------------------------------- | ----- | --- | ---------- |
-| Kind (K8s in Docker)                   | ✅     | ✅   | ✅          |
-| K3s Standalone                         | ✅     | ✅   | ✅          |
-| K3s High Availability (HA)             | 🚧    | ✅   | ✅          |
-| RKE2                                   | 🚧    | 🚧  | 🚧         |
+| Kind (K8s in Docker)                   | ✅    | ✅  | ✅         |
+| K3s Standalone                         | ❌    | ✅  | ✅         |
+| K3s High Availability (HA)             | ❌    | ✅  | ✅         |
+| RKE2 Standalone                        | ❌    | ✅  | ✅         |
+| RKE2 High Availability (HA)            | ❌    | ✅  | ✅         |
+
+Find more another distribution: [k0s](https://github.com/k0sproject/k0s), [k3d](https://github.com/k3d-io/k3d), ...
 
 ### Requirements tools
 
@@ -64,6 +80,22 @@
 | [kind](https://kind.sigs.k8s.io/docs/user/quick-start#installation) | Optional | Kind binary (also installed by playbook) |
 
 > \* Vagrant + VirtualBox are required only for local VM workflows. For remote VPS targets, only Ansible + SSH are needed.
+
+### Node resources
+
+Size the VM / VPS before provisioning, a node with too little memory fails during bootstrap or gets killed (`Error 137`).
+
+| Node | Distribution | Minimum | Recommended |
+|------|--------------|---------|-------------|
+| Master (control-plane) | RKE2 | 2 CPU, 2 GB RAM (**lower will fail**) | 2 CPU, 3 GB RAM |
+| Master (control-plane) | K3s | 1 CPU, 1 GB RAM | 2 CPU, 2 GB RAM |
+| Master (control-plane) | Kind | 1 CPU, 1 GB RAM | 2 CPU, 2 GB RAM |
+| Worker | K3s / RKE2 | 1 CPU, 1 GB RAM | 1 GB RAM or more |
+
+> [!NOTE]
+>
+> The [`Vagrantfile`](./Vagrantfile) defaults to 2 CPU / 3 GB RAM for master VMs and 1 CPU / 1 GB RAM for worker VMs. Installing utilities
+> (monitoring, GitOps, security, ...) needs more resources, so raise `config.memory` / `config.cpus` for those workflows.
 
 ### Kubewekend CLI (`setup.sh`)
 
@@ -89,6 +121,7 @@
 | `inventory` | Generate/inspect Ansible inventory, set remote VPS |
 | `kind` | Kind cluster — setup, destroy, utilities |
 | `k3s` | K3s cluster — standalone, HA, destroy, utilities |
+| `rke2` | RKE2 cluster — standalone, HA, destroy, utilities |
 | `network` | VirtualBox NAT forwarding (hook-up / return) |
 | `config` | View / edit `master.yaml` and `worker.yaml` |
 | `status` | Project-wide status dashboard |
@@ -113,10 +146,10 @@ See [scripts/README.md](./scripts/README.md) for the full CLI reference.
 # Provision only the master node
 ./scripts/setup.sh vagrant up k8s-master-machine
 
-# Provision master + one worker (K3s standalone / Kind)
+# Provision master + one worker (K3s / RKE2 standalone / Kind)
 ./scripts/setup.sh vagrant up k8s-master-machine k8s-worker-machine-1
 
-# Provision master + multiple workers (K3s HA)
+# Provision master + multiple workers (K3s / RKE2 HA)
 ./scripts/setup.sh vagrant up k8s-master-machine k8s-worker-machine-1 k8s-worker-machine-2
 ```
 
@@ -132,8 +165,8 @@ See [scripts/README.md](./scripts/README.md) for the full CLI reference.
 
 | Section | Group | Used by |
 |---------|-------|---------|
-| **SECTION 1**: Standalone | `standalone-masters`, `standalone-workers` | `kind-playbook.yaml`, `k3s-playbook.yaml` |
-| **SECTION 2**: HA | `ha_master_init`, `ha_master_join`, `ha_worker` | `k3s-ha-playbook.yaml` |
+| **SECTION 1**: Standalone | `standalone-masters`, `standalone-workers` | `kind-playbook.yaml`, `k3s-playbook.yaml`, `rke2-playbook.yaml` |
+| **SECTION 2**: HA | `ha_master_init`, `ha_master_join`, `ha_worker` | `k3s-ha-playbook.yaml`, `rke2-ha-playbook.yaml` |
 
 Generate the inventory automatically from running Vagrant VMs:
 
@@ -152,7 +185,7 @@ Generate the inventory automatically from running Vagrant VMs:
 > [!NOTE]
 >
 > After the upgrade 12/2025 and 01/2026, Ansible Playbooks are already rebuilt for multiple concepts which allow you configure a lots of stuff
-> with your Kind or K3s cluster to test and experiment K8s features
+> with your Kind, K3s or RKE2 cluster to test and experiment K8s features
 >
 > For more information, you can see what are implementing via table below
 
@@ -179,7 +212,19 @@ Generate the inventory automatically from running Vagrant VMs:
 |                  Configure CNI (Flannel / Calico / Cilium)                  | Apply CNI manifests post-install based on `k3sCluster.cni.type`                                                   | setup_k3s                    | ✅     |
 |             Setup Load Balancer (ServiceLB / MetalLB)               | Deploy load balancer and configure IP pool from `k3sCluster.loadBalancer`                                         | setup_k3s                    | ✅     |
 |              Setup Ingress + Dashboard + Support API Gateway (Only Traefik)           | Deploy ingress controller and optional dashboard from `k3sCluster.ingress`                                        | setup_k3s                    | ✅     |
-|                       Remove K3s node                              | Uninstall K3s from a target node (server or agent)                                                                | remove_k3s                   | ✅     |
+|                       Remove K3s node                              | Uninstall K3s from all inventory nodes (server or agent)                                                              | remove_k3s                   | ✅     |
+
+**RKE2** (`rke2-playbook.yaml` · `rke2-ha-playbook.yaml`)
+
+|                            Name of Task                            | Description                                                                                                       | Tags                         | State |
+| :----------------------------------------------------------------: | ----------------------------------------------------------------------------------------------------------------- | ---------------------------- | ----- |
+|               Install Common RKE2 Node Packages                    | Install common libraries and dependencies on the target node                                                      | install_common               | ✅     |
+|             Setup RKE2 Standalone (master or worker)               | Deploy RKE2 server (master) or agent (worker) — one node at a time via `--host`                                   | setup_rke2                   | ✅     |
+|             Setup RKE2 High Availability (HA) Cluster              | Bootstrap init server, join additional control-plane nodes (embedded etcd or external PostgreSQL), and attach agents | setup_rke2                | ✅     |
+|                Configure CNI (Canal / Flannel / Calico / Cilium)   | Set `cni` in RKE2 config (+ `HelmChartConfig` for Flannel) based on `rke2Cluster.cni.type`                         | setup_rke2                   | ✅     |
+|             Setup Load Balancer (ServiceLB / MetalLB)              | Enable the built-in ServiceLB, or deploy MetalLB with the IP pool from `rke2Cluster.loadBalancer`                 | setup_rke2                   | ✅     |
+|              Setup Ingress (Traefik / Ingress-Nginx)               | Pick bundled ingress controller and customize it via `HelmChartConfig` from `rke2Cluster.ingress.config`          | setup_rke2                   | ✅     |
+|                       Remove RKE2 node                             | Uninstall RKE2 from all inventory nodes (server or agent) with `rke2-uninstall.sh`                                | remove_rke2                  | ✅     |
 
 **Utilities** (`k8s-utilities-playbook.yaml`)
 
@@ -252,6 +297,38 @@ Generate the inventory automatically from running Vagrant VMs:
 # Bootstrap all HA nodes at once
 ./scripts/setup.sh k3s ha-setup
 ```
+
+**RKE2 standalone** (separate master / worker calls, same flow as K3s):
+
+```bash
+# Master first (RKE2 takes a few minutes to bootstrap)
+./scripts/setup.sh rke2 setup --host k8s-master-machine
+
+# Then each worker
+./scripts/setup.sh rke2 setup --host k8s-worker-machine-1
+
+# Add utilities
+./scripts/setup.sh rke2 utils certmanager gitops
+
+# Tear down
+./scripts/setup.sh rke2 destroy
+```
+
+**RKE2 HA cluster** (HA section in `hosts` must be populated):
+
+```bash
+# Review rke2Cluster.highAvailability in master.yaml first
+./scripts/setup.sh config edit
+
+# Bootstrap all HA nodes at once
+./scripts/setup.sh rke2 ha-setup
+```
+
+> [!NOTE]
+>
+> RKE2 serves its kubeconfig at `/etc/rancher/rke2/rke2.yaml` (copied to `~/.kube/config` of the SSH user on the master).
+> Replace `127.0.0.1` with the master IP when using it from outside. Traefik/Ingress-Nginx hostPorts are moved to `8000/8443`
+> by default to avoid clashing with ServiceLB.
 
 > [!TIP]
 >

@@ -1,0 +1,21 @@
+---
+# Playbook for remove RKE2 Cluster, targeting all nodes in the cluster
+- name: Playbook to remove RKE2 Cluster from all nodes
+  hosts: standalone-all, ha_all
+  tasks:
+    - name: Uninstall RKE2 from all nodes
+      tags: remove_rke2
+      ansible.builtin.shell: |
+        # Uninstall RKE2 with the official uninstall script (same script for server and agent)
+        if [ -x /usr/local/bin/rke2-uninstall.sh ]; then
+          bash /usr/local/bin/rke2-uninstall.sh > /dev/null 2>&1 && echo "RKE2 uninstalled successfully on {{ ansible_hostname is search('master') | ternary('master', 'worker') }} node"
+        else
+          echo "RKE2 not found on {{ inventory_hostname }}, skipping"
+        fi
+      become: true
+      register: uninstall_output
+
+    - name: Log output of RKE2 uninstallation
+      ansible.builtin.debug:
+          msg: "{{ uninstall_output.stdout_lines }}"
+      tags: remove_rke2

@@ -17,8 +17,8 @@ kindCluster:
     cni: "cilium" # calico | flannel | cilium if disableDefaultCNI is true
     kubeProxyMode: "iptables" # iptables | nftables (v1.31+) | ipvs | none
   # Kubernetes version for kind node image, find more at https://hub.docker.com/r/kindest/node/
-  # Stable Version (Recommended): v1.28.9, v1.28.15, v1.29.14, v1.30.13, v1.31.14, v1.32.11, v1.33.7, v1.34.3 (latest)  
-  image: "kindest/node:v1.34.3"
+  # Stable Version (Recommended): v1.34.5, v1.34.11, v1.35.8, v1.36.4, v1.37.0 (latest)
+  image: "kindest/node:v1.34.5"
   loadbalancer:
     enable: true
     type: "cloud-provider-kind"  # metallb | cloud-provider-kind | cilium-ipam-lb (requires cilium CNI)
@@ -50,7 +50,7 @@ kindCluster:
       internalHostname: "kong-internal.local" # Hostname for Kong API Gateway when internalOnly is true
   # Forward network ports from host to kind cluster and let's you access services from host machine directly by iptables rules
   networkForwarding:
-    enable: true
+    enable: false
 
 k3sCluster:
   ################### NOTICE ####################################################
@@ -59,10 +59,11 @@ k3sCluster:
   ## 2. Sever Master Join to cluster for HA cluster setup
   ## Read more at: https://docs.k3s.io/architecture#high-availability-k3s
   ## Server configuration at: https://docs.k3s.io/cli/server
+  ## Configuration File: https://docs.k3s.io/installation/configuration
   ###############################################################################
 
   # Kubernetes version for k3s, find more at https://github.com/k3s-io/k3s/releases
-  # Stable Version (Recommended): v1.28.9+k3s1, v1.32.13+k3s1, v1.33.9+k3s1, v1.34.5+k3s1, v1.35.2+k3s1 (latest)
+  # Stable Version (Recommended): v1.34.5+k3s1, v1.34.11+k3s1, v1.35.8+k3s1, v1.36.4+k3s1, v1.37.0+k3s1 (latest)
   version: "v1.34.5+k3s1"
   # Number of control-plane nodes, default is 1, and set to 3 for HA Cluster
   # NOTE: For HA Cluster, you need to setup an external database like etcd or postgres, and use external load balancer for control-plane nodes
@@ -74,17 +75,19 @@ k3sCluster:
     # Use dataStorage when you want to setup HA cluster
     # Read more at: ETCD - https://docs.k3s.io/datastore/ha-embedded, Postgres - https://docs.k3s.io/datastore/ha
     dataStorage:
+      type: "etcd" # etcd | postgres
       externalDatabase:
-        type: "etcd" # postgres | etcd
         # Only use for postgres, ignore if you use etcd
         host: "127.0.0.1"
         port: 5432
         user: "postgres"
         password: "postgres"
         database: "postgres"
-        sslmode: "require" # disable | require | verify-ca | verify-full
+        sslmode: "disable" # disable | require | verify-ca | verify-full
     # If you setup HA cluster with multiple control-plane nodes, You can setup the cluster load balancer for ensure the API Server high-availability
     # Read more at: https://docs.k3s.io/datastore/cluster-loadbalancer
+    # NOTE: Informational only, Kubewekend playbooks don't setup it. Provide the VIP (Keepalived) or external load balancer (HAProxy)
+    # by another tool, and use its address for `tlsSANs` and the fixed registration address
     clusterLB:
       enable: false # true if your cluster is set to HA
       type: "HAProxy" # HAProxy | Kube-Vip
@@ -97,6 +100,7 @@ k3sCluster:
   # Registering and starting kubelet with set of labels
   nodeLabels:
     - "machine-type=cpu"
+    - "svccontroller.k3s.cattle.io/enablelb=true"
   # Registering kubelet with set of taints
   nodeTaints: []
   # NOTE: only one CNI can be used, and it requires for scheduling pods
@@ -140,6 +144,161 @@ k3sCluster:
     gateway:
       enable: true
 
+rke2Cluster:
+  ################### NOTICE ####################################################
+  ## This configuration is setup for master node, including
+  ## 1. Fix Registration Master
+  ## 2. Sever Master Join to cluster for HA cluster setup
+  ## Read more at: https://docs.rke2.io/install/ha
+  ## Server configuration at: https://docs.rke2.io/reference/server_config
+  ## Architecture: https://docs.rke2.io/architecture
+  ## Configuration File: https://docs.rke2.io/install/configuration
+  ###############################################################################
+
+  # Kubernetes version for rke2, find more at https://github.com/rancher/rke2/releases
+  # Stable Version (Recommended): v1.34.5+rke2r1, v1.34.11+rke2r1, v1.35.8+rke2r1, v1.36.4+rke2r1, v1.37.0+rke2r1 (latest)
+  version: "v1.34.5+rke2r1"
+  # Number of control-plane nodes, default is 1, and set to 3 for HA Cluster
+  # NOTE: By default, RKE2 will use etcd in cluster for DataStore, and it allows you to choose SQLite (experimental) for instead of etcd.
+  # Read more at: https://docs.rke2.io/datastore/embedded
+  # Other options for DataStorage: etcd, postgresql, mysql, mariadb
+  # Read more at: https://docs.rke2.io/datastore/external
+  highAvailability:
+    enable: true
+    replicas: 3
+    # Use dataStorage when you want to setup HA cluster
+    # Read more at: ETCD - https://docs.rke2.io/datastore/embedded#embedded-etcd, Postgres - https://docs.rke2.io/datastore/external
+    dataStorage:
+      type: "etcd" # etcd | postgres
+      externalDatabase:
+        # Only use for postgres, ignore if you use etcd
+        host: "192.168.56.1"
+        port: 5432
+        user: "postgres"
+        password: "postgres"
+        database: "postgres"
+        sslmode: "disable" # disable | require | verify-ca | verify-full
+    # If you setup HA cluster with multiple control-plane nodes, You can setup the cluster load balancer (external load balancer) 
+    # for ensure the API Server high-availability
+    # Read more at: https://docs.rke2.io/networking/cluster-loadbalancer
+    # Disclaimer: Not indicate official SUSE endorsement or support of HAProxy or other external load balancers.
+    # NOTE: Informational only, Kubewekend playbooks don't setup it. Provide the VIP (Keepalived) or external load balancer (HAProxy)
+    # by another tool, and use its address for `tlsSANs` and the fixed registration address
+    clusterLB:
+      enable: false # true if your cluster is set to HA
+      type: "HAProxy" # HAProxy | Kube-vip
+  
+  # Add additional SANs for the API server certificate, default is "localhost" and "127.0.0.1"
+  tlsSANs:
+    - "rke2.local"
+    - "localhost"
+    - "127.0.0.1"
+  # Registering and starting kubelet with set of labels
+  nodeLabels:
+    - "machine-type=cpu"
+    - "svccontroller.rke2.cattle.io/enablelb=true"
+  # Registering kubelet with set of taints
+  nodeTaints: []
+  # NOTE: only one CNI can be used, and it requires for scheduling pods
+  # !!! Supported CNI: canal, flannel, calico, cilium
+  # By default, RKE2 use canal as CNI, that uses Flannel for inter-node traffic and Calico for intra-node traffic and network policies.
+  # It will use VXLAN encapsulation to create overlay network among nodes.
+  # For production cluster, it's recommended to use calico or cilium for better performance and security features
+  #
+  # Read more at: https://docs.rke2.io/networking/basic_network_options#select-a-cni-plugin
+  # Issue: https://docs.rke2.io/known_issues
+  # Explore more Rancher CNI Providers: https://documentation.suse.com/cloudnative/rancher-manager/v2.15/en/faq/container-network-interface-providers.html
+  cni:
+    type: "canal"  # canal | calico | cilium | flannel
+  loadBalancer:
+    # By default, Former RKE2 version (v1.28.x) use Ingress-Nginx using as load balancer in host because with default configuration `hostNetwork: true` with
+    # `hostport`, so that why RKE2 can run without any load balancer by expose directly ingress controller to each host. To prevent locked and preventing CIS
+    # issue, RKE2 turn into use Ingress as Service type: LoadBalancer, and that why it require using another external loadbalancer to support them as proxy.
+    # By default, RKE2 will use ServiceLB (Klipper-lb) for external loadbalancer. But If you want to use more advanced LB, you can consider disabling ServiceLB, 
+    # and use metalLB, kube-vip instead
+    # NOTE: Using node-label with boolean `svccontroller.rke2.cattle.io/lbpool` and `svccontroller.rke2.cattle.io/enablelb` to assign `servicelb` for each node
+    # Because the Ingress of RKE2 deploy as daemonset, so if you don't set that will expose many svclb and hard to ensure the security. If you use `metallb` instead,
+    # you can add the node-label `node.kubernetes.io/exclude-from-external-load-balancers=true` to exclude advertise the node you don't want expose via loadbalancer.
+    # Read more at:
+    # 1/ https://docs.rke2.io/networking/networking_services#service-load-balancer (RKE2)
+    # 2/ https://docs.k3s.io/networking/networking-services#service-load-balancer (K3s)
+    # 3/ https://kubernetes.io/docs/reference/labels-annotations-taints/#node-kubernetes-io-exclude-from-external-load-balancers
+    enable: true # false to not setup any service (external) load balancer
+    type: "servicelb" # servicelb (klipper-lb) | metallb
+    ippool:
+      # Only use for metallb, ignore if use kube-vip
+      # For using as subnetmask or cidr range format
+      cidr: "192.168.56.169 - 192.168.56.254" # Make sure the IP pool is in the same network of RKE2 nodes
+  # Enable Multus CNI Plugin that enables attaching multiple network interfaces to pods. 
+  # Read more at: https://docs.rke2.io/networking/multus_sriov and https://github.com/k8snetworkplumbingwg/multus-cni/tree/master/docs
+  multus: false
+  # If you want to use cloud-provider controller, you can set false for integration
+  # Because rke2 is providing embeded CCM for ServiceLB
+  # Read more at: https://docs.rke2.io/networking/networking_services#deploying-an-external-cloud-controller-manager
+  ccm: true
+  # From RKE2 v1.36, Traefik as Ingress Controller will be the default settings, but you can still use ingress-nginx if you want to by
+  # specifying via `ingress-controller: ingress-nginx`. 
+  # NOTE: Kubewekend supports both Traefik and Ingress-Nginx for RKE2 (customize via `config` below)
+  # Read more at: https://docs.rke2.io/networking/networking_services#ingress-controller
+  # In the situation, you want to custom the traefik ingress, please visit 
+  # 1. Github RKE2-Chart: https://github.com/rancher/rke2-charts/tree/main/charts
+  # 2. Documentation: https://docs.rke2.io/add-ons/helm#customizing-packaged-components-with-helmchartconfig
+  ingress:
+    enable: true
+    class: "traefik" # traefik | ingress-nginx
+    config:
+      # NOTE: Using the include_newlines `|` instead of fold_newlines `>` to preserve the newlines in the YAML content
+      # ref: https://github.com/rancher/rke2-charts/tree/main/charts/rke2-ingress-nginx/rke2-ingress-nginx/4.14.300
+      nginx: |
+        controller:
+          # Change hostport to prevent violate with External LoadBalancer using same port 80,443 (e.g: ServiceLB (Klipper-lb)) 
+          hostPort:
+            ports:
+              http: 8000
+              https: 8443
+
+          # Enable Ingress-Nginx run as Service LoadBalancer in RKE2
+          service:
+            enabled: true
+            type: LoadBalancer
+
+      # ref: https://github.com/rancher/rke2-charts/tree/main/charts/rke2-traefik-1.34-1.36/rke2-traefik/40.1.000
+      traefik: |
+        # Change hostport to prevent violate with External LoadBalancer using same port 80,443 (e.g: ServiceLB (Klipper-lb)) 
+        ports:
+          web:
+            hostPort: 8000
+          websecure:
+            hostPort: 8443
+        providers:
+          kubernetesCRD:
+            # Allow IngressRoutes in any namespace to reference Middlewares in kube-system directly.
+            # Without this, Traefik resolves Middleware service references from the middleware's own
+            # namespace — cloning auth-errors into a tenant namespace would make its oauth2-proxy
+            # service reference fail because oauth2-proxy lives in kube-system, not the tenant namespace.
+            allowCrossNamespace: true
+
+          # Allow Gateway API resources in any namespace to reference Middlewares in kube-system directly.
+          kubernetesGateway:
+            enabled: true
+
+        service:
+          spec:
+            type: LoadBalancer
+
+        ingressRoute:
+          # Enable the dashboard for Traefik
+          dashboard:
+            enabled: false
+            matchRule: Host(`traefik.local`)
+            entryPoints:
+              - web
+
+        additionalArguments:
+          # Allow encoded slashes in the URL path to support Vault UI and API with multi level paths (e.g., /ui/vault/secrets/data/my-secret)
+          # ref: https://github.com/hashicorp/vault/issues/31609, https://github.com/hashicorp/vault/issues/31688
+          - "--entryPoints.web.http.encodedCharacters.allowEncodedSlash=true"
+
 utilities:
   # Test deployment in the cluster after setup complete
   ingressTestDeployment:
@@ -170,7 +329,7 @@ utilities:
     createAdminToken: true
 
   # Storage solutions for the cluster
-  # NOTE: Only for K3s clusters, with Kind, use local-path-storage by default
+  # NOTE: Both for K3s and RKE2 clusters, with Kind, use local-path-storage by default
   storage:
     enable: true
     # Explore Longhorn for production: https://longhorn.io/
@@ -250,7 +409,7 @@ utilities:
 
   # Utilities extensions for the cluster
   extensions:
-    enable: false
+    enable: true
     # Used to replicate secrets, configmaps and certificates.
     # GitHub: https://github.com/emberstack/kubernetes-reflector
     reflector:
@@ -264,7 +423,7 @@ utilities:
     # Used to sync external secrets from external secret management systems
     # https://github.com/external-secrets/external-secrets
     externalsecrets:
-      enable: false
+      enable: true
 
     # A Kubernetes controller and tool for one-way encrypted Secrets
     # GitHub: https://github.com/bitnami-labs/sealed-secrets
@@ -375,7 +534,7 @@ utilities:
   # 4. OWASP Kubernetes Security: https://cheatsheetseries.owasp.org/cheatsheets/Kubernetes_Security_Cheat_Sheet.html
   # 5. Kubernetes Security Tools: https://www.wiz.io/academy/container-security/top-kubernetes-security-tools
   security:
-    enable: false
+    enable: true
     policyEngine:
       enable: true
       type: "kyverno"  # opa-gatekeeper | kyverno
@@ -385,7 +544,7 @@ utilities:
     # For fully managed identity and access management, you can use KeyCloak, Authentik, Ory, or more (Recommended for production with complex learn curve)
     # About Dex case study: https://b-nova.com/en/home/content/dex-the-game-changer-in-app-authentication-see-how-it-works/
     identity:
-      enable: true
+      enable: false
       type: "dex"  # dex
       namespace: "dex"
       host: "dex.local"

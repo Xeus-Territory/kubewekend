@@ -1,6 +1,6 @@
 # ------------------------------------------------------------------------------
 # SECTION 1: STANDALONE MODE
-# Used for: kind-playbook.yaml and standalone k3s-playbook.yaml
+# Used for: kind-playbook.yaml, standalone k3s-playbook.yaml and rke2-playbook.yaml
 # ------------------------------------------------------------------------------
 
 [standalone-masters]
@@ -18,7 +18,7 @@ standalone-workers
 
 # ------------------------------------------------------------------------------
 # SECTION 2: HIGH AVAILABILITY (HA) MODE
-# Required by: k3s-ha-playbook.yaml
+# Required by: k3s-ha-playbook.yaml and rke2-ha-playbook.yaml
 # ------------------------------------------------------------------------------
 
 [ha_master_init]
