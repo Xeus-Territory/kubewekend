@@ -831,7 +831,7 @@ EXAMPLES
 
   # --- Teardown ---
   ./scripts/setup.sh rke2 destroy
-EOFssh <master>
+EOF
 }
 
 cmd_rke2() {
