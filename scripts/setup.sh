@@ -714,7 +714,9 @@ k3s_setup() {
     if [[ "$HOST_NAME" == *master* ]]; then
         echo ""
         info "Retrieve kubeconfig after all nodes are set up:"
-        echo "  ssh <master> 'sudo cat /etc/rancher/k3s/k3s.yaml' > ~/.kube/config"
+        echo "  ssh <master> 'sudo -S cat /etc/rancher/k3s/k3s.yaml' > ~/.kube/config"
+        echo "  # Then replace 127.0.0.1 with the master node IP in the kubeconfig"
+        echo "  sed -i 's/127.0.0.1/<master_ip>/g' ~/.kube/config"
     fi
 }
 
@@ -829,7 +831,7 @@ EXAMPLES
 
   # --- Teardown ---
   ./scripts/setup.sh rke2 destroy
-EOF
+EOFssh <master>
 }
 
 cmd_rke2() {
@@ -855,8 +857,9 @@ rke2_setup() {
     if [[ "$HOST_NAME" == *master* ]]; then
         echo ""
         info "Retrieve kubeconfig after all nodes are set up:"
-        echo "  ssh <master> 'sudo cat /etc/rancher/rke2/rke2.yaml' > ~/.kube/config"
+        echo "  ssh <master> 'sudo -S cat /etc/rancher/rke2/rke2.yaml' > ~/.kube/config"
         echo "  # Then replace 127.0.0.1 with the master node IP in the kubeconfig"
+        echo "  sed -i 's/127.0.0.1/<master_ip>/g' ~/.kube/config"
     fi
 }
 
@@ -1157,7 +1160,7 @@ Step-by-step:
      ./scripts/setup.sh k3s setup
 
   7. Get kubeconfig:
-     ssh vagrant@192.168.56.99 'sudo cat /etc/rancher/k3s/k3s.yaml' > ~/.kube/config
+     ssh vagrant@192.168.56.99 'sudo -S cat /etc/rancher/k3s/k3s.yaml' > ~/.kube/config
      # Replace 127.0.0.1 with 192.168.56.99 in the kubeconfig
      sed -i "s/127.0.0.1/192.168.56.99/g" ~/.kube/config
 
@@ -1241,7 +1244,7 @@ Step-by-step:
      ./scripts/setup.sh rke2 setup --host k8s-worker-machine-1
 
   7. Get kubeconfig:
-     ssh vagrant@192.168.56.99 'sudo cat /etc/rancher/rke2/rke2.yaml' > ~/.kube/config
+     ssh vagrant@192.168.56.99 'sudo -S cat /etc/rancher/rke2/rke2.yaml' > ~/.kube/config
      # Replace 127.0.0.1 with 192.168.56.99 in the kubeconfig
      sed -i "s/127.0.0.1/192.168.56.99/g" ~/.kube/config
 
@@ -1284,7 +1287,7 @@ Step-by-step:
      ./scripts/setup.sh rke2 setup --host k8s-worker-machine-1
 
   5. Get kubeconfig:
-     ssh <user>@<vps-ip> 'sudo cat /etc/rancher/rke2/rke2.yaml' > ~/.kube/config
+     ssh <user>@<vps-ip> 'sudo -S cat /etc/rancher/rke2/rke2.yaml' > ~/.kube/config
      or
      ssh <user>@<vps-ip> 'cat /home/<user>/.kube/config' > ~/.kube/config
      # Replace 127.0.0.1 with your VPS IP in the kubeconfig
