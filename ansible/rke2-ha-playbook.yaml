@@ -266,6 +266,40 @@
           ansible.builtin.debug:
             msg: "{{ save_kubeconfig.stdout_lines }}"
 
+        - name: Setting the network policy for CIS ensuring Ingress connection without HostNetwork
+          ansible.builtin.shell: |-
+            # ref: https://docs.rke2.io/known_issues#ingress-in-cis-mode
+            cat <<EOF | kubectl apply -f -
+            apiVersion: networking.k8s.io/v1
+            kind: NetworkPolicy
+            metadata:
+              name: default-network-ingress-policy
+              namespace: kube-system
+            spec:
+              ingress:
+              - from:
+                  - namespaceSelector:
+                      matchLabels:
+                        kubernetes.io/metadata.name: kube-system
+              - ports:
+                - port: 8000
+                  protocol: TCP
+                - port: 8443
+                  protocol: TCP
+              podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: rke2-{{ rke2Cluster.ingress.class }}
+              policyTypes:
+              - Ingress
+            EOF
+          when: rke2Cluster.ingress.enable
+          register: setup_netpol
+
+        - name: Show the status of network policy applying
+          ansible.builtin.debug:
+            msg: "{{ setup_netpol.stdout_lines }}"
+          when: rke2Cluster.ingress.enable
+
     # Setup RKE2 Load Balancer for Master Init Node
     - name: Setup RKE2 Load Balancer for Master Init Node
       when: rke2Cluster.loadBalancer.enable
