@@ -4,6 +4,8 @@
 
 A Helm chart for standard application, rendered as a Deployment powered by Kubewekend
 
+**📢 STATUS: ACTIVE ✅**
+
 ## Installing the Chart
 
 To install the chart with the release name `appwekend`:
@@ -13,7 +15,7 @@ $ helm repo add kubewekend https://kubewekend.xeusnguyen.xyz
 $ helm install appwekend kubewekend/common
 ```
 
-**Homepage:** <https://github.com/xeusnguyen/kubewekend>
+**Homepage:** <https://github.com/Xeus-Territory/kubewekend>
 
 ## Maintainers
 
