@@ -1,5 +1,14 @@
 1. Get the application URL by running these commands:
-{{- if and .Values.ingress.enabled .Values.service.enabled }}
+{{- if and .Values.httpRoute.enabled .Values.service.enabled }}
+{{- range $host := .Values.httpRoute.hostnames }}
+  http://{{ $host }}
+{{- else }}
+  export APP_HOSTNAME=$(kubectl get --namespace {{ (first .Values.httpRoute.parentRefs).namespace | default .Release.Namespace }} gateway/{{ (first .Values.httpRoute.parentRefs).name }} -o jsonpath="{.spec.listeners[0].hostname}")
+  echo http://$APP_HOSTNAME
+{{- end }}
+  NOTE: The HTTPRoute is served through Gateway "{{ (first .Values.httpRoute.parentRefs).name }}". Check that it accepted the route:
+        kubectl get --namespace {{ .Release.Namespace }} httproute {{ include "common.fullname" . }} -o yaml
+{{- else if and .Values.ingress.enabled .Values.service.enabled }}
 {{- range $host := .Values.ingress.hosts }}
   {{- range .paths }}
   http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
@@ -21,4 +30,19 @@
   export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "common.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
   echo "Visit http://127.0.0.1:8080 to use your application"
   kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 8080:{{ include "common.container.primaryPort" . }}
+{{- end }}
+{{- if and .Values.persistence.enabled (eq .Values.persistence.accessMode "ReadWriteOnce") }}
+{{- $multiPod := gt (include "common.maxReplicas" . | int) 1 }}
+{{- $rolling := ne (.Values.strategy.type | default "RollingUpdate") "Recreate" }}
+{{- if or $multiPod $rolling }}
+
+WARNING: PVC "{{ tpl .Values.persistence.existingClaim $ }}" is ReadWriteOnce and can only be attached to one node at a time.
+{{- if $multiPod }}
+  - More than one pod may run (replicaCount / autoscaling): pods scheduled on another node will fail with "Multi-Attach error".
+{{- end }}
+{{- if $rolling }}
+  - strategy is RollingUpdate: the rollout can hang if the new pod lands on another node. Consider strategy.type=Recreate.
+{{- end }}
+  Use a ReadWriteMany claim, or a StatefulSet-based chart, when every pod needs its own or shared writable storage.
+{{- end }}
 {{- end }}

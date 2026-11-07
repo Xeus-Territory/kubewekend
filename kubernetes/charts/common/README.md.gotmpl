@@ -22,6 +22,186 @@ $ helm install appwekend kubewekend/{{ template "chart.name" . }}
 
 {{ template "chart.requirementsSection" . }}
 
+## Workload Scope
+
+`common` is a chart for **stateless applications**. It always renders a single `Deployment` (plus optional Service, Ingress, HTTPRoute, HPA, PDB, RBAC and extra manifests), so any replica can be replaced, rescheduled or scaled without losing state.
+
+### Good fit
+
+| Workload | Examples |
+| -------- | -------- |
+| Simple applications | background workers, queue consumers, internal tools, dashboards |
+| Web APIs / backends | REST / gRPC services, BFFs, webhooks |
+| Frontends | SPA served by nginx, SSR apps (Next.js, Nuxt), platform UIs |
+| GPU workloads | inference servers and GPU services via device plugin, see [GPU Workloads](#gpu-workloads) |
+
+State lives outside the pod (database, cache, object storage). When pods need files on disk, mount a shared or existing claim with [`persistence`](#persistence), e.g. uploads or a model cache.
+
+### Not a fit (use a dedicated chart)
+
+| Workload | Why |
+| -------- | --- |
+| Databases | need stable identity and one volume per replica (StatefulSet + `volumeClaimTemplates`) |
+| Stateful applications | e.g. Kafka, Redis cluster, Elasticsearch: ordered rollout, per-pod identity and storage |
+| Node agents | log / metrics collectors, CNI or CSI node plugins run on every node (DaemonSet) |
+| Operators / controllers | ship CRDs, webhooks, leader election and cluster-wide RBAC; use the operator's own chart |
+
+The former `deploymentType` value was removed; setting it to anything other than `deployment` fails rendering.
+
+## Init Containers And Sidecars
+
+`initContainers` and `extraContainers` are rendered as written (templates are allowed). The chart's ports, probes, NOTES and test hook keep targeting the main container, so every additional container defines its own ports, probes and resources.
+
+```yaml
+initContainers:
+  # Runs to completion before the app starts
+  - name: migrate
+    image: xeusnguyen/application:v0.0.1
+    command: ["/bin/sh", "-c", "yarn run migrate"]
+  # Native sidecar (Kubernetes >= 1.29): starts before and stops after the app
+  - name: log-shipper
+    image: fluent/fluent-bit:3.2
+    restartPolicy: Always
+    volumeMounts:
+      - name: logs
+        mountPath: /var/log/app
+extraContainers:
+  # Classic sidecar running next to the app
+  - name: oauth2-proxy
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+    args: ["--upstream=http://127.0.0.1:3000", "--http-address=0.0.0.0:4180"]
+volumes:
+  - name: logs
+    emptyDir: {}
+volumeMounts:
+  - name: logs
+    mountPath: /var/log/app
+```
+
+## Persistence
+
+The chart mounts an **existing** PersistentVolumeClaim into the main container; it never creates PVCs, so data survives `helm uninstall` and a rollout cannot be blocked by a claim the chart owns.
+
+```yaml
+persistence:
+  enabled: true
+  existingClaim: todo-uploads
+  accessMode: ReadWriteMany # access mode of the existing claim, used for safety checks
+  mountPath: /app/uploads
+  subPath: ""
+  readOnly: false
+```
+
+Safety checks based on `persistence.accessMode`:
+
+| Access mode | Behaviour |
+| ----------- | --------- |
+| `ReadWriteMany` / `ReadOnlyMany` | Any replica count and strategy. |
+| `ReadWriteOnce` | Renders, but NOTES warns when more than one pod may run (`replicaCount` / autoscaling) or the strategy is `RollingUpdate`: pods on another node fail with `Multi-Attach error`. Prefer `strategy.type: Recreate` and a single replica. |
+| `ReadWriteOncePod` | Fails rendering unless the Deployment runs a single pod and `strategy.type: Recreate`. |
+
+`initContainers` and `extraContainers` can mount the same claim by referring to `persistence.volumeName` (default `data`).
+
+## Config, Secrets And Reloader
+
+The chart **references** existing ConfigMaps and Secrets; it does not create them. Manage them with the tool that owns them (External Secrets Operator, Vault, Sealed Secrets, SOPS, or another chart), or add a simple ConfigMap through `extraManifests`.
+
+| Need | Values |
+| ---- | ------ |
+| One key as an env var | `env: { DB_PASSWORD: "secret:app-secret:password", APP_CONFIG: "configmap:app-config:config.yaml" }` |
+| All keys as env vars | `envFrom: [{ secretRef: { name: app-secret } }, { configMapRef: { name: app-config } }]` |
+| Files in the container | `volumes` with a `configMap` / `secret` source + `volumeMounts` |
+
+Pods only read env vars at start, so changes need a restart. Instead of checksum annotations (which only work for objects the chart renders itself), use [Reloader](https://github.com/stakater/Reloader) through `deploymentAnnotations`:
+
+```yaml
+deploymentAnnotations:
+  reloader.stakater.com/auto: "true"                   # restart when any referenced ConfigMap/Secret changes
+  # secret.reloader.stakater.com/reload: "app-secret"  # or watch specific objects only
+```
+
+`deploymentAnnotations` lands on the Deployment's own metadata, so it also serves other tools, e.g. `argocd.argoproj.io/sync-wave`. Pod-level annotations stay in `podAnnotations`.
+
+## High Availability Scheduling
+
+Spread replicas so one node or zone failure does not take the whole application down. Both options target this release's own pods (selector labels) automatically:
+
+```yaml
+replicaCount: 3
+# Anti-affinity shortcut, merged into `affinity` (cannot be combined with affinity.podAntiAffinity)
+podAntiAffinityPreset:
+  type: soft                          # soft = preferred, hard = required
+  topologyKey: kubernetes.io/hostname # or topology.kubernetes.io/zone
+  weight: 1                           # soft only, 1-100
+# Finer-grained, even spreading (labelSelector is filled in when omitted)
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+pdb:
+  create: true
+  minAvailable: 1
+```
+
+With `type: hard`, a replica stays `Pending` when no free node / zone is left, which also blocks a RollingUpdate that surges an extra pod. Keep `replicaCount` at or below the eligible domains, or set `strategy.rollingUpdate.maxSurge: 0`.
+
+## Monitoring
+
+With the [Prometheus Operator](https://prometheus-operator.dev/) CRDs installed (e.g. kube-prometheus-stack), the chart can create a `ServiceMonitor` (scrapes through the Service) or a `PodMonitor` (scrapes the pods directly). Enable one of them for the same port, not both.
+
+```yaml
+containerPorts:
+  - name: http
+    containerPort: 3000
+  - name: metrics
+    containerPort: 9090
+service:
+  ports:
+    - name: web
+      port: 3000
+      targetPort: http
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+serviceMonitor:
+  enabled: true
+  port: metrics                     # Service port name
+  path: /metrics
+  interval: 30s
+  labels:
+    release: kube-prometheus-stack  # match your Prometheus serviceMonitorSelector
+# podMonitor:
+#   enabled: true
+#   port: metrics                   # container port name
+```
+
+The chart fails rendering when the scrape port does not exist (`service.ports` for `serviceMonitor`, `containerPorts` for `podMonitor`). When `namespace` is set to a different namespace (e.g. `monitoring`), a `namespaceSelector` pointing at the release namespace is added.
+
+## GPU Workloads
+
+### Device plugin (supported)
+
+Workloads that request GPUs through a device plugin (e.g. the NVIDIA GPU Operator or `nvidia-device-plugin`) can be scheduled with the existing values:
+
+```yaml
+runtimeClassName: nvidia # must exist in the cluster, check with `kubectl get runtimeclass`
+resources:
+  limits:
+    nvidia.com/gpu: 1
+tolerations:
+  - key: nvidia.com/gpu
+    operator: Exists
+    effect: NoSchedule
+nodeSelector:
+  nvidia.com/gpu.present: "true"
+```
+
+Leave `runtimeClassName` empty for workloads that do not need a specific runtime handler.
+
+### Dynamic Resource Allocation (not supported yet)
+
+[DRA](https://kubernetes.io/docs/concepts/scheduling-eviction/dynamic-resource-allocation/) requests devices through `ResourceClaim` / `ResourceClaimTemplate` objects that the pod references in `spec.resourceClaims`. The chart does not render pod-level `resourceClaims` yet, so DRA workloads cannot be deployed with it today. Support is planned, see the DRA section in [TODO.md](./TODO.md).
+
 {{ template "chart.valuesSection" . }}
 
 {{ template "helm-docs.versionFooter" . }}
