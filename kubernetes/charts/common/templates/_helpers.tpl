@@ -69,6 +69,142 @@ Define the namespace for your application
 {{- end }}
 
 {{/*
+Render the container image reference.
+Uses `image.tag`, falls back to `.Chart.AppVersion`, and omits the tag entirely
+when both are empty instead of rendering an invalid `repository:` reference.
+*/}}
+{{- define "common.image" -}}
+{{- $tag := .Values.image.tag | default .Chart.AppVersion | toString -}}
+{{- if $tag -}}
+{{- printf "%s:%s" .Values.image.repository $tag -}}
+{{- else -}}
+{{- .Values.image.repository -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Resolve whether an RBAC object should be created.
+A per-object boolean (`rbac.role.create` / `rbac.roleBinding.create`) always wins, including `false`.
+When it is `null` (not a boolean), fall back to the global `rbac.create`.
+Returns the string "true" or "false".
+Usage:
+{{ include "common.rbac.shouldCreate" (dict "override" .Values.rbac.role.create "global" .Values.rbac.create) }}
+*/}}
+{{- define "common.rbac.shouldCreate" -}}
+{{- if kindIs "bool" .override -}}
+{{- .override -}}
+{{- else -}}
+{{- .global | default false -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Return the maximum number of pods the Deployment can run (HPA maxReplicas when autoscaling, else replicaCount).
+*/}}
+{{- define "common.maxReplicas" -}}
+{{- ternary .Values.autoscaling.maxReplicas .Values.replicaCount .Values.autoscaling.enabled | int -}}
+{{- end }}
+
+{{/*
+Render the pod affinity: `affinity` merged with the `podAntiAffinityPreset` shortcut.
+The preset adds a podAntiAffinity term against this release's own pods (selector labels), so replicas spread
+across `topologyKey` domains. It can sit next to `affinity.nodeAffinity` / `affinity.podAffinity`, but not next to
+a hand-written `affinity.podAntiAffinity`. Renders nothing when both are empty.
+*/}}
+{{- define "common.affinity" -}}
+{{- $affinity := deepCopy (.Values.affinity | default dict) -}}
+{{- $preset := .Values.podAntiAffinityPreset | default dict -}}
+{{- $type := $preset.type | default "" -}}
+{{- if $type -}}
+{{- if not (has $type (list "soft" "hard")) -}}
+{{- fail "podAntiAffinityPreset.type must be one of: \"\" (disabled), soft, hard" -}}
+{{- end -}}
+{{- if hasKey $affinity "podAntiAffinity" -}}
+{{- fail "podAntiAffinityPreset cannot be combined with affinity.podAntiAffinity: set only one of them" -}}
+{{- end -}}
+{{- $term := dict "labelSelector" (dict "matchLabels" (include "common.selectorLabels" . | fromYaml)) "topologyKey" ($preset.topologyKey | default "kubernetes.io/hostname") -}}
+{{- if eq $type "hard" -}}
+{{- $_ := set $affinity "podAntiAffinity" (dict "requiredDuringSchedulingIgnoredDuringExecution" (list $term)) -}}
+{{- else -}}
+{{- $weight := $preset.weight | default 1 | int -}}
+{{- if or (lt $weight 1) (gt $weight 100) -}}
+{{- fail "podAntiAffinityPreset.weight must be between 1 and 100" -}}
+{{- end -}}
+{{- $_ := set $affinity "podAntiAffinity" (dict "preferredDuringSchedulingIgnoredDuringExecution" (list (dict "weight" $weight "podAffinityTerm" $term))) -}}
+{{- end -}}
+{{- end -}}
+{{- if $affinity -}}
+{{- toYaml $affinity -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Render one Prometheus Operator scrape endpoint (ServiceMonitor `endpoints[]` / PodMonitor `podMetricsEndpoints[]`).
+Only set fields are rendered, so Prometheus defaults apply otherwise.
+Usage: {{ include "common.monitor.endpoint" .Values.serviceMonitor }}
+*/}}
+{{- define "common.monitor.endpoint" -}}
+{{- $monitor := . -}}
+{{- $endpoint := dict "port" $monitor.port "path" ($monitor.path | default "/metrics") -}}
+{{- range $key := list "interval" "scrapeTimeout" "scheme" "tlsConfig" "relabelings" "metricRelabelings" -}}
+{{- with get $monitor $key -}}
+{{- $_ := set $endpoint $key . -}}
+{{- end -}}
+{{- end -}}
+{{- if $monitor.honorLabels -}}
+{{- $_ := set $endpoint "honorLabels" true -}}
+{{- end -}}
+{{- toYaml $endpoint -}}
+{{- end }}
+
+{{/*
+Return the container port names of the main container as a YAML list (explicit `containerPorts`, or the implicit `http` port).
+*/}}
+{{- define "common.container.portNames" -}}
+{{- $names := list -}}
+{{- if .Values.containerPorts -}}
+{{- range .Values.containerPorts -}}
+{{- with .name -}}
+{{- $names = append $names . -}}
+{{- end -}}
+{{- end -}}
+{{- else if .Values.service.enabled -}}
+{{- $names = append $names "http" -}}
+{{- end -}}
+{{- toYaml $names -}}
+{{- end }}
+
+{{/*
+Validate the persistence (existing PVC) configuration.
+The chart never creates PVCs: it mounts an existing claim into the main container.
+A `ReadWriteOncePod` claim can only be used by one pod, so more than one replica, or a RollingUpdate
+(the new pod starts while the old one still holds the claim), can never become Ready.
+`ReadWriteOnce` only attaches to one node, so those cases are reported as a warning in NOTES instead.
+*/}}
+{{- define "common.persistence.validate" -}}
+{{- $p := .Values.persistence -}}
+{{- if $p.enabled -}}
+{{- if not $p.existingClaim -}}
+{{- fail "persistence.existingClaim is required when persistence.enabled is true (this chart mounts an existing PVC and does not create one)" -}}
+{{- end -}}
+{{- if not $p.mountPath -}}
+{{- fail "persistence.mountPath is required when persistence.enabled is true" -}}
+{{- end -}}
+{{- if not (has $p.accessMode (list "ReadWriteOnce" "ReadWriteOncePod" "ReadWriteMany" "ReadOnlyMany")) -}}
+{{- fail "persistence.accessMode must be one of: ReadWriteOnce, ReadWriteOncePod, ReadWriteMany, ReadOnlyMany" -}}
+{{- end -}}
+{{- if eq $p.accessMode "ReadWriteOncePod" -}}
+{{- if gt (include "common.maxReplicas" . | int) 1 -}}
+{{- fail "persistence: a ReadWriteOncePod claim can only be used by one pod; set replicaCount=1 and disable autoscaling (or set autoscaling.maxReplicas=1)" -}}
+{{- end -}}
+{{- if ne (.Values.strategy.type | default "RollingUpdate") "Recreate" -}}
+{{- fail "persistence: a ReadWriteOncePod claim blocks RollingUpdate because the new pod cannot attach while the old one runs; set strategy.type=Recreate" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Render service ports with backward-compatible fallback to service.port/targetPort.
 */}}
 {{- define "common.servicePorts.render" -}}
@@ -172,10 +308,8 @@ Return the default probe port reference.
 {{- else -}}
 {{- (index .Values.containerPorts 0).containerPort -}}
 {{- end }}
-{{- else if and .Values.service.enabled .Values.service.targetPort -}}
-{{- .Values.service.targetPort -}}
-{{- else -}}
-http
+{{- else if .Values.service.enabled -}}
+{{- default "http" .Values.service.targetPort -}}
 {{- end }}
 {{- end }}
 
@@ -261,24 +395,30 @@ Render probes in pod template for healthcheck
 {{- end }}
 {{- $_ := set $probes.livenessProbe.httpGet "path" (default $probePath $probes.livenessProbe.httpGet.path) -}}
 {{- $_ := set $probes.livenessProbe.httpGet "port" (default $probePort $probes.livenessProbe.httpGet.port) -}}
+{{- if $probes.livenessProbe.httpGet.port -}}
 livenessProbe: {{ toYaml $probes.livenessProbe | nindent 2 }}
 {{ end }}
+{{- end }}
 {{- if not (mustHas "readinessProbe" $probes.disableProbes) -}}
 {{- if not (hasKey $probes.readinessProbe "httpGet") }}
 {{- $_ := set $probes.readinessProbe "httpGet" dict -}}
 {{- end }}
 {{- $_ := set $probes.readinessProbe.httpGet "path" (default $probePath $probes.readinessProbe.httpGet.path) -}}
 {{- $_ := set $probes.readinessProbe.httpGet "port" (default $probePort $probes.readinessProbe.httpGet.port) -}}
+{{- if $probes.readinessProbe.httpGet.port -}}
 readinessProbe: {{ toYaml $probes.readinessProbe | nindent 2 }}
 {{ end }}
+{{- end }}
 {{- if not (mustHas "startupProbe" $probes.disableProbes) -}}
 {{- if not (hasKey $probes.startupProbe "httpGet") }}
 {{- $_ := set $probes.startupProbe "httpGet" dict -}}
 {{- end }}
 {{- $_ := set $probes.startupProbe.httpGet "path" (default $probePath $probes.startupProbe.httpGet.path) -}}
 {{- $_ := set $probes.startupProbe.httpGet "port" (default $probePort $probes.startupProbe.httpGet.port) -}}
+{{- if $probes.startupProbe.httpGet.port -}}
 startupProbe: {{ toYaml $probes.startupProbe | nindent 2 }}
 {{ end }}
+{{- end }}
 {{- end -}}
 {{- end -}}
 

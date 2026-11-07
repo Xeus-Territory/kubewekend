@@ -1,5 +1,5 @@
-{{- $createRole := default .Values.rbac.create .Values.rbac.role.create }}
-{{- if $createRole }}
+{{- $createRole := include "common.rbac.shouldCreate" (dict "override" .Values.rbac.role.create "global" .Values.rbac.create) }}
+{{- if eq $createRole "true" }}
 {{- $roleKind := default "Role" .Values.rbac.role.kind -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: {{ $roleKind }}

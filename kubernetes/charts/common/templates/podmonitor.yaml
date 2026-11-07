@@ -1,0 +1,35 @@
+{{- if .Values.podMonitor.enabled }}
+{{- $monitor := .Values.podMonitor }}
+{{- $portNames := include "common.container.portNames" . | fromYamlArray }}
+{{- if not (has $monitor.port $portNames) }}
+{{- fail (printf "podMonitor.port %q is not a named container port of the main container (available: %s); add it to containerPorts" $monitor.port (join ", " $portNames | default "none")) }}
+{{- end }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "common.fullname" . }}
+  {{- with $monitor.namespace }}
+  namespace: {{ . }}
+  {{- end }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    {{- with $monitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $monitor.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "common.selectorLabels" . | nindent 6 }}
+  {{- if and $monitor.namespace (ne $monitor.namespace .Release.Namespace) }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  {{- end }}
+  podMetricsEndpoints:
+    - {{ include "common.monitor.endpoint" $monitor | nindent 6 | trim }}
+{{- end }}

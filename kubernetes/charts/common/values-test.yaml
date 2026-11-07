@@ -1,5 +1,32 @@
 enabled: true
 replicaCount: 1
+deploymentAnnotations:
+  # Restart pods when todo-app-config / todo-app-secret (referenced in env / envFrom) change
+  reloader.stakater.com/auto: "true"
+  kubewekend.io/owner: "{{ .Release.Name }}"
+revisionHistoryLimit: 5
+minReadySeconds: 5
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+# schedulerName: my-scheduler
+# priorityClassName: high-priority # must exist in the cluster
+# runtimeClassName: nvidia # GPU workloads via device plugin; must exist in the cluster
+terminationGracePeriodSeconds: 30
+lifecycle:
+  preStop:
+    sleep:
+      seconds: 5
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+podAntiAffinityPreset:
+  type: soft
+  topologyKey: kubernetes.io/hostname
+  weight: 50
 fullnameOverride: "kubewekend-todo-application"
 image:
   repository: "xeusnguyen/application"
@@ -45,8 +72,40 @@ service:
       targetPort: http
       protocol: TCP
   headless: false
-volumeMounts: []
-volumes: []
+volumeMounts:
+  - name: logs
+    mountPath: /var/log/app
+volumes:
+  - name: logs
+    emptyDir: {}
+persistence:
+  enabled: true
+  existingClaim: "{{ .Release.Name }}-uploads" # e.g. a Longhorn / NFS RWX claim
+  accessMode: ReadWriteMany
+  mountPath: /app/uploads
+initContainers:
+  - name: migrate
+    image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+    command: ["/bin/sh", "-c", "yarn run migrate"]
+    envFrom:
+      - secretRef:
+          name: todo-app-secret
+          optional: true
+  - name: log-shipper # native sidecar (Kubernetes >= 1.29)
+    image: fluent/fluent-bit:3.2
+    restartPolicy: Always
+    volumeMounts:
+      - name: logs
+        mountPath: /var/log/app
+        readOnly: true
+extraContainers:
+  - name: busybox-sidecar
+    image: busybox:1.37
+    command: ["/bin/sh", "-c", "tail -F /var/log/app/app.log"]
+    volumeMounts:
+      - name: logs
+        mountPath: /var/log/app
+        readOnly: true
 serviceAccount:
   create: true
   name: kubewekend-sc
@@ -118,12 +177,36 @@ probes:
       port: 8000
 ingress:
   enabled: true
-  className: "nginx"
+  className: "traefik"
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
   hosts:
     - host: "todo.local"
       paths:
         - path: /
-          pathType: ImplementationSpecific
+          pathType: Prefix
+httpRoute:
+  enabled: true
+  parentRefs:
+    - name: traefik-gateway
+      sectionName: web
+  hostnames:
+    - "todo.local"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+serviceMonitor:
+  enabled: true
+  labels:
+    release: kube-prometheus-stack # matches kube-prometheus-stack's default serviceMonitorSelector
+  port: metrics # Service port "metrics" -> container port 9090
+  path: /metrics
+  interval: 30s
+podMonitor:
+  enabled: false # enable instead of serviceMonitor to scrape the pods directly
+  port: metrics # container port name
 testConnection: false
 pdb:
   create: true
