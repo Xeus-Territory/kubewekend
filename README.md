@@ -15,6 +15,7 @@
 - [Kubewekend 👨‍🚀🚀☁️🌕](#kubewekend-️)
   - [Usage](#usage)
     - [Requirements tools](#requirements-tools)
+    - [Node resources](#node-resources)
     - [Kubewekend CLI (`setup.sh`)](#kubewekend-cli-setupsh)
     - [Step by step](#step-by-step)
       - [Setup Host with Vagrant](#setup-host-with-vagrant)
@@ -37,6 +38,7 @@
     - [Kubewekend Session Extra 2: Rebuild Cluster with RKE2 or K3S](#kubewekend-session-extra-2-rebuild-cluster-with-rke2-or-k3s)
     - [Kubewekend Session Extra 3: RKE2 and The Nightmare with Network and CoreDNS](#kubewekend-session-extra-3-rke2-and-the-nightmare-with-network-and-coredns)
     - [Kubewekend Session Extra 4: Kind and Sandbox environment for GitLab CI](#kubewekend-session-extra-4-kind-and-sandbox-environment-for-gitlab-ci)
+    - [Kubewekend Session Extra 5: Learn about the security model in Kubernetes](#kubewekend-session-extra-5-learn-about-the-security-model-in-kubernetes)
 
 ## Usage
 
@@ -538,3 +540,12 @@ Read full article about session at [Kubewekend Session Extra 3: RKE2 and The Nig
 > This article shares my experience setting up a sandbox environment with Kind to adapt new Kubernetes environments within CI/CD pipelines. I'll provide several ideas for running both CPU and GPU applications, demonstrating their behavior specifically within GitLab CI.
 
 Read full article about session at [Kubewekend Session Extra 4: Kind and Sandbox environment for GitLab CI](https://wiki.xeusnguyen.xyz/Tech-Second-Brain/Personal/Kubewekend/Kubewekend-Session-Extra-4)
+
+
+### Kubewekend Session Extra 5: Learn about the security model in Kubernetes
+
+> [!NOTE]
+>
+> This session covers the Kubernetes API security pipeline across its primary phases (AuthN, AuthZ, and Admission Controllers). It also explores broader Kubernetes security concepts for securing resources, networks, and workloads, while demonstrating how to deploy and experiment with Kyverno as a policy engine to enforce security practices in Kubernetes.
+
+Read full article about session at [Kubewekend Session Extra 5: Learn about the security model in Kubernetes](https://wiki.xeusnguyen.xyz/Tech-Second-Brain/Personal/Kubewekend/Kubewekend-Session-Extra-5)
