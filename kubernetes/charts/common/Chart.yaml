@@ -3,7 +3,7 @@ name: common
 description: A Helm chart for standard application, rendered as a Deployment powered by Kubewekend
 type: application
 version: 0.4.0
-home: https://github.com/xeusnguyen/kubewekend
+home: https://github.com/Xeus-Territory/kubewekend
 keywords:
   - kubewekend
   - application
