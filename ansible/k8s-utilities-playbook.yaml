@@ -254,7 +254,7 @@
       when: utilities.storage.enable | default(false)
       block:
         - name: "Copy template for Longhorn Storage iSCSI setup to remote host"
-          when: utilities.storage.type == "longhorn" and utilities.storage.setup.iscsi | default(false)
+          when: utilities.storage.type == "longhorn" and utilities.storage.longhorn.setup.iscsi | default(false)
           ansible.builtin.template:
             src: "longhorn-iscsi-installation.yaml.j2"
             dest: "/home/{{ user }}/longhorn-iscsi-installation.yaml"
@@ -262,7 +262,7 @@
           changed_when: false
        
         - name: "Copy template for Longhorn Storage NFS setup to remote host"
-          when: utilities.storage.type == "longhorn" and utilities.storage.setup.nfs | default(false)
+          when: utilities.storage.type == "longhorn" and utilities.storage.longhorn.setup.nfs | default(false)
           ansible.builtin.template:
             src: "longhorn-nfs-installation.yaml.j2"
             dest: "/home/{{ user }}/longhorn-nfs-installation.yaml"
@@ -270,9 +270,14 @@
           changed_when: false
         
         - name: "Create Longhorn Storage with iSCSI support"
-          when: utilities.storage.type == "longhorn" and utilities.storage.setup.iscsi | default(false)
+          when: utilities.storage.type == "longhorn" and utilities.storage.longhorn.setup.iscsi | default(false)
           ansible.builtin.shell: |
-            kubectl create namespace {{ utilities.storage.namespace }}
+            cat <<EOF | kubectl apply -f -
+            apiVersion: v1
+            kind: Namespace
+            metadata:
+              name: longhorn-system
+            EOF
             kubectl apply -f /home/{{ user }}/longhorn-iscsi-installation.yaml
           changed_when: false
           register: longhorn_iscsi_storage_result
@@ -281,12 +286,17 @@
           ansible.builtin.debug:
             msg: "{{ longhorn_iscsi_storage_result.stdout_lines }}"
           changed_when: false
-          when: utilities.storage.type == "longhorn" and utilities.storage.setup.iscsi | default(false)
+          when: utilities.storage.type == "longhorn" and utilities.storage.longhorn.setup.iscsi | default(false)
 
         - name: "Create Longhorn Storage with NFS support"
-          when: utilities.storage.type == "longhorn" and utilities.storage.setup.nfs | default(false)
+          when: utilities.storage.type == "longhorn" and utilities.storage.longhorn.setup.nfs | default(false)
           ansible.builtin.shell: |
-            kubectl create namespace {{ utilities.storage.namespace }}
+            cat <<EOF | kubectl apply -f -
+            apiVersion: v1
+            kind: Namespace
+            metadata:
+              name: longhorn-system
+            EOF
             kubectl apply -f /home/{{ user }}/longhorn-nfs-installation.yaml
           changed_when: false
           register: longhorn_nfs_storage_result
@@ -295,7 +305,7 @@
           ansible.builtin.debug:
             msg: "{{ longhorn_nfs_storage_result.stdout_lines }}"
           changed_when: false
-          when: utilities.storage.type == "longhorn" and utilities.storage.setup.nfs | default(false)
+          when: utilities.storage.type == "longhorn" and utilities.storage.longhorn.setup.nfs | default(false)
 
         # Reference Issue: https://github.com/longhorn/longhorn/issues/12573 for memory leak, so update longhorn
         # from v1.11.0 to v1.11.1 which has the fix for this issue
@@ -306,9 +316,9 @@
             helm repo add longhorn https://charts.longhorn.io
             helm repo update
             helm upgrade --install longhorn longhorn/longhorn \
-              --namespace {{ utilities.storage.namespace }} --create-namespace --version 1.11.1 --wait \
+              --namespace longhorn-system --create-namespace --version 1.11.1 --wait \
               --set longhornUI.replicas=1 \
-              --set persistence.defaultClassReplicaCount={{ utilities.storage.replicaStorage | default(3) }}
+              --set persistence.defaultClassReplicaCount={{ utilities.storage.longhorn.replicaStorage | default(3) }}
 
           changed_when: false
           register: longhorn_storage_result
@@ -319,78 +329,200 @@
           changed_when: false
           when: utilities.storage.type == "longhorn"
 
+        # Setup `local-path-provisioner` storage, powered by Rancher
+        # GitHub: https://github.com/rancher/local-path-provisioner
+        - name: "Setup local-path-provisioner Storage"
+          when: utilities.storage.type == "local-path"
+          ansible.builtin.shell: |-
+            kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.37/deploy/local-path-storage.yaml
+          register: local_path_log
+          changed_when: false
+        
+        - name: "Log the setup local-path-provisioner"
+          when: utilities.storage.type == "local-path"
+          ansible.builtin.debug:
+            msg: "{{ local_path_log.stdout_lines }}"
+          changed_when: false
+
+        # Setup test-case for validate PVC worked or not
+        - name: "Copy test-case for validate storage with Pod RWO"
+          when: utilities.storage.test.enable
+          ansible.builtin.template:
+            src: "pod-with-pvc.yaml.j2"
+            dest: "/home/{{ user }}/pod-with-pvc.yaml"
+            mode: "0644"
+          changed_when: false
+        
+        - name: "Setup test case for validate storage"
+          when: utilities.storage.test.enable
+          ansible.builtin.shell:
+            kubectl apply -f /home/{{ user }}/pod-with-pvc.yaml
+          register: setup_pvc_test
+          changed_when: false
+
+        - name: "Result of setup test-case pvc"
+          when: utilities.storage.test.enable
+          ansible.builtin.debug:
+            msg: "{{ setup_pvc_test.stdout_lines }}"
+          changed_when: false
+
     - name: "Setup Secret Management for the cluster"
       tags: secret_management
       when: utilities.secretManagement.enable | default(false)
       block:
-        - name: "Setup HashiCorp Vault for Secret Management"
-          when: utilities.secretManagement.type == "vault"
+        # NOTE: `server.dev.enabled=false` resets dev mode kept by `--reuse-values` when switching dev -> standalone
+        - name: "Setup HashiCorp Vault Standalone Mode for Secret Management"
+          when: utilities.secretManagement.type == "vault" and utilities.secretManagement.config.mode == "standalone"
           ansible.builtin.shell: |
             helm repo add hashicorp https://helm.releases.hashicorp.com
             helm repo update
             helm upgrade --install vault hashicorp/vault \
-              --namespace {{ utilities.secretManagement.namespace }}  --create-namespace --version 0.32.0 --wait \
+              --namespace vault --create-namespace --version 0.32.0 --wait \
+              --reuse-values \
+              --set injector.enabled=false \
+              --set server.dev.enabled=false \
               --set server.ingress.enabled=true \
               --set server.ingress.ingressClassName={{ utilities.secretManagement.ingressClass }} \
               --set server.ingress.hosts[0].host={{ utilities.secretManagement.host }}
           changed_when: false
-          register: vault_secret_management_result
+          register: vault_standalone_result
 
+        - name: "Setup HashiCorp Vault Dev Mode for Secret Management"
+          when: utilities.secretManagement.type == "vault" and utilities.secretManagement.config.mode == "dev"
+          ansible.builtin.shell: |
+            helm repo add hashicorp https://helm.releases.hashicorp.com
+            helm repo update
+            helm upgrade --install vault hashicorp/vault \
+              --namespace vault --create-namespace --version 0.32.0 --wait \
+              --reuse-values \
+              --set injector.enabled=false \
+              --set server.dev.enabled=true \
+              --set server.ingress.enabled=true \
+              --set server.ingress.ingressClassName={{ utilities.secretManagement.ingressClass }} \
+              --set server.ingress.hosts[0].host={{ utilities.secretManagement.host }}
+          changed_when: false
+          register: vault_dev_result
+
+        # A skipped task still overwrites its register, so each mode keeps its own result variable
         - name: "Display HashiCorp Vault Secret Management result"
           ansible.builtin.debug:
-            msg: "{{ vault_secret_management_result.stdout_lines }}"
+            msg: "{{ (vault_standalone_result if utilities.secretManagement.config.mode == 'standalone' else vault_dev_result).stdout_lines }}"
           changed_when: false
           when: utilities.secretManagement.type == "vault"
 
-        - name: "Setup openbao for Secret Management"
-          when: utilities.secretManagement.type == "openbao"
+        - name: "Enable Vault Injector"
+          when: utilities.secretManagement.type == "vault" and utilities.secretManagement.config.injector
+          ansible.builtin.shell: |-
+            helm upgrade --install vault hashicorp/vault \
+              --namespace vault --create-namespace --version 0.32.0 --wait \
+              --reuse-values \
+              --set injector.enabled=true
+          register: vault_injector
+          changed_when: false
+
+        - name: "Display Enable Vault Injector"
+          when: utilities.secretManagement.type == "vault" and utilities.secretManagement.config.injector
+          ansible.builtin.debug:
+            msg: "{{ vault_injector.stdout_lines }}"
+          changed_when: false
+
+        # Determine openbao chart version based on secret management type by K8s Server Version
+        # NOTE: Because version usually in float format, we need to use bash comparison with `bc`
+        # Reference: https://www.baeldung.com/linux/bash-compare-float#using-the-bc-command
+        - name: "Setup OpenBao Standalone Mode for Secret Management"
+          when: utilities.secretManagement.type == "openbao" and utilities.secretManagement.config.mode == "standalone"
           ansible.builtin.shell: |
             helm repo add openbao https://openbao.github.io/openbao-helm
             helm repo update
-            # Determine openbao chart version based on secret management type by K8s Server Version
-            # NOTE: Because version usually in float format, we need to use bash comparison with `bc`
-            # Reference: https://www.baeldung.com/linux/bash-compare-float#using-the-bc-command
-            KUBE_VERSION=$(kubectl version | grep 'Server Version' | awk '{print $3}' | sed 's/v//g' | cut -d'.' -f1,2)
-            if [ 1 -eq "$(echo "$KUBE_VERSION < 1.30" | bc)" ]; then
-              VERSION="0.6.0"
-            else
-              VERSION="0.29.6"
-            fi
             helm upgrade --install openbao openbao/openbao \
-              --namespace {{ utilities.secretManagement.namespace }} --create-namespace --version $VERSION --wait \
+              --namespace openbao --create-namespace --version 0.30.1 --wait \
+              --reuse-values \
+              --set injector.enabled=false \
+              --set server.dev.enabled=false \
               --set server.ingress.enabled=true \
               --set server.ingress.ingressClassName={{ utilities.secretManagement.ingressClass }} \
               --set server.ingress.hosts[0].host={{ utilities.secretManagement.host }} \
-              --set ui.enabled={{ utilities.secretManagement.openbao.ui }}
+              --set ui.enabled=true
           changed_when: false
-          register: openbao_secret_management_result
+          register: openbao_standalone_result
+
+        - name: "Setup OpenBao Dev Mode for Secret Management"
+          when: utilities.secretManagement.type == "openbao" and utilities.secretManagement.config.mode == "dev"
+          ansible.builtin.shell: |
+            helm repo add openbao https://openbao.github.io/openbao-helm
+            helm repo update
+            helm upgrade --install openbao openbao/openbao \
+              --namespace openbao --create-namespace --version 0.30.1 --wait \
+              --reuse-values \
+              --set injector.enabled=false \
+              --set server.dev.enabled=true \
+              --set server.ingress.enabled=true \
+              --set server.ingress.ingressClassName={{ utilities.secretManagement.ingressClass }} \
+              --set server.ingress.hosts[0].host={{ utilities.secretManagement.host }} \
+              --set ui.enabled=true
+          changed_when: false
+          register: openbao_dev_result
 
         - name: "Display openbao Secret Management result"
           ansible.builtin.debug:
-            msg: "{{ openbao_secret_management_result.stdout_lines }}"
+            msg: "{{ (openbao_standalone_result if utilities.secretManagement.config.mode == 'standalone' else openbao_dev_result).stdout_lines }}"
           changed_when: false
-          when: utilities.secretManagement.type is search("openbao")
+          when: utilities.secretManagement.type == "openbao"
+
+        - name: "Enable OpenBao Vault Injector"
+          when: utilities.secretManagement.type == "openbao" and utilities.secretManagement.config.injector
+          ansible.builtin.shell: |-
+            helm upgrade --install openbao openbao/openbao \
+              --namespace openbao --create-namespace --version 0.30.1 --wait \
+              --reuse-values \
+              --set injector.enabled=true
+          register: openbao_vault_injector
+          changed_when: false
+
+        - name: "Display Enable Vault Injector"
+          when: utilities.secretManagement.type == "openbao" and utilities.secretManagement.config.injector
+          ansible.builtin.debug:
+            msg: "{{ openbao_vault_injector.stdout_lines }}"
+          changed_when: false
+
+        # `helm --wait` skips the server StatefulSet (updateStrategy OnDelete) and its volumeClaimTemplates PVC,
+        # so wait for the server pod to be Running (PVC bound) before initialize / unseal
+        - name: "Wait for Vault or Openbao server pod to be Running"
+          when: utilities.secretManagement.config.mode == "standalone"
+          ansible.builtin.shell: |
+            NAMESPACE="{{ utilities.secretManagement.type }}"
+            POD_NAME="{{ utilities.secretManagement.type }}-0"
+            for i in $(seq 1 60); do
+              kubectl -n $NAMESPACE get pod $POD_NAME >/dev/null 2>&1 && break
+              sleep 5
+            done
+            kubectl -n $NAMESPACE wait --for=jsonpath='{.status.phase}'=Running pod/$POD_NAME --timeout=300s
+          changed_when: false
 
         - name: "Initialize Vault or Openbao Secret Management"
-          when: utilities.secretManagement.actions.init | default(false)
+          when: utilities.secretManagement.config.mode == "standalone"
           ansible.builtin.shell: |
-            # Choose the vault platfrom to initialize, Vault or Openbao
+            # Choose the vault platfrom to initialize, Vault or Openbao (OpenBao image ships the `bao` CLI)
             if [ "{{ utilities.secretManagement.type }}" = "vault" ]; then
               POD_NAME="vault-0"
+              NAMESPACE="vault"
+              CLI="vault"
             elif [ "{{ utilities.secretManagement.type }}" = "openbao" ]; then
               POD_NAME="openbao-0"
+              NAMESPACE="openbao"
+              CLI="bao"
             else
               echo "Unsupported secret management type for initialization."
               exit 1
             fi
             # Prevent re-initialization error by checking if vault is already initialized
-            INIT_STATUS=$(kubectl -n {{ utilities.secretManagement.namespace }} exec $POD_NAME -- vault status | grep 'Initialized' | awk '{print $2}')
-            if [ $INIT_STATUS = "true" ]; then
-              echo "Vault is already initialized, skipping initialization."
+            INIT_STATUS=$(kubectl -n $NAMESPACE exec $POD_NAME -- $CLI status | grep 'Initialized' | awk '{print $2}')
+            if [ "$INIT_STATUS" = "true" ]; then
+              echo "{{ utilities.secretManagement.type }} is already initialized, skipping initialization."
               exit 0
             else
-              kubectl -n {{ utilities.secretManagement.namespace }} exec $POD_NAME -- vault operator init -key-shares=1 -key-threshold=1 -format=json > /home/{{ user }}/vault-init-output.json
-              echo "Vault initialized successfully. Initialization output saved to /home/{{ user }}/vault-init-output.json"
+              kubectl -n $NAMESPACE exec $POD_NAME -- $CLI operator init -key-shares=1 -key-threshold=1 -format=json > /home/{{ user }}/vault-init-output.json
+              echo "{{ utilities.secretManagement.type }} initialized successfully. Initialization output saved to /home/{{ user }}/vault-init-output.json"
               exit 0
             fi
           changed_when: false
@@ -400,22 +532,34 @@
           ansible.builtin.debug:
             msg: "{{ vault_initialize_result.stdout_lines }}"
           changed_when: false
-          when: utilities.secretManagement.actions.init | default(false)
+          when: utilities.secretManagement.config.mode == "standalone"
 
         - name: "Unseal Vault or Openbao automatically"
-          when: utilities.secretManagement.actions.unseal == "auto" 
+          when: utilities.secretManagement.config.mode == "standalone"
           ansible.builtin.shell: |
             # Choose the vault platfrom to initialize, Vault or Openbao
             if [ "{{ utilities.secretManagement.type }}" = "vault" ]; then
               POD_NAME="vault-0"
+              NAMESPACE="vault"
+              CLI="vault"
             elif [ "{{ utilities.secretManagement.type }}" = "openbao" ]; then
               POD_NAME="openbao-0"
+              NAMESPACE="openbao"
+              CLI="bao"
             else
-              echo "Unsupported secret management type for initialization."
+              echo "Unsupported secret management type for unseal."
               exit 1
             fi
-            VAULT_UNSEAL_KEY=$(jq -r '.unseal_keys_b64[0]' /home/{{ user }}/vault-init-output.json)
-            kubectl -n {{ utilities.secretManagement.namespace }} exec $POD_NAME -- vault operator unseal $VAULT_UNSEAL_KEY
+            SEAL_STATUS=$(kubectl -n $NAMESPACE exec $POD_NAME -- $CLI status | grep 'Sealed' | awk '{print $2}')
+            if [ "$SEAL_STATUS" = "true" ]; then
+              VAULT_UNSEAL_KEY=$(jq -r '.unseal_keys_b64[0]' /home/{{ user }}/vault-init-output.json)
+              kubectl -n $NAMESPACE exec $POD_NAME -- $CLI operator unseal $VAULT_UNSEAL_KEY
+              echo "{{ utilities.secretManagement.type }} unseal successfully"
+              exit 0
+            else
+              echo "{{ utilities.secretManagement.type }} already unseal, skipping unseal."
+              exit 0
+            fi
           changed_when: false
           register: vault_unseal_result
 
@@ -423,48 +567,38 @@
           ansible.builtin.debug:
             msg: "{{ vault_unseal_result.stdout_lines }}"
           changed_when: false
-          when: utilities.secretManagement.actions.unseal == "auto"
-
-        - name: "Unseal Vault or Openbao manually"
-          when: utilities.secretManagement.actions.unseal == "manual"
-          # Make pretty message for user to unseal vault manually
-          # Reference: https://stackoverflow.com/a/40325864
-          vars:
-            unseal_instructions: |
-              Please unseal the Vault manually by following these steps:
-              1. Retrieve the unseal key from the vault-init-output.json file located on the control node.
-                 jq -r '.unseal_keys_b64[0]' vault-init-output.json
-              2. Execute the following command to unseal the Vault or Openbao:
-                 kubectl -n {{ utilities.secretManagement.namespace }} exec $POD_NAME -- vault operator unseal <UNSEAL_KEY>
-              Replace <UNSEAL_KEY> with the actual unseal key retrieved in step 1.
-          ansible.builtin.debug:
-            msg: "{{ unseal_instructions.split('\n') }}"
-          changed_when: false
+          when: utilities.secretManagement.config.mode == "standalone"
 
         - name: "Save Vault or Openbao unseal keys to ansible output file"
-          when: utilities.secretManagement.actions.savingUnsealKeys | default(false) and utilities.secretManagement.actions.init | default(false)
+          when: utilities.secretManagement.config.mode == "standalone"
           ansible.builtin.fetch:
             src: "/home/{{ user }}/vault-init-output.json"
             dest: "./vault-init-output.json"
             flat: yes
           changed_when: false
 
-        - name: "Setup Hashicorp Vault Operator for Secret Management"
-          when: utilities.secretManagement.vault.operator | default(false) and utilities.secretManagement.type == "vault"
-          ansible.builtin.shell: |
-            helm repo add hashicorp https://helm.releases.hashicorp.com
-            helm repo update
-            helm upgrade --install vault-operator hashicorp/vault-secrets-operator \
-              --namespace {{ utilities.secretManagement.namespace }} --create-namespace --version 1.2.0 --wait
-
-          changed_when: false
-          register: vault_operator_secret_management_result
-
-        - name: "Display Hashicorp Vault Operator Secret Management result"
+        - name: "Note about root Token of Vault or OpenBao"
           ansible.builtin.debug:
-            msg: "{{ vault_operator_secret_management_result.stdout_lines }}"
+            msg: "In Dev Mode, your token will `root` by default, and find in `vault-init-output.json` if you setup it with Standalone Mode"
           changed_when: false
-          when: utilities.secretManagement.vault.operator | default(false) and utilities.secretManagement.type == "vault"
+
+        # (Archive) NOTE: Using ESO (External Secret Operator) instead
+        # - name: "Setup Hashicorp Vault Operator for Secret Management"
+        #   when: utilities.secretManagement.vault.operator | default(false) and utilities.secretManagement.type == "vault"
+        #   ansible.builtin.shell: |
+        #     helm repo add hashicorp https://helm.releases.hashicorp.com
+        #     helm repo update
+        #     helm upgrade --install vault-operator hashicorp/vault-secrets-operator \
+        #       --namespace {{ utilities.secretManagement.namespace }} --create-namespace --version 1.2.0 --wait
+
+        #   changed_when: false
+        #   register: vault_operator_secret_management_result
+
+        # - name: "Display Hashicorp Vault Operator Secret Management result"
+        #   ansible.builtin.debug:
+        #     msg: "{{ vault_operator_secret_management_result.stdout_lines }}"
+        #   changed_when: false
+        #   when: utilities.secretManagement.vault.operator | default(false) and utilities.secretManagement.type == "vault"
 
     - name: "Setup K8s Extensions for the cluster"
       tags: k8s_extensions
@@ -508,7 +642,7 @@
             helm repo add external-secrets https://charts.external-secrets.io
             helm repo update
             helm upgrade --install externalsecrets external-secrets/external-secrets \
-              --namespace kube-extensions --create-namespace --version 1.2.1 --wait
+              --namespace external-secrets --create-namespace --version 1.2.1 --wait
           changed_when: false
           register: externalsecrets_extension_result
 
@@ -532,7 +666,7 @@
             helm repo add argo https://argoproj.github.io/argo-helm
             helm repo update
             helm upgrade --install argocd argo/argo-cd \
-              --namespace {{ utilities.gitops.argocd.namespace }} --create-namespace --version 9.1.3 --wait \
+              --namespace argocd --create-namespace --version 9.1.3 --wait \
               --set global.domain={{ utilities.gitops.argocd.host }} \
               --set server.ingress.enabled=true \
               --set server.ingress.ingressClassName={{ utilities.gitops.argocd.ingressClass }} \
@@ -555,7 +689,7 @@
             helm repo add argo https://argoproj.github.io/argo-helm
             helm repo update
             helm upgrade --install argocd-image-updater argo/argocd-image-updater \
-              --namespace {{ utilities.gitops.argocd.namespace }} --version 1.0.1 --wait
+              --namespace argocd --version 1.0.1 --wait
           changed_when: false
           register: argocd_image_updater_result
 
@@ -569,7 +703,7 @@
           when: utilities.gitops.type == "argocd" and utilities.gitops.argocd.argocdExtensions | default(false)
           ansible.builtin.shell: |
             helm upgrade --install argocd argo/argo-cd \
-              --namespace {{ utilities.gitops.argocd.namespace }} --version 9.1.3 --wait \
+              --namespace argocd --version 9.1.3 --wait \
               --reuse-values \
               --set server.extensions.enabled=true \
               --set server.extensions.extensionList[0].name="argocd-extension-metrics" \
@@ -647,7 +781,7 @@
 
             # Install Kargo
             helm upgrade --install kargo oci://ghcr.io/akuity/kargo-charts/kargo --version 1.8.6 --wait \
-              --namespace {{ utilities.gitops.kargo.namespace }} --create-namespace \
+              --namespace kargo --create-namespace \
               --set api.adminAccount.passwordHash="$hashed_pass" \
               --set api.adminAccount.tokenSigningKey="$signing_key" \
               --set api.host={{ utilities.gitops.kargo.host }} \
@@ -677,12 +811,12 @@
         # Setup Policy Engine for the cluster with OPA Gatekeeper (https://open-policy-agent.github.io/gatekeeper/website/docs/)
         # Reference: https://open-policy-agent.github.io/gatekeeper/website/docs/install
         - name: "Setup Policy Engine with OPA Gatekeeper for the cluster"
-          when: utilities.security.policyEngine.enable | default(false) and utilities.security.policyEngine.type == "opa-gatekeeper"
+          when: utilities.security.policy.enable | default(false) and utilities.security.policy.type == "opa-gatekeeper"
           ansible.builtin.shell: |
             helm repo add gatekeeper https://open-policy-agent.github.io/gatekeeper/charts
             helm repo update
             helm upgrade --install gatekeeper gatekeeper/gatekeeper \
-              --namespace {{ utilities.security.policyEngine.namespace }} --create-namespace --version 3.22.0 --wait \
+              --namespace gatekeeper-system --create-namespace --version 3.22.0 --wait \
               --set replicas=1
           changed_when: false
           register: opa_gatekeeper_policy_engine_result
@@ -691,17 +825,17 @@
           ansible.builtin.debug:
             msg: "{{ opa_gatekeeper_policy_engine_result.stdout_lines }}"
           changed_when: false
-          when: utilities.security.policyEngine.enable | default(false) and utilities.security.policyEngine.type == "opa-gatekeeper"
+          when: utilities.security.policy.enable | default(false) and utilities.security.policy.type == "opa-gatekeeper"
 
         # Setup Policy Engine for the cluster with Kyverno (https://kyverno.io/docs/introduction/)
         # Reference: https://kyverno.io/docs/installation/installation/
         - name: "Setup Policy Engine with Kyverno for the cluster"
-          when: utilities.security.policyEngine.enable | default(false) and utilities.security.policyEngine.type == "kyverno"
+          when: utilities.security.policy.enable | default(false) and utilities.security.policy.type == "kyverno"
           ansible.builtin.shell: |
             helm repo add kyverno https://kyverno.github.io/kyverno/
             helm repo update
             helm upgrade --install kyverno kyverno/kyverno \
-              --namespace {{ utilities.security.policyEngine.namespace }} --create-namespace --version 3.7.1 --wait
+              --namespace kyverno --create-namespace --version 3.7.1 --wait
           changed_when: false
           register: kyverno_policy_engine_result
 
@@ -709,7 +843,7 @@
           ansible.builtin.debug:
             msg: "{{ kyverno_policy_engine_result.stdout_lines }}"
           changed_when: false
-          when: utilities.security.policyEngine.enable | default(false) and utilities.security.policyEngine.type == "kyverno"
+          when: utilities.security.policy.enable | default(false) and utilities.security.policy.type == "kyverno"
 
         # Setup Identity and Access Management for the cluster with Dex (https://dexidp.io/)"
         - name: "Setup Identity and Access Management with Dex for the cluster"
@@ -718,7 +852,7 @@
             helm repo add dex https://charts.dexidp.io
             helm repo update
             helm upgrade --install dex dex/dex \
-              --namespace {{ utilities.security.identity.namespace }} --create-namespace --version 0.24.0 --wait \
+              --namespace dex --create-namespace --version 0.24.0 --wait \
               --set config.issuer="https://{{ utilities.security.identity.host }}" \
               --set config.storage.type="kubernetes" \
               --set config.storage.config.inCluster=true \
@@ -736,35 +870,6 @@
             msg: "{{ dex_identity_result.stdout_lines }}"
           changed_when: false
           when: utilities.security.identity.enable | default(false) and utilities.security.identity.type == "dex"
-
-    # Setup IDP Integration for the cluster
-    - name: "Setup IDP Integration for the cluster"
-      tags: idp
-      when: utilities.idp.enable | default(false)
-      block:
-        # Setup IDP integration with Backstage (https://backstage.io/)
-        - name: "Setup IDP integration with Backstage for the cluster (Required PostgreSQL for Backend)"
-          when: utilities.idp.portal.type == "backstage"
-          ansible.builtin.shell: |
-            helm repo add backstage https://backstage.github.io/charts
-            helm repo update
-            helm upgrade --install backstage backstage/backstage \
-              --namespace {{ utilities.idp.portal.namespace }} --create-namespace --version 2.6.3 --wait \
-              --set ingress.enabled=true \
-              --set ingress.className={{ utilities.idp.portal.ingressClass }} \
-              --set ingress.host={{ utilities.idp.portal.host }} \
-              --set backstage.appConfig.app.baseUrl="http://{{ utilities.idp.portal.host }}" \
-              --set backstage.appConfig.organization.name="Kubewekend" \
-              --set backstage.appConfig.backend.baseUrl="http://{{ utilities.idp.portal.host }}" \
-              --set backstage.appConfig.backend.cors.origin="http://{{ utilities.idp.portal.host }}"
-          changed_when: false
-          register: backstage_idp_result
-
-        - name: "Display IDP integration with Backstage result"
-          ansible.builtin.debug:
-            msg: "{{ backstage_idp_result.stdout_lines }}"
-          changed_when: false
-          when: utilities.idp.portal.type == "backstage"
 
     # Setup Monitoring for the cluster
     - name: "Setup Monitoring for the cluster"
@@ -926,13 +1031,13 @@
         - name: "Install Service Mesh components with Istio"
           when: utilities.serviceMesh.type == "istio"
           ansible.builtin.shell: |
-            helm repo add istio https://istio-release.storage.googleapis.com/charts
+            helm repo add istio https://blob.istio.io/istio-release/charts
             helm repo update
             helm upgrade --install istio-base istio/base \
-              --namespace istio-system --create-namespace --version 1.29.1 --wait \
+              --namespace istio-system --create-namespace --version 1.32.0 --wait \
               --set defaultRevision=default
             helm upgrade --install istiod istio/istiod \
-              --namespace istio-system --version 1.29.1 --wait
+              --namespace istio-system --version 1.32.0 --wait
           changed_when: false
           register: istio_service_mesh_result
 

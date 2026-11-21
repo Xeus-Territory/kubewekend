@@ -8,7 +8,7 @@ k3sCluster:
 
   # Kubernetes version for k3s, find more at https://github.com/k3s-io/k3s/releases
   # Stable Version (Recommended): v1.34.5+k3s1, v1.34.11+k3s1, v1.35.8+k3s1, v1.36.4+k3s1, v1.37.0+k3s1 (latest)
-  version: "v1.34.5+k3s1"
+  version: "v1.36.5+k3s1"
 
   # Add additional SANs for the API server certificate, default is "localhost" and "127.0.0.1"
   tlsSANs: []
@@ -29,7 +29,7 @@ rke2Cluster:
 
   # Kubernetes version for rke2, find more at https://github.com/rancher/rke2/releases
   # Stable Version (Recommended): v1.34.5+rke2r1, v1.34.11+rke2r1, v1.35.8+rke2r1, v1.36.4+rke2r1, v1.37.0+rke2r1 (latest)
-  version: "v1.34.5+rke2r1"
+  version: "v1.36.5+rke2r1"
 
   # Add additional SANs for the API server certificate, default is "localhost" and "127.0.0.1"
   tlsSANs: []

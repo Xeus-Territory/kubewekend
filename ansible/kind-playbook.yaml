@@ -18,7 +18,7 @@
         sudo apt install -y apt-transport-https ca-certificates curl gpg wget bash-completion socat unzip jq
 
         # Install Kind
-        wget -q https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64 -O ./kind
+        wget -q https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64 -O ./kind
         chmod +x ./kind
         sudo mv ./kind /usr/local/bin/kind
 
@@ -111,18 +111,18 @@
             if [ $kindCheck != "" ]; then
               echo "Exist cluster already"
             else
-              kind create cluster --config ~/.kind/kind-config.yaml
-              echo "Create a new cluster succeed"
+              kind create cluster --config ~/.kind/kind-config.yaml && echo "Create a new cluster succeed"
             fi
           register: kind_log
           changed_when: false
+          ignore_errors: false
 
         - name: Log the results of Playbook K8s master node
           tags: setup_kind
           # Use `debug` feature to log your progress when perform the script, such as output or error
           # to your ansible shell. https://docs.ansible.com/ansible/latest/collections/ansible/builtin/debug_module.html
           ansible.builtin.debug:
-            msg: "{{ kind_log.stdout_lines }}"
+            msg: "{{ kind_log.stdout }}"
 
     # Setup network for Kind Cluster in the situation disableDefaultCNI is true (Options: Calico, Flannel or Cilium)
     # Documentation CNI: https://sanj.dev/post/cilium-calico-flannel-cni-performance-comparison
@@ -164,15 +164,14 @@
               esac
               mkdir -p /opt/cni/bin
               cd /tmp
-              curl -O -L https://github.com/containernetworking/plugins/releases/download/v1.7.1/cni-plugins-linux-$ARCH-v1.7.1.tgz
-              tar -C /opt/cni/bin -xzf "cni-plugins-linux-$ARCH-v1.7.1.tgz"
+              curl -O -L https://github.com/containernetworking/plugins/releases/download/v1.7.1/cni-plugins-linux-$ARCH-v1.7.1.tgz && tar -C /opt/cni/bin -xzf "cni-plugins-linux-$ARCH-v1.7.1.tgz"
             '
             docker exec $(docker ps --filter "name={{ cluster_name }}-control-plane" -q) /bin/bash -c '
               set -e
               # ---- Temporary optional (rerun when reboot the host) ----
-              # modprobe br_netfilter
-              # echo 1 | tee /proc/sys/net/bridge/bridge-nf-call-iptables
-              # echo 1 | tee /proc/sys/net/ipv4/ip_forward
+              modprobe br_netfilter
+              echo 1 | tee /proc/sys/net/bridge/bridge-nf-call-iptables
+              echo 1 | tee /proc/sys/net/ipv4/ip_forward
 
               # ---- Permanent setup via sysctl.conf ----
               if ! grep -q "br_netfilter" /etc/modules; then
@@ -194,6 +193,12 @@
           register: flannel_req_log
           changed_when: false
 
+        - name: Show Flannel CNI Requirements for Kind Cluster
+          tags: setup_kind
+          when: kindCluster.networking.cni | default('calico') == 'flannel'
+          ansible.builtin.debug:
+            msg: "{{ flannel_req_log.stdout_lines }}"
+
         - name: Install Flannel CNI for Kind cluster
           tags: setup_kind
           when: kindCluster.networking.cni | default('calico') == 'flannel'
@@ -214,7 +219,7 @@
           ansible.builtin.shell: |-
             helm repo add cilium https://helm.cilium.io/
             helm repo update
-            helm upgrade --install cilium cilium/cilium --version 1.18.5 --wait \
+            helm upgrade --install cilium cilium/cilium --version 1.20.5 --wait \
               --namespace kube-system \
               --set operator.replicas=1 \
               --set hubble.enabled=true \
@@ -298,7 +303,7 @@
           tags: setup_kind
           when: kindCluster.loadbalancer.type == 'cilium-ipam-lb' and kindCluster.networking.cni == 'cilium'
           ansible.builtin.shell: |-
-            helm upgrade --install cilium cilium/cilium --version 1.18.5 \
+            helm upgrade --install cilium cilium/cilium --version 1.20.5 --wait \
               --namespace kube-system \
               --reuse-values \
               --set nodeIPAM.enabled=true \
@@ -313,95 +318,132 @@
             msg: "{{ cilium_ipam_log.stdout_lines }}"
           when: kindCluster.loadbalancer.type == 'cilium-ipam-lb' and kindCluster.networking.cni == 'cilium'
 
-    # Setup Ingress Controller for Kind Cluster (Options: NGINX, Traefik, Cilium or Kong)
+    # Setup Ingress Controller for Kind Cluster (Traefik only)
     - name: Setup Ingress Controller for Kind cluster
       tags: setup_kind
       when: kindCluster.ingress.enable | default(false)
       block:
-        - name: Install NGINX Ingress Controller for Kind cluster
-          tags: setup_kind
-          when: kindCluster.ingress.class | default('nginx') == 'nginx'
-          ansible.builtin.shell: |-
-            kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/refs/tags/controller-v1.14.1/deploy/static/provider/kind/deploy.yaml
-          register: nginx_log
-          changed_when: false
-        - name: Log the results of Install NGINX Ingress Controller for Kind cluster
-          tags: setup_kind
-          ansible.builtin.debug:
-            msg: "{{ nginx_log.stdout_lines }}"
-          when: kindCluster.ingress.class | default('nginx') == 'nginx'
-        
+        # Install Traefik Ingress Controller
+        # Documentation: https://doc.traefik.io/traefik/getting-started/kubernetes/
+        # Helm-Chart: https://artifacthub.io/packages/helm/traefik/traefik
         - name: Install Traefik Ingress Controller for Kind cluster
           tags: setup_kind
-          when:  kindCluster.ingress.class | default('nginx') == 'traefik'
+          when:  kindCluster.ingress.class | default('traefik') == 'traefik'
           ansible.builtin.shell: |-
             helm repo add traefik https://helm.traefik.io/traefik
             helm repo update
-            helm upgrade --install traefik traefik/traefik --namespace kube-system --version 38.0.0 --wait \
+            helm upgrade --install traefik traefik/traefik --namespace kube-system --version 42.0.0 --wait \
               --reuse-values \
-              --set ingressRoute.dashboard.enabled=true \
-              --set ingressRoute.dashboard.matchRule='Host(`dashboard.traefik.local`)' \
-              --set ingressRoute.dashboard.entryPoints={web} \
               --set providers.kubernetesGateway.enabled=false \
-              --set gateway.enabled=false
+              --set gateway.enabled=false \
+              --set ingressRoute.dashboard.enabled=false \
+              --set ports.web.port={{ kindCluster.ingress.traefik.ports.web }} \
+              --set ports.websecure.port={{ kindCluster.ingress.traefik.ports.websecure }} \
+              --set providers.kubernetesCRD.allowCrossNamespace={{ kindCluster.ingress.traefik.allowCrossNamespace | ternary('true', 'false') }}
           register: traefik_log
           changed_when: false
         - name: Log the results of Install Traefik Ingress Controller for Kind cluster
           tags: setup_kind
           ansible.builtin.debug:
             msg: "{{ traefik_log.stdout_lines }}"
-          when: kindCluster.ingress.class | default('nginx') == 'traefik'
+          when: kindCluster.ingress.class | default('traefik') == 'traefik'
 
-        # Documentation: https://docs.cilium.io/en/stable/network/servicemesh/ingress/
-        # Example: https://docs.cilium.io/en/stable/network/servicemesh/ingress/#examples
-        - name: Install Cilium Ingress Controller for Kind cluster
+        - name: Enable Traefik Dashboard for Kind cluster
           tags: setup_kind
-          when:  kindCluster.ingress.class | default('nginx') == 'cilium' and kindCluster.networking.cni == 'cilium'
+          when: kindCluster.ingress.traefik.dashboard.enable | default(false) and kindCluster.ingress.class | default('traefik') == 'traefik'
+          vars:
+            dashboard_host: "{{ kindCluster.ingress.traefik.dashboard.host | default('dashboard.traefik.local') }}"
           ansible.builtin.shell: |-
-            helm upgrade --install cilium cilium/cilium --version 1.18.5 \
-              --namespace kube-system \
+            helm upgrade --install traefik traefik/traefik --namespace kube-system --version 42.0.0 --wait \
               --reuse-values \
-              --set nodePort.enabled=true \
-              --set ingressController.enabled=true \
-              --set ingressController.loadbalancerMode=shared
-            kubectl rollout restart -n kube-system deployment cilium-operator
-            kubectl rollout restart -n kube-system daemonset cilium
-          register: cilium_ingress_log
+              --set ingressRoute.dashboard.enabled=true \
+              --set ingressRoute.dashboard.matchRule='Host(`{{ dashboard_host }}`)' \
+              --set ingressRoute.dashboard.entryPoints={web}
+          register: traefik_dashboard_log
           changed_when: false
 
-        - name: Log the results of Install Cilium Ingress Controller for Kind cluster
+        - name: Log the results of enable Traefik Dashboard for Kind cluster
           tags: setup_kind
           ansible.builtin.debug:
-            msg: "{{ cilium_ingress_log.stdout_lines }}"
-          when: kindCluster.ingress.class | default('nginx') == 'cilium' and kindCluster.networking.cni == 'cilium'
+            msg: "{{ traefik_dashboard_log.stdout_lines }}"
+          when: kindCluster.ingress.traefik.dashboard.enable | default(false) and kindCluster.ingress.class | default('traefik') == 'traefik'
 
-        - name: Install Kong Ingress Controller for Kind cluster
-          tags: setup_kind
-          when:  kindCluster.ingress.class | default('nginx') == 'kong'
-          ansible.builtin.shell: |-
-            helm repo add kong https://charts.konghq.com
-            helm repo update
-            helm upgrade --install kong kong/kong --version 3.0.2 --wait \
-              --namespace kong --create-namespace
-          register: kong_ingress_log
-          changed_when: false
+        # # (Archive - Stop supporting) Install Nginx Controller
+        # # Documentation: https://docs.nginx.com/nginx-ingress-controller/install/manifests/
+        # # Full usage: https://kubernetes.github.io/ingress-nginx/
+        # - name: Install NGINX Ingress Controller for Kind cluster
+        #   tags: setup_kind
+        #   when: kindCluster.ingress.class | default('nginx') == 'nginx'
+        #   ansible.builtin.shell: |-
+        #     kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/refs/tags/controller-v1.14.1/deploy/static/provider/kind/deploy.yaml
+        #   register: nginx_log
+        #   changed_when: false
+        # - name: Log the results of Install NGINX Ingress Controller for Kind cluster
+        #   tags: setup_kind
+        #   ansible.builtin.debug:
+        #     msg: "{{ nginx_log.stdout_lines }}"
+        #   when: kindCluster.ingress.class | default('nginx') == 'nginx'
+        
+        # # (Archive - Stop supporting) Install Cilium Ingress Controller
+        # # Documentation: https://docs.cilium.io/en/stable/network/servicemesh/ingress/
+        # # Example: https://docs.cilium.io/en/stable/network/servicemesh/ingress/#examples
+        # - name: Install Cilium Ingress Controller for Kind cluster
+        #   tags: setup_kind
+        #   when:  kindCluster.ingress.class | default('traefik') == 'cilium' and kindCluster.networking.cni == 'cilium'
+        #   ansible.builtin.shell: |-
+        #     API_SERVER_IP="$(kubectl get nodes {{ cluster_name }}-control-plane -o jsonpath='{.status.addresses[0].address}')"
+        #     helm upgrade --install cilium cilium/cilium --version 1.20.5 --wait \
+        #       --namespace kube-system \
+        #       --reuse-values \
+        #       --set nodePort.enabled=true \
+        #       --set ingressController.enabled=true \
+        #       --set ingressController.loadbalancerMode=shared \
+        #       --set kubeProxyReplacement=true \
+        #       --set k8sServiceHost="$API_SERVER_IP" \
+        #       --set k8sServicePort="6443"
+        #     kubectl rollout restart -n kube-system deployment cilium-operator
+        #     kubectl rollout restart -n kube-system daemonset cilium
+        #   register: cilium_ingress_log
+        #   changed_when: false
 
-        - name: Log the results of Install Kong Ingress Controller for Kind cluster
-          tags: setup_kind
-          ansible.builtin.debug:
-            msg: "{{ kong_ingress_log.stdout_lines }}"
-          when: kindCluster.ingress.class | default('nginx') == 'kong'
+        # - name: Log the results of Install Cilium Ingress Controller for Kind cluster
+        #   tags: setup_kind
+        #   ansible.builtin.debug:
+        #     msg: "{{ cilium_ingress_log.stdout_lines }}"
+        #   when: kindCluster.ingress.class | default('traefik') == 'cilium' and kindCluster.networking.cni == 'cilium'
 
-    # Setup GatewayAPI for Kind Cluster (Options: Kong, Cilium or Traefik)
+        # # (Archive - Stop supporting) Install Kong Ingress Controller 
+        # # Documentation: https://developer.konghq.com/kubernetes-ingress-controller/install/
+        # # Helm-chart: https://artifacthub.io/packages/helm/kong/ingress
+        # - name: Install Kong Ingress Controller for Kind cluster
+        #   tags: setup_kind
+        #   when:  kindCluster.ingress.class | default('traefik') == 'kong'
+        #   ansible.builtin.shell: |-
+        #     helm repo add kong https://charts.konghq.com
+        #     helm repo update
+        #     helm upgrade --install kong kong/kong --version 3.0.2 --wait \
+        #       --namespace kong --create-namespace
+        #   register: kong_ingress_log
+        #   changed_when: false
+
+        # - name: Log the results of Install Kong Ingress Controller for Kind cluster
+        #   tags: setup_kind
+        #   ansible.builtin.debug:
+        #     msg: "{{ kong_ingress_log.stdout_lines }}"
+        #   when: kindCluster.ingress.class | default('traefik') == 'kong'
+
+    # Setup GatewayAPI for Kind Cluster (Traefik only)
     - name: Setup GatewayAPI for Kind cluster
       tags: setup_kind
       when: kindCluster.apigateway.enable | default(false)
       block:
-        - name: Install GatewayAPI CRD for Kind cluster
+        # Documentation: https://gateway-api.sigs.k8s.io/docs/introduction/
+        # GitHub: https://github.com/kubernetes-sigs/gateway-api
+        - name: Install GatewayAPI CRD for Kind cluster (Force the installed)
           tags: setup_kind
           when: kindCluster.apigateway.crd.install | default(false)
           ansible.builtin.shell: |-
-            kubectl apply --server-side -f https://github.com/kubernetes-sigs/gateway-api/releases/download/{{ kindCluster.apigateway.crd.version | default('v1.4.1') }}/standard-install.yaml
+            kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-sigs/gateway-api/releases/download/{{ kindCluster.apigateway.crd.version }}/standard-install.yaml
           register: gatewayapi_log
           changed_when: false
 
@@ -411,76 +453,21 @@
             msg: "{{ gatewayapi_log.stdout_lines }}"
           when: kindCluster.apigateway.crd.install | default(false)
 
-        # Documentation: https://developer.konghq.com/gateway/
-        # View more example at: https://github.com/Kong/kubernetes-ingress-controller/tree/main/examples
-        - name: Kong GatewayAPI for Kind cluster
-          tags: setup_kind
-          when: kindCluster.apigateway.class == 'kong'
-          ansible.builtin.shell: |-
-            helm repo add kong https://charts.konghq.com
-            helm repo update
-            helm upgrade --install kong kong/kong --version 3.0.2 --wait \
-              --namespace kong --create-namespace \
-              --reuse-values
-            cat <<EOF | kubectl apply -f -
-            apiVersion: gateway.networking.k8s.io/v1
-            kind: GatewayClass
-            metadata:
-              name: kong
-              annotations:
-                konghq.com/gatewayclass-unmanaged: "true"
-            spec:
-              controllerName: konghq.com/kic-gateway-controller
-            EOF
-
-          register: kong_gateway_log
-          changed_when: false
-
-        - name: Log the results of Kong GatewayAPI for Kind cluster
-          tags: setup_kind
-          ansible.builtin.debug:
-            msg: "{{ kong_gateway_log.stdout_lines }}"
-          when: kindCluster.apigateway.class == 'kong'
-
-        # Documentation: https://docs.cilium.io/en/stable/network/servicemesh/gateway-api/gateway-api/
-        # Example: https://docs.cilium.io/en/stable/network/servicemesh/gateway-api/gateway-api/#examples
-        - name: Install Cilium GatewayAPI for Kind cluster
-          tags: setup_kind
-          when: kindCluster.apigateway.class == 'cilium' and kindCluster.networking.cni == 'cilium'
-          ansible.builtin.shell: |-
-            helm upgrade --install cilium cilium/cilium --version 1.18.5 \
-              --namespace kube-system \
-              --reuse-values \
-              --set nodePort.enabled=true \
-              --set gatewayAPI.enabled=true
-            kubectl rollout restart -n kube-system deployment cilium-operator
-            kubectl rollout restart -n kube-system daemonset cilium
-          register: cilium_gateway_log
-          changed_when: false
-        
-        - name: Log the results of Install Cilium GatewayAPI for Kind cluster
-          tags: setup_kind
-          ansible.builtin.debug:
-            msg: "{{ cilium_gateway_log.stdout_lines }}"
-          when: kindCluster.apigateway.class == 'cilium' and kindCluster.networking.cni == 'cilium'
-
+        # Install Traefik Gateway API
+        # Documentation: https://doc.traefik.io/traefik/getting-started/kubernetes/
+        # Helm-Chart: https://artifacthub.io/packages/helm/traefik/traefik
         - name: Install Traefik GatewayAPI for Kind cluster (Including Traefik Ingress Controller)
           tags: setup_kind
           when: kindCluster.apigateway.class == 'traefik'
           ansible.builtin.shell: |-
             helm repo add traefik https://helm.traefik.io/traefik
             helm repo update
-            kubectl apply -n kube-system \
-              -f https://raw.githubusercontent.com/traefik/traefik/refs/tags/v3.6.5/docs/content/reference/dynamic-configuration/kubernetes-gateway-rbac.yml
-            helm upgrade --install traefik traefik/traefik --version 38.0.0 --wait \
+            helm upgrade --install traefik traefik/traefik --version 42.0.0 --wait \
               --namespace kube-system \
               --reuse-values \
-              --set ingressRoute.dashboard.enabled=true \
-              --set ingressRoute.dashboard.matchRule='Host(`dashboard.traefik.local`)' \
-              --set ingressRoute.dashboard.entryPoints={web} \
               --set gateway.enabled=true \
-              --set gateway.listeners.web.namespacePolicy.from=All \
-              --set providers.kubernetesGateway.enabled=true
+              --set providers.kubernetesGateway.enabled=true \
+              --set gateway.listeners.web.namespacePolicy.from=All
           register: traefik_gateway_log
           changed_when: false
         
@@ -490,27 +477,86 @@
             msg: "{{ traefik_gateway_log.stdout_lines }}"
           when: kindCluster.apigateway.class == 'traefik'
 
-        - name: Setup Internal Kong GatewayAPI for Kind cluster
-          tags: setup_kind
-          when: kindCluster.apigateway.kong.internalOnly | default(false) and kindCluster.apigateway.class == 'kong'
-          ansible.builtin.shell: |-
-            helm repo add kong https://charts.konghq.com
-            helm repo update
-            helm upgrade --install kong kong/kong --version 3.0.2 --wait \
-              --namespace kong --create-namespace \
-              --reuse-values \
-              --set proxy.type=ClusterIP \
-              --set proxy.ingress.enabled=true \
-              --set proxy.ingress.ingressClassName={{ kindCluster.apigateway.kong.ingressClass }} \
-              --set proxy.ingress.hostnames={{ kindCluster.apigateway.kong.internalHostname }}
-          register: kong_internal_log
-          changed_when: false
+        # # (Archive - Stop Supporting)  Install Kong Gateway API
+        # # Documentation: https://developer.konghq.com/gateway/
+        # # View more example at: https://github.com/Kong/kubernetes-ingress-controller/tree/main/examples
+        # - name: Kong GatewayAPI for Kind cluster
+        #   tags: setup_kind
+        #   when: kindCluster.apigateway.class == 'kong'
+        #   ansible.builtin.shell: |-
+        #     helm repo add kong https://charts.konghq.com
+        #     helm repo update
+        #     helm upgrade --install kong kong/kong --version 3.0.2 --wait \
+        #       --namespace kong --create-namespace \
+        #       --reuse-values
+        #     cat <<EOF | kubectl apply -f -
+        #     apiVersion: gateway.networking.k8s.io/v1
+        #     kind: GatewayClass
+        #     metadata:
+        #       name: kong
+        #       annotations:
+        #         konghq.com/gatewayclass-unmanaged: "true"
+        #     spec:
+        #       controllerName: konghq.com/kic-gateway-controller
+        #     EOF
 
-        - name: Log the results of Setup Internal Kong GatewayAPI for Kind cluster
-          tags: setup_kind
-          ansible.builtin.debug:
-            msg: "{{ kong_internal_log.stdout_lines }}"
-          when: kindCluster.apigateway.kong.internalOnly | default(false) and kindCluster.apigateway.class == 'kong'
+        #   register: kong_gateway_log
+        #   changed_when: false
+
+        # - name: Log the results of Kong GatewayAPI for Kind cluster
+        #   tags: setup_kind
+        #   ansible.builtin.debug:
+        #     msg: "{{ kong_gateway_log.stdout_lines }}"
+        #   when: kindCluster.apigateway.class == 'kong'
+
+        # - name: Setup Internal Kong GatewayAPI for Kind cluster
+        #   tags: setup_kind
+        #   when: kindCluster.apigateway.kong.internalOnly | default(false) and kindCluster.apigateway.class == 'kong'
+        #   ansible.builtin.shell: |-
+        #     helm repo add kong https://charts.konghq.com
+        #     helm repo update
+        #     helm upgrade --install kong kong/kong --version 3.0.2 --wait \
+        #       --namespace kong --create-namespace \
+        #       --reuse-values \
+        #       --set proxy.type=ClusterIP \
+        #       --set proxy.ingress.enabled=true \
+        #       --set proxy.ingress.ingressClassName={{ kindCluster.apigateway.kong.ingressClass }} \
+        #       --set proxy.ingress.hostnames={{ kindCluster.apigateway.kong.internalHostname }} \
+        #       --set admin.enabled={{ kindCluster.apigateway.kong.admin }}
+        #   register: kong_internal_log
+        #   changed_when: false
+
+        # - name: Log the results of Setup Internal Kong GatewayAPI for Kind cluster
+        #   tags: setup_kind
+        #   ansible.builtin.debug:
+        #     msg: "{{ kong_internal_log.stdout_lines }}"
+        #   when: kindCluster.apigateway.kong.internalOnly | default(false) and kindCluster.apigateway.class == 'kong'
+
+        # # (Archive - Stop Supporting) Install Cilium GatewayAPI
+        # # Documentation: https://docs.cilium.io/en/stable/network/servicemesh/gateway-api/gateway-api/
+        # # Example: https://docs.cilium.io/en/stable/network/servicemesh/gateway-api/gateway-api/#examples
+        # - name: Install Cilium GatewayAPI for Kind cluster
+        #   tags: setup_kind
+        #   when: kindCluster.apigateway.class == 'cilium' and kindCluster.networking.cni == 'cilium'
+        #   ansible.builtin.shell: |-
+        #     API_SERVER_IP="$(kubectl get nodes {{ cluster_name }}-control-plane -o jsonpath='{.status.addresses[0].address}')"
+        #     helm upgrade --install cilium cilium/cilium --version 1.20.5 --wait \
+        #       --namespace kube-system \
+        #       --reuse-values \
+        #       --set gatewayAPI.enabled=true \
+        #       --set kubeProxyReplacement=true \
+        #       --set k8sServiceHost="$API_SERVER_IP" \
+        #       --set k8sServicePort="6443"
+        #     kubectl rollout restart -n kube-system deployment cilium-operator
+        #     kubectl rollout restart -n kube-system daemonset cilium
+        #   register: cilium_gateway_log
+        #   changed_when: false
+        
+        # - name: Log the results of Install Cilium GatewayAPI for Kind cluster
+        #   tags: setup_kind
+        #   ansible.builtin.debug:
+        #     msg: "{{ cilium_gateway_log.stdout_lines }}"
+        #   when: kindCluster.apigateway.class == 'cilium' and kindCluster.networking.cni == 'cilium'
 
     # Setup Network Forwarding for Kind Cluster (from host to kind cluster) with forwarding rules by socat
     - name: Setup Network Forwarding for port 80/443 from home to Kind cluster
@@ -594,14 +640,9 @@
       block:
         - name: Delete Kind cluster
           ansible.builtin.shell: |-
-            kind delete cluster --name {{ cluster_name }} || echo "No kind cluster to delete"
+            kind delete cluster --name {{ cluster_name }}
           register: kind_remove_log
           changed_when: false
-
-        - name: Log the results of Remove Kind cluster
-          tags: remove_kind
-          ansible.builtin.debug:
-            msg: "{{ kind_remove_log.stdout_lines }}"
 
         - name: Remove socat-netforward service
           tags: remove_kind
@@ -638,6 +679,3 @@
           ansible.builtin.debug:
             msg: "{{ lb_remove_log.stdout_lines }}"
           when: kindCluster.loadbalancer.enable and kindCluster.loadbalancer.type == 'cloud-provider-kind'
-
-        
-        

@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: longhorn-iscsi-installation
-  namespace: {{ utilities.storage.namespace }}
+  namespace: longhorn-system
   labels:
     app: longhorn-iscsi-installation
   annotations:

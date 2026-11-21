@@ -19,6 +19,7 @@
     - [rke2 — RKE2 Cluster Operations](#rke2--rke2-cluster-operations)
     - [network — VirtualBox NAT Network](#network--virtualbox-nat-network)
     - [config — Cluster Configuration](#config--cluster-configuration)
+    - [versions — Pinned Versions](#versions--pinned-versions)
     - [status — Project Dashboard](#status--project-dashboard)
     - [quickstart — Guided Workflows](#quickstart--guided-workflows)
   - [Global Options (kind / k3s / rke2)](#global-options-kind--k3s--rke2)
@@ -31,6 +32,7 @@
     - [6. LGTM Observability Stack + Testing Application](#6-lgtm-observability-stack--testing-application)
     - [7. RKE2 Standalone on Vagrant / Remote VPS](#7-rke2-standalone-on-vagrant--remote-vps)
     - [8. RKE2 High-Availability (HA)](#8-rke2-high-availability-ha)
+  - [Available Setup Options](#available-setup-options)
   - [Available Utility Tags](#available-utility-tags)
   - [Project Structure](#project-structure)
   - [Configuration Files](#configuration-files)
@@ -164,6 +166,7 @@ chmod +x ./scripts/setup.sh
 | `kind setup` | Install tools + create Kind cluster + configure networking |
 | `kind destroy` | Remove Kind cluster and related components |
 | `kind utils <tags...>` | Install K8s utilities by [tag](#available-utility-tags) |
+| `kind utils --list` | List utility tags, supported options and status from `master.yaml` |
 
 ```bash
 # Full setup
@@ -191,6 +194,7 @@ chmod +x ./scripts/setup.sh
 | `k3s ha-setup` | Setup HA K3s cluster (3+ masters + N workers) |
 | `k3s destroy` | Uninstall K3s from all inventory nodes |
 | `k3s utils <tags...>` | Install K8s utilities by [tag](#available-utility-tags) |
+| `k3s utils --list` | List utility tags, supported options and status from `master.yaml` |
 
 ```bash
 # Standalone setup
@@ -214,6 +218,7 @@ chmod +x ./scripts/setup.sh
 | `rke2 ha-setup` | Setup HA RKE2 cluster (3+ masters + N workers) |
 | `rke2 destroy` | Uninstall RKE2 from all inventory nodes |
 | `rke2 utils <tags...>` | Install K8s utilities by [tag](#available-utility-tags) |
+| `rke2 utils --list` | List utility tags, supported options and status from `master.yaml` |
 
 ```bash
 # Standalone setup (master first, then workers)
@@ -249,14 +254,47 @@ chmod +x ./scripts/setup.sh
 
 | Subcommand | Description |
 |------------|-------------|
+| `config --list [target]` | List [setup options](#available-setup-options) (supported, in development, current values); `target`: `kind` \| `k3s` \| `rke2` \| `utils` (aliases: `list`, `-l`) |
 | `config show` | Print `ansible/inventories/host_vars/master.yaml` |
 | `config edit` | Open `master.yaml` in `$EDITOR` |
 | `config worker-show` | Print `worker.yaml` |
 | `config worker-edit` | Open `worker.yaml` in `$EDITOR` |
 
 ```bash
+./scripts/setup.sh config --list        # Kind, K3s and RKE2 setup options
+./scripts/setup.sh config --list k3s    # one distribution
+./scripts/setup.sh config --list utils  # utility tags (same as `kind utils --list`)
 ./scripts/setup.sh config show
 ./scripts/setup.sh config edit
+```
+
+### versions — Pinned Versions
+
+| Subcommand | Description |
+|------------|-------------|
+| `versions list [filter]` | Current pinned versions (charts, tools, manifests, cluster versions) with their `file:line` locations; flags components pinned to different versions. `filter`: component name or group (`kubernetes`, `host-tools`, `networking`, `utilities`) |
+| `versions bump <component> <version>` | Replace the pinned version everywhere it is used; shows a disclaimer and a preview, then asks for confirmation (`--dry-run` to preview only, `--yes` to skip the prompt) |
+| `versions sync [--check]` | Validate the pins (every registry entry found, one version each) and regenerate the [Versions tables](../README.md#versions) in the root README between the `versions:begin` / `versions:end` markers. `--check` only reports (CI). Runs as the `kubewekend-versions-sync` pre-commit hook |
+
+> [!WARNING]
+>
+> Bumping is at your own risk. Kubewekend only tests the versions pinned in this repository: a newer chart or tool can change its templates, values or defaults and stop working with the Kubewekend playbooks and value templates. Read the release notes, preview with `--dry-run`, and test on a disposable cluster first.
+
+```bash
+./scripts/setup.sh versions list
+./scripts/setup.sh versions list networking
+./scripts/setup.sh versions bump cilium 1.20.6 --dry-run   # preview
+./scripts/setup.sh versions bump k3s v1.35.8+k3s1          # updates master.yaml + worker.yaml
+```
+
+Pins are found by pattern (registry `VERSION_REGISTRY` in `setup.sh`), not by line number. Adding a package = one registry line (`name|group|files|anchor|extract|note`, empty `extract` for Helm charts, no `|` inside patterns). The optional `note` describes the essential configuration Kubewekend applies (plain text or code spans, no `|` or single quote); it is shown by `versions list`, the `versions bump` preview and the Notes column of the README Versions table; check it with `versions list <name>`. Not tracked: unpinned tools (kubectl, Helm, Calico, Flux CLI), (listed by hand in the root README).
+
+**Pre-commit hook.** `.pre-commit-config.yaml` runs `versions sync` when pinned files, `README.md` or `setup.sh` change. If the Versions tables are stale, the hook rewrites `README.md` and the commit stops once (like `helm-docs`): review, `git add README.md`, commit again. If a pin is missing or pinned to different versions, the hook fails until it is fixed (e.g. with `versions bump`).
+
+```bash
+pre-commit install                                   # once per clone
+pre-commit run kubewekend-versions-sync --all-files  # run it manually
+./scripts/setup.sh versions sync --check             # CI: fail when the README is stale
 ```
 
 ### status — Project Dashboard
@@ -538,24 +576,55 @@ sed -i "s/127.0.0.1/192.168.56.99/g" ~/.kube/config
 
 ---
 
+## Available Setup Options
+
+Cluster setup reads `kindCluster`, `k3sCluster` or `rke2Cluster` from `ansible/inventories/host_vars/master.yaml` (K3s / RKE2 worker nodes read `worker.yaml`: `version`, `tlsSANs`, `nodeLabels`, `nodeTaints`). List what each distribution supports, what is still in development, and the current values:
+
+```bash
+./scripts/setup.sh config --list          # or: config --list kind | k3s | rke2
+```
+
+| Distribution | Supported options | In development (not read by the playbooks yet) |
+|--------------|-------------------|-----------------------------------------------|
+| Kind (`kind setup`) | `numberOfNodes`, `image`, `networking` (CNI: calico / flannel / cilium; kubeProxyMode), `loadbalancer` (cloud-provider-kind / metallb / cilium-ipam-lb), `ingress` (traefik: ports, allowCrossNamespace, dashboard), `apigateway` (traefik), `networkForwarding` | archived: ingress nginx / kong / cilium, Gateway API kong / cilium (see the archive note) |
+| K3s (`k3s setup`, `k3s ha-setup`) | `version`, `highAvailability.dataStorage` (etcd / postgres), `tlsSANs`, `nodeLabels`, `nodeTaints`, `cni` (flannel / calico / cilium), `loadBalancer` (servicelb / metallb), `ingress` (traefik: dashboard, gateway) | `multus`, `ccm`, `highAvailability.enable` / `replicas` / `clusterLB` (informational), ingress classes other than traefik |
+| RKE2 (`rke2 setup`, `rke2 ha-setup`) | `version`, `highAvailability.dataStorage` (etcd / postgres), `tlsSANs`, `nodeLabels`, `nodeTaints`, `cni` (canal / calico / cilium / flannel), `loadBalancer` (servicelb / metallb), `ingress` (traefik, HelmChartConfig values) | archived: `ingress-nginx`; `multus`, `ccm`, `highAvailability.enable` / `replicas` / `clusterLB` (informational) |
+
+> [!NOTE]
+>
+> **Archived (2026-11-20): ingress / Gateway API controllers other than Traefik.** NGINX, Kong and Cilium ingress, Kong and Cilium Gateway API, and RKE2 `ingress-nginx` changed too often to keep working, so Kubewekend supports **Traefik only**. They are archived, not deleted: the Kind tasks stay commented out in `ansible/kind-playbook.yaml`, the test templates moved to `ansible/templates/archives/`, and the version pins are commented-out `VERSION_REGISTRY` entries. Cilium is still supported as CNI and as the Kind `cilium-ipam-lb` load balancer. `kind setup` / `rke2 setup` warn when `master.yaml` selects an archived class. Details: the archive note above `SETUP_REGISTRY_KIND` in `setup.sh`.
+
+The tables live in `SETUP_REGISTRY_KIND` / `SETUP_REGISTRY_K3S` / `SETUP_REGISTRY_RKE2` in `setup.sh`; cluster keys without an entry are shown as in development automatically. Keep them in sync with the setup playbooks.
+
+---
+
 ## Available Utility Tags
 
-Used with `kind utils <tags...>` `k3s utils <tags...>` or `rke2 utils <tags...>`:
+Used with `kind utils <tags...>` `k3s utils <tags...>` or `rke2 utils <tags...>`. A tag only installs when its block is enabled in `ansible/inventories/host_vars/master.yaml` (`utilities.<key>.enable: true`); the CLI warns about disabled tags and rejects unknown ones.
+
+List every tag with its `master.yaml` key, supported options, options still in development, and the current values from `master.yaml`:
+
+```bash
+./scripts/setup.sh kind utils --list   # also: `utils list` or `utils -l`, same output for k3s / rke2
+```
+
+The tag list lives in one registry (`UTILITY_REGISTRY` in `setup.sh`); keep it in sync with the tags in `k8s-utilities-playbook.yaml`.
 
 | Tag | Description | Playbook |
 |-----|-------------|----------|
-| `ingress_test` | Deploy test nginx with ingress | `k8s-utilities-playbook.yaml` |
-| `apigateway_test` | Deploy API Gateway test with weighted routing | `k8s-utilities-playbook.yaml` |
+| `ingress_test` | Deploy test nginx with ingress (`ingressClass: traefik`) | `k8s-utilities-playbook.yaml` |
+| `apigateway_test` | Deploy API Gateway test with weighted routing (`gatewayClass: traefik`) | `k8s-utilities-playbook.yaml` |
 | `certmanager` | Install cert-manager (v1.19.2) | `k8s-utilities-playbook.yaml` |
 | `dashboard` | Install K8s dashboard (`kubernetes-dashboard` / `headlamp` / `rancher`) | `k8s-utilities-playbook.yaml` |
-| `storage` | Install Longhorn distributed block storage (v1.11.0) with optional iSCSI and NFS support | `k8s-utilities-playbook.yaml` |
-| `secret_management` | Install Vault (v0.32.0) or OpenBao with auto-unseal, Vault Operator, and key persistence | `k8s-utilities-playbook.yaml` |
+| `storage` | Install Longhorn distributed block storage (v1.11.1, `longhorn-system`) with optional iSCSI / NFS node setup, or the local-path-provisioner (v0.0.37) with `type: local-path`. `test.enable` deploys an nginx Pod with a 2Gi RWO PVC (StorageClass named after `type`) to verify provisioning | `k8s-utilities-playbook.yaml` |
+| `secret_management` | Install Vault (v0.32.0) or OpenBao (v0.30.1) in `dev` or `standalone` mode (`config.mode`), with the optional Vault agent injector (`config.injector`) | `k8s-utilities-playbook.yaml` |
 | `k8s_extensions` | Install Reflector, Reloader, External Secrets Operator | `k8s-utilities-playbook.yaml` |
 | `gitops` | Install ArgoCD (v9.1.3) with Image Updater + Extensions, or Flux (v2.7.5) with Weave GitOps UI and Kargo | `k8s-utilities-playbook.yaml` |
 | `security` | Install policy engine (Kyverno v3.7.1 or OPA Gatekeeper v3.22.0) and Dex identity provider (v0.24.0) | `k8s-utilities-playbook.yaml` |
-| `idp` | Install Backstage Internal Developer Portal (v2.6.3) | `k8s-utilities-playbook.yaml` |
 | `monitoring` | Install full LGTM stack: kube-prometheus-stack (v82.16.0), Alloy APM (v1.7.0), Loki (v9.5.1), Tempo (v1.26.7), Pyroscope (v1.19.2) | `k8s-utilities-playbook.yaml` |
-| `service_mesh` | Install Istio service mesh (v1.29.1) | `k8s-utilities-playbook.yaml` |
+| `service_mesh` | Install Istio service mesh (v1.32.0, sidecar mode) | `k8s-utilities-playbook.yaml` |
+
+**In development** (defined in `master.yaml`, no tag yet): `dns`, `glb`, `objectStorage`, `idp`, `scaling`, `devex`, `backupRestore`, `chaosEngineering`, `scheduler`, `workflow`, `rollout`, `gpu`, `operator`, plus some options of supported tags (e.g. `storage.type: local-path-storage`, `serviceMesh.dataplane.mode: ambient`). `utils --list` shows the up-to-date list.
 
 Multiple tags can be combined:
 
@@ -564,8 +633,8 @@ Multiple tags can be combined:
 ./scripts/setup.sh k3s utils ingress_test apigateway_test k8s_extensions
 # Full observability stack
 ./scripts/setup.sh kind utils monitoring
-# Security + IDP
-./scripts/setup.sh k3s utils security idp
+# Security (policy engine + identity provider)
+./scripts/setup.sh k3s utils security
 ```
 
 ---
@@ -639,32 +708,33 @@ Key settings in `master.yaml`:
 
 ```yaml
 # Kind
-kindCluster.image: "kindest/node:v1.34.3"
-kindCluster.ingress.class: "traefik"     # nginx | traefik | cilium | kong
+kindCluster.image: "kindest/node:v1.36.4"
+kindCluster.ingress.class: "traefik"     # traefik (nginx, cilium, kong archived)
 kindCluster.loadbalancer.type: "cloud-provider-kind"  # metallb | cloud-provider-kind
 
 # K3s
-k3sCluster.version: "v1.34.5+k3s1"
+k3sCluster.version: "v1.36.5+k3s1"
 k3sCluster.cni.type: "flannel"           # flannel | calico | cilium
 k3sCluster.loadBalancer.type: "servicelb" # servicelb | metallb
 k3sCluster.ingress.class: "traefik"
 k3sCluster.highAvailability.dataStorage.type: "etcd" # etcd | postgres
 
 # RKE2
-rke2Cluster.version: "v1.34.5+rke2r1"
+rke2Cluster.version: "v1.36.5+rke2r1"
 rke2Cluster.cni.type: "canal"             # canal | flannel | calico | cilium
 rke2Cluster.loadBalancer.type: "servicelb" # servicelb | metallb
-rke2Cluster.ingress.class: "traefik"      # traefik | ingress-nginx
+rke2Cluster.ingress.class: "traefik"      # traefik (ingress-nginx archived)
 rke2Cluster.highAvailability.dataStorage.type: "etcd" # etcd | postgres
 
 # Utilities
 utilities.certmanager.enable: true
-utilities.storage.enable: true           # Longhorn distributed storage
-utilities.storage.type: "longhorn"
+utilities.storage.enable: true
+utilities.storage.type: "longhorn"       # longhorn | local-path
+utilities.storage.test.enable: true      # nginx Pod + 2Gi RWO PVC to verify the StorageClass
 utilities.gitops.type: "argocd"          # argocd | flux
 utilities.dashboard.type: "headlamp"     # kubernetes-dashboard | headlamp | rancher
 utilities.secretManagement.type: "vault" # vault | openbao
-utilities.security.policyEngine.type: "kyverno"  # kyverno | opa-gatekeeper
+utilities.security.policy.type: "kyverno"  # kyverno | opa-gatekeeper
 utilities.security.identity.type: "dex"
 utilities.idp.portal.type: "backstage"
 
