@@ -1,0 +1,21 @@
+// Kubewekend palette (dark): the theme's dark scheme with the icon colours lifted for contrast on a dark background.
+@import "./color_schemes/dark";
+
+$kw-navy: #1e3a6e;
+$kw-yellow: #f4c430;
+$kw-blue-light: #7ea6ff;          // Kubernetes blue, lightened for dark backgrounds
+
+$link-color: $kw-blue-light;
+$btn-primary-color: #2f5aa8;
+$sidebar-color: #1f1e24;
+$body-background-color: #232228;
+$feedback-color: darken($sidebar-color, 3%);
+
+// Kubewekend components (_sass/custom/custom.scss)
+$kw-heading: $kw-yellow;          // hero title, card titles
+$kw-muted: $grey-lt-300;          // tagline, card text
+$kw-card-bg: #2b2a31;
+$kw-card-accent: $kw-yellow;      // card top border
+$kw-card-hover: $kw-blue-light;
+$kw-step-bg: $kw-yellow;          // numbered step circles
+$kw-step-fg: $kw-navy;

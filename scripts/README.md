@@ -274,7 +274,7 @@ chmod +x ./scripts/setup.sh
 |------------|-------------|
 | `versions list [filter]` | Current pinned versions (charts, tools, manifests, cluster versions) with their `file:line` locations; flags components pinned to different versions. `filter`: component name or group (`kubernetes`, `host-tools`, `networking`, `utilities`) |
 | `versions bump <component> <version>` | Replace the pinned version everywhere it is used; shows a disclaimer and a preview, then asks for confirmation (`--dry-run` to preview only, `--yes` to skip the prompt) |
-| `versions sync [--check]` | Validate the pins (every registry entry found, one version each) and regenerate the [Versions tables](../README.md#versions) in the root README between the `versions:begin` / `versions:end` markers. `--check` only reports (CI). Runs as the `kubewekend-versions-sync` pre-commit hook |
+| `versions sync [--check]` | Validate the pins (every registry entry found, one version each) and regenerate the [Versions tables](../docs/reference/versions.md) in the root README and `docs/reference/versions.md` between the `versions:begin` / `versions:end` markers. `--check` only reports (CI). Runs as the `kubewekend-versions-sync` pre-commit hook |
 
 > [!WARNING]
 >

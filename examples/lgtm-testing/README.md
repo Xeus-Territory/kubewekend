@@ -4,42 +4,39 @@ A full-stack demo application designed to reproduce and visualize monitoring sce
 
 ## Architecture
 
+```mermaid
+flowchart TB
+    subgraph app["lgtm-testing"]
+        fe["Frontend<br/>Nginx :3000"] -->|/api| be["Backend<br/>FastAPI :8000"]
+        be -->|SQL| db[("PostgreSQL<br/>:5432")]
+    end
+
+    subgraph mon["monitoring"]
+        alloy["Alloy<br/>OTLP :4317 · log tailing"]
+        tempo["Tempo<br/>traces"]
+        loki["Loki<br/>logs"]
+        prom["Prometheus<br/>metrics"]
+        pyro["Pyroscope<br/>profiles"]
+        grafana["Grafana<br/>grafana.local"]
+    end
+
+    be -->|traces| alloy
+    be -->|logs| alloy
+    be -.->|metrics| alloy
+    be -->|profiles| pyro
+    alloy --> tempo
+    alloy --> loki
+    alloy -.-> prom
+    tempo --> grafana
+    loki --> grafana
+    prom --> grafana
+    pyro --> grafana
 ```
-┌─────────────────┐     ┌──────────────────────────────────────────┐
-│   Frontend      │     │  Backend (FastAPI)                       │
-│   (Nginx+HTML)  │────▶│                                          │
-│   :3000         │     │  ┌─────────────┐  ┌──────────────────┐  │
-└─────────────────┘     │  │ OTel SDK    │  │ Structured Logs  │  │
-                        │  │ (Traces +   │  │ (structlog +     │  │
-                        │  │  Metrics)   │  │  trace_id)       │  │
-                        │  └──────┬──────┘  └────────┬─────────┘  │
-                        │         │                  │             │
-                        │  ┌──────┴──────────────────┴─────────┐  │
-                        │  │         OTLP Export (gRPC:4317)    │  │
-                        │  └──────────────┬────────────────────┘  │
-                        │                 │                        │
-                        │  ┌──────────────┴───────┐               │
-                        │  │ Pyroscope Agent       │               │
-                        │  │ (continuous profiling)│               │
-                        │  └──────────┬────────────┘               │
-                        └─────────────┼────────────────────────────┘
-                                      │
-              ┌───────────────────────┼───────────────────────────┐
-              │          Alloy Collector (DaemonSet)               │
-              │                  :4317 / :4318                     │
-              └──────┬──────────────┬──────────────┬──────────────┘
-                     │              │              │
-              ┌──────▼──────┐ ┌────▼─────┐ ┌──────▼──────────┐
-              │   Tempo     │ │  Loki    │ │  Prometheus     │
-              │   (Traces)  │ │  (Logs)  │ │  (Metrics)      │
-              └──────┬──────┘ └────┬─────┘ └──────┬──────────┘
-                     │             │               │
-              ┌──────▼─────────────▼───────────────▼──────────┐
-              │              Grafana Dashboard                  │
-              │              grafana.local:3000                 │
-              │   Explore: Traces ←→ Logs ←→ Profiles          │
-              └────────────────────────────────────────────────┘
-```
+
+- **Namespaces:** the app runs in `lgtm-testing`; the stack installed by `./scripts/setup.sh <cluster> utils monitoring` runs in `monitoring`.
+- **Signals:** the backend (OTel SDK, structlog, Pyroscope SDK) sends **traces** over OTLP gRPC to Alloy, writes JSON **logs** with `trace_id` to stdout (Alloy tails pod logs into Loki), and pushes **profiles** to Pyroscope on `:4040`.
+- **Solid arrows** run by default. **Dashed arrows** are optional: custom metrics need `OTEL_METRICS_ENABLED=true` on the backend and the OTLP metrics pipeline in Alloy (`otelcol.exporter.prometheus` / `prometheus.remote_write`, commented out in `ansible/templates/alloy-values.yaml.j2`). Prometheus still gets cluster metrics from kube-prometheus-stack.
+- **Correlation in Grafana:** Traces ↔ Logs through the `trace_id` field in every log line; Traces ↔ Profiles through the span links added by the Pyroscope span processor.
 
 ## Quick Start
 
@@ -84,6 +81,7 @@ curl -X POST http://localhost:8000/api/seed/
 ```
 
 This creates:
+
 | User | Password | Status |
 |------|----------|--------|
 | alice | password123 | Active |

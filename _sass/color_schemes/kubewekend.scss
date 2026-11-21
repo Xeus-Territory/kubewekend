@@ -1,0 +1,23 @@
+// Kubewekend palette (light), taken from the project icon: navy badge, yellow helmet, Kubernetes blue.
+@import "./color_schemes/light";
+
+$kw-navy: #1e3a6e;
+$kw-navy-dark: #142a52;
+$kw-yellow: #f4c430;
+$kw-blue: #326ce5;
+
+$link-color: $kw-blue;
+$btn-primary-color: $kw-navy;
+$nav-child-link-color: $grey-dk-100;
+$sidebar-color: #f6f8fc;
+$feedback-color: darken($sidebar-color, 3%);
+$base-button-color: #f7f7f7;
+
+// Kubewekend components (_sass/custom/custom.scss)
+$kw-heading: $kw-navy;            // hero title, card titles
+$kw-muted: $grey-dk-100;          // tagline, card text
+$kw-card-bg: #fff;
+$kw-card-accent: $kw-navy;        // card top border
+$kw-card-hover: $kw-yellow;
+$kw-step-bg: $kw-navy;            // numbered step circles
+$kw-step-fg: $kw-yellow;

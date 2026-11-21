@@ -1,50 +1,75 @@
-# Kubewekend 👨‍🚀🚀☁️🌕
-
-> [!NOTE]
->
->Learn how to setup the fully kubernetes cluster inside your local environment
-
 <div align="center">
-	<img src="assets/images/kubewekend-thumbnail.jpeg">
+  <img src="assets/images/kubewekend-icon.png" alt="Kubewekend: an astronaut steering a ship's wheel" width="200">
+  <h1>Kubewekend</h1>
+  <p><strong>The Kubernetes playground on the weekend</strong></p>
+  <p>Spin up <strong>Kind</strong>, <strong>K3s</strong> or <strong>RKE2</strong> on VMs or a VPS with one CLI, then add ingress, storage,<br>
+  secrets, GitOps, security, monitoring and service mesh, ready to test.</p>
+  <p>
+    <a href="https://kubewekend.xeusnguyen.xyz"><strong>📖 Documentation</strong></a> ·
+    <a href="https://kubewekend.xeusnguyen.xyz/docs/getting-started/">Getting started</a> ·
+    <a href="./scripts/README.md">setup.sh CLI</a> ·
+    <a href="https://kubewekend.xeusnguyen.xyz/docs/utilities/">Utilities</a> ·
+    <a href="https://kubewekend.xeusnguyen.xyz/docs/learn/">Learn</a>
+  </p>
 </div>
 
 ---
 
-<h2>Table of Contents</h2>
+> [!TIP]
+>
+> **Two ways to read Kubewekend.** This README is the **complete guide on one page**: open the table of contents below,
+> or search it with `Ctrl+F`. The [documentation site](https://kubewekend.xeusnguyen.xyz) has the same content split into short pages, with search
+> and one page per distribution. Use the map to jump to what you need:
 
-- [Kubewekend 👨‍🚀🚀☁️🌕](#kubewekend-️)
-  - [Usage](#usage)
-    - [Requirements tools](#requirements-tools)
-    - [Node resources](#node-resources)
-    - [Kubewekend CLI (`setup.sh`)](#kubewekend-cli-setupsh)
-    - [Step by step](#step-by-step)
-      - [Setup Host with Vagrant](#setup-host-with-vagrant)
-      - [Ansible Inventory — `hosts` File](#ansible-inventory--hosts-file)
-      - [Setup K8s Cluster and Utilities Features](#setup-k8s-cluster-and-utilities-features)
-    - [LGTM Stack — Continuous Monitoring, Logging \& Profiling Example](#lgtm-stack--continuous-monitoring-logging--profiling-example)
-    - [Helm Chart](#helm-chart)
-    - [Versions](#versions)
-      - [Kubernetes distributions](#kubernetes-distributions)
-      - [Host tools](#host-tools)
-      - [Cluster networking](#cluster-networking)
-      - [Utilities](#utilities)
-      - [Not tracked by `versions` (update by hand)](#not-tracked-by-versions-update-by-hand)
-    - [Troubleshoot](#troubleshoot)
-  - [Kubewekend Major Session 🚄🚄🚄](#kubewekend-major-session-)
-    - [Kubewekend Session 1: Use `Vargrant` to configuration the VM with provider](#kubewekend-session-1-use-vargrant-to-configuration-the-vm-with-provider)
-    - [Kubewekend Session 2: Ansible - To setup and run script and bring up kubernetes cluster on locally, Use `kind`](#kubewekend-session-2-ansible---to-setup-and-run-script-and-bring-up-kubernetes-cluster-on-locally-use-kind)
-    - [Kubewekend Session 3: Exploring, understanding and provisioning require components inside the `kind` cluster](#kubewekend-session-3-exploring-understanding-and-provisioning-require-components-inside-the-kind-cluster)
-    - [Kubewekend Session 4: `cilium` and `ebpf` - The powerful kernal service of kubewekend cluster](#kubewekend-session-4-cilium-and-ebpf---the-powerful-kernal-service-of-kubewekend-cluster)
-    - [Kubewekend Session 5: Build and Operate High Availability (HA) `Kubewekend` Cluster](#kubewekend-session-5-build-and-operate-high-availability-ha-kubewekend-cluster)
-    - [Kubewekend Session 6: CSI and Ceph with Kubewekend](#kubewekend-session-6-csi-and-ceph-with-kubewekend)
-    - [Kubewekend Session 7: Setup new deployment and route traffic to kubewekend cluster](#kubewekend-session-7-setup-new-deployment-and-route-traffic-to-kubewekend-cluster)
-    - [Kubewekend Session 8: Setting Up the Cluster Monitoring Stack with LGTM and Grafana Alloy](#kubewekend-session-8-setting-up-the-cluster-monitoring-stack-with-lgtm-and-grafana-alloy)
-  - [Kubewekend Extra Session 🚢🚢🚢](#kubewekend-extra-session-)
-    - [Kubewekend Session Extra 1: Longhorn and the story about NFS in Kubernetes](#kubewekend-session-extra-1-longhorn-and-the-story-about-nfs-in-kubernetes)
-    - [Kubewekend Session Extra 2: Rebuild Cluster with RKE2 or K3S](#kubewekend-session-extra-2-rebuild-cluster-with-rke2-or-k3s)
-    - [Kubewekend Session Extra 3: RKE2 and The Nightmare with Network and CoreDNS](#kubewekend-session-extra-3-rke2-and-the-nightmare-with-network-and-coredns)
-    - [Kubewekend Session Extra 4: Kind and Sandbox environment for GitLab CI](#kubewekend-session-extra-4-kind-and-sandbox-environment-for-gitlab-ci)
-    - [Kubewekend Session Extra 5: Learn about the security model in Kubernetes](#kubewekend-session-extra-5-learn-about-the-security-model-in-kubernetes)
+| You want to | In this README | On the docs site |
+|-------------|----------------|------------------|
+| Pick a distribution, check tools and node sizing | [Usage](#usage) | [Getting started](https://kubewekend.xeusnguyen.xyz/docs/getting-started/) |
+| Create VMs and the Ansible inventory | [Step by step](#step-by-step) | [Prepare hosts](https://kubewekend.xeusnguyen.xyz/docs/getting-started/prepare-hosts.html) |
+| Create a Kind, K3s or RKE2 cluster | [Setup K8s Cluster and Utilities Features](#setup-k8s-cluster-and-utilities-features) | [Kind](https://kubewekend.xeusnguyen.xyz/docs/getting-started/kind.html) · [K3s](https://kubewekend.xeusnguyen.xyz/docs/getting-started/k3s.html) · [RKE2](https://kubewekend.xeusnguyen.xyz/docs/getting-started/rke2.html) |
+| Add utilities (storage, secrets, GitOps, ...) | [Setup K8s Cluster and Utilities Features](#setup-k8s-cluster-and-utilities-features) | [Utilities](https://kubewekend.xeusnguyen.xyz/docs/utilities/) |
+| Run every `setup.sh` command | [Kubewekend CLI](#kubewekend-cli-setupsh) | [setup.sh CLI](https://kubewekend.xeusnguyen.xyz/scripts/) |
+| Try the LGTM observability example | [LGTM Stack](#lgtm-stack--continuous-monitoring-logging--profiling-example) | [Examples](https://kubewekend.xeusnguyen.xyz/docs/examples/) |
+| Check or bump pinned versions | [Versions](#versions) | [Versions](https://kubewekend.xeusnguyen.xyz/docs/reference/versions.html) |
+| Fix a problem | [Troubleshoot](#troubleshoot) | [Troubleshooting](https://kubewekend.xeusnguyen.xyz/docs/troubleshooting/) |
+| Learn the background, session by session | [Kubewekend Major Session](#kubewekend-major-session-) | [Learn](https://kubewekend.xeusnguyen.xyz/docs/learn/) |
+
+<details>
+<summary><strong>Table of contents</strong> (full README)</summary>
+
+- [Usage](#usage)
+  - [Requirements tools](#requirements-tools)
+  - [Node resources](#node-resources)
+  - [Kubewekend CLI (`setup.sh`)](#kubewekend-cli-setupsh)
+  - [Step by step](#step-by-step)
+    - [Setup Host with Vagrant](#setup-host-with-vagrant)
+    - [Ansible Inventory — `hosts` File](#ansible-inventory--hosts-file)
+    - [Setup K8s Cluster and Utilities Features](#setup-k8s-cluster-and-utilities-features)
+  - [LGTM Stack — Continuous Monitoring, Logging \& Profiling Example](#lgtm-stack--continuous-monitoring-logging--profiling-example)
+  - [Helm Chart](#helm-chart)
+  - [Versions](#versions)
+    - [Kubernetes distributions](#kubernetes-distributions)
+    - [Host tools](#host-tools)
+    - [Cluster networking](#cluster-networking)
+    - [Utilities](#utilities)
+    - [Not tracked by `versions` (update by hand)](#not-tracked-by-versions-update-by-hand)
+  - [Troubleshoot](#troubleshoot)
+- [Kubewekend Major Session 🚄🚄🚄](#kubewekend-major-session-)
+  - [Kubewekend Session 1: Use `Vargrant` to configuration the VM with provider](#kubewekend-session-1-use-vargrant-to-configuration-the-vm-with-provider)
+  - [Kubewekend Session 2: Ansible - To setup and run script and bring up kubernetes cluster on locally, Use `kind`](#kubewekend-session-2-ansible---to-setup-and-run-script-and-bring-up-kubernetes-cluster-on-locally-use-kind)
+  - [Kubewekend Session 3: Exploring, understanding and provisioning require components inside the `kind` cluster](#kubewekend-session-3-exploring-understanding-and-provisioning-require-components-inside-the-kind-cluster)
+  - [Kubewekend Session 4: `cilium` and `ebpf` - The powerful kernal service of kubewekend cluster](#kubewekend-session-4-cilium-and-ebpf---the-powerful-kernal-service-of-kubewekend-cluster)
+  - [Kubewekend Session 5: Build and Operate High Availability (HA) `Kubewekend` Cluster](#kubewekend-session-5-build-and-operate-high-availability-ha-kubewekend-cluster)
+  - [Kubewekend Session 6: CSI and Ceph with Kubewekend](#kubewekend-session-6-csi-and-ceph-with-kubewekend)
+  - [Kubewekend Session 7: Setup new deployment and route traffic to kubewekend cluster](#kubewekend-session-7-setup-new-deployment-and-route-traffic-to-kubewekend-cluster)
+  - [Kubewekend Session 8: Setting Up the Cluster Monitoring Stack with LGTM and Grafana Alloy](#kubewekend-session-8-setting-up-the-cluster-monitoring-stack-with-lgtm-and-grafana-alloy)
+- [Kubewekend Extra Session 🚢🚢🚢](#kubewekend-extra-session-)
+  - [Kubewekend Session Extra 1: Longhorn and the story about NFS in Kubernetes](#kubewekend-session-extra-1-longhorn-and-the-story-about-nfs-in-kubernetes)
+  - [Kubewekend Session Extra 2: Rebuild Cluster with RKE2 or K3S](#kubewekend-session-extra-2-rebuild-cluster-with-rke2-or-k3s)
+  - [Kubewekend Session Extra 3: RKE2 and The Nightmare with Network and CoreDNS](#kubewekend-session-extra-3-rke2-and-the-nightmare-with-network-and-coredns)
+  - [Kubewekend Session Extra 4: Kind and Sandbox environment for GitLab CI](#kubewekend-session-extra-4-kind-and-sandbox-environment-for-gitlab-ci)
+  - [Kubewekend Session Extra 5: Learn about the security model in Kubernetes](#kubewekend-session-extra-5-learn-about-the-security-model-in-kubernetes)
+
+</details>
 
 ## Usage
 
@@ -445,6 +470,7 @@ Pinned versions of the tools, charts and images used by Kubewekend, and where to
 > **Unpinned** means the latest release is installed at setup time. K3s and RKE2 also bundle their own CNI, ingress controller and ServiceLB, whose versions follow `k3sCluster.version` / `rke2Cluster.version`.
 
 <!-- versions:begin -->
+
 #### Kubernetes distributions
 
 | Component | Version | Where to update | Notes |
@@ -508,6 +534,7 @@ Pinned versions of the tools, charts and images used by Kubewekend, and where to
 | `tempo` | `1.26.7` | `ansible/k8s-utilities-playbook.yaml:989` | Values from `ansible/templates/tempo-values.yaml.j2` |
 | `pyroscope` | `1.19.2` | `ansible/k8s-utilities-playbook.yaml:1015` | Values from `ansible/templates/pyroscope-values.yaml.j2` |
 | `istio` | `1.32.0` | `ansible/k8s-utilities-playbook.yaml:1037,1040` | Installs `base` + `istiod` only (sidecar mode); `serviceMesh.dataplane.mode: ambient` is not supported yet |
+
 <!-- versions:end -->
 
 #### Not tracked by `versions` (update by hand)

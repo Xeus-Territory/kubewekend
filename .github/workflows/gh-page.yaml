@@ -8,8 +8,18 @@ on:
   push:
     branches:
       - gh-pages
+    # Rebuild when anything rendered by the documentation site changes (see _config.yml)
     paths:
-      - README.md
+      - index.md
+      - docs/**
+      - _config.yml
+      - _includes/**
+      - _sass/**
+      - assets/**
+      - scripts/README.md
+      - examples/lgtm-testing/README.md
+      - kubernetes/charts/pinniped/README.md
+      - index.yaml
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:

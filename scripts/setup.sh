@@ -2434,14 +2434,18 @@ _ver_validate() {
     return "$problems"
 }
 
-# `versions sync [--check]`: validate the pins and regenerate README.md → Versions (between the markers).
-# Pre-commit friendly: rewrites README.md when it is stale (the hook then reports the modified file);
-# with --check (CI) it only reports. Exits 1 on validation problems or, with --check, a stale README.
+# Files that carry the generated Versions tables between the markers: README.md (required) and the
+# documentation site page (optional, skipped when the file does not exist)
+VERSION_SYNC_TARGETS=("README.md" "docs/reference/versions.md")
+
+# `versions sync [--check]`: validate the pins and regenerate the Versions tables (between the markers) in
+# every VERSION_SYNC_TARGETS file. Pre-commit friendly: rewrites a stale file (the hook then reports the
+# modified file); with --check (CI) it only reports. Exits 1 on validation problems or, with --check, a stale file.
 versions_sync() {
-    local check=false readme="$PROJECT_ROOT/README.md" begin="<!-- versions:begin -->" end="<!-- versions:end -->"
-    local generated current tmp problems=0 rc=0
+    local check=false begin="<!-- versions:begin -->" end="<!-- versions:end -->"
+    local generated current tmp target file problems=0 rc=0
     [[ "${1:-}" == "--check" ]] && check=true
-    if ! grep -qxF "$begin" "$readme" || ! grep -qxF "$end" "$readme"; then
+    if ! grep -qxF "$begin" "$PROJECT_ROOT/README.md" || ! grep -qxF "$end" "$PROJECT_ROOT/README.md"; then
         error "README.md is missing the '$begin' / '$end' markers around the generated Versions tables"
         return 1
     fi
@@ -2449,23 +2453,38 @@ versions_sync() {
     _ver_validate || problems=$?
 
     generated=$(_ver_markdown)
-    current=$(awk -v b="$begin" -v e="$end" '$0 == e { f = 0 } f { print } $0 == b { f = 1 }' "$readme")
-    if [[ "$generated" == "$current" ]]; then
-        info "README.md Versions table is up to date"
-    elif [[ "$check" == true ]]; then
-        error "README.md Versions table is out of date: run ./scripts/setup.sh versions sync"
-        rc=1
-    else
-        tmp=$(mktemp)
-        printf '%s\n' "$generated" > "$tmp"
-        awk -v b="$begin" -v e="$end" -v gen="$tmp" '
-            $0 == b { print; while ((getline line < gen) > 0) print line; skip = 1; next }
-            $0 == e { skip = 0 }
-            !skip { print }' "$readme" > "$tmp.readme"
-        cat "$tmp.readme" > "$readme"
-        rm -f "$tmp" "$tmp.readme"
-        info "Updated README.md Versions table (review and stage it)"
-    fi
+    # Exact block between the markers: blank lines around the tables keep the end marker out of the last
+    # table (kramdown on the docs site otherwise renders that table as plain text). The trailing `x`
+    # sentinel stops $(...) from stripping the final blank line.
+    local block
+    block=$(printf '\n%s\n\n' "$generated"; echo x); block=${block%x}
+    for target in "${VERSION_SYNC_TARGETS[@]}"; do
+        file="$PROJECT_ROOT/$target"
+        [[ -f "$file" ]] || continue
+        if ! grep -qxF "$begin" "$file" || ! grep -qxF "$end" "$file"; then
+            error "$target is missing the '$begin' / '$end' markers around the generated Versions tables"
+            rc=1
+            continue
+        fi
+        current=$(awk -v b="$begin" -v e="$end" '$0 == e { f = 0 } f { print } $0 == b { f = 1 }' "$file"; echo x)
+        current=${current%x}
+        if [[ "$block" == "$current" ]]; then
+            info "$target Versions table is up to date"
+        elif [[ "$check" == true ]]; then
+            error "$target Versions table is out of date: run ./scripts/setup.sh versions sync"
+            rc=1
+        else
+            tmp=$(mktemp)
+            printf '%s' "$block" > "$tmp"
+            awk -v b="$begin" -v e="$end" -v gen="$tmp" '
+                $0 == b { print; while ((getline line < gen) > 0) print line; skip = 1; next }
+                $0 == e { skip = 0 }
+                !skip { print }' "$file" > "$tmp.out"
+            cat "$tmp.out" > "$file"
+            rm -f "$tmp" "$tmp.out"
+            info "Updated $target Versions table (review and stage it)"
+        fi
+    done
 
     if [[ "$problems" -gt 0 ]]; then
         error "$problems version problem(s) found"
@@ -2484,7 +2503,8 @@ SUBCOMMANDS
                                         networking, utilities)
   bump <component> <version> [opts]     Replace the pinned version everywhere it is used
   sync [--check]                        Validate the pins (found, one version each) and regenerate the
-                                        README.md Versions tables; --check only reports (CI).
+                                        Versions tables in README.md and docs/reference/versions.md;
+                                        --check only reports (CI).
                                         Runs as a pre-commit hook (.pre-commit-config.yaml)
 
 OPTIONS (bump)
