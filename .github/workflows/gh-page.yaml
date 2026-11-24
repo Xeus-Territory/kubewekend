@@ -18,6 +18,8 @@ on:
       - assets/**
       - scripts/README.md
       - examples/lgtm-testing/README.md
+      - examples/istio-case-studies/**
+      - examples/argocd-apps/labs/**
       - kubernetes/charts/pinniped/README.md
       - index.yaml
 

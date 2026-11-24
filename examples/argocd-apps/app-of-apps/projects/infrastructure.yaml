@@ -3,6 +3,8 @@ kind: AppProject
 metadata:
   name: infrastructure
   namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   description: "Infrastructure layer - bootstrap project with highest privileges to provision the full system via GitOps IDP"
   # Allow any source repo/registry for full bootstrapping flexibility

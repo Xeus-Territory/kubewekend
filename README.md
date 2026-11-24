@@ -29,6 +29,8 @@
 | Add utilities (storage, secrets, GitOps, ...) | [Setup K8s Cluster and Utilities Features](#setup-k8s-cluster-and-utilities-features) | [Utilities](https://kubewekend.xeusnguyen.xyz/docs/utilities/) |
 | Run every `setup.sh` command | [Kubewekend CLI](#kubewekend-cli-setupsh) | [setup.sh CLI](https://kubewekend.xeusnguyen.xyz/scripts/) |
 | Try the LGTM observability example | [LGTM Stack](#lgtm-stack--continuous-monitoring-logging--profiling-example) | [Examples](https://kubewekend.xeusnguyen.xyz/docs/examples/) |
+| Practise a service mesh (Istio labs on Kind) | [Istio case studies](./examples/istio-case-studies/README.md) | [Istio case studies](https://kubewekend.xeusnguyen.xyz/examples/istio-case-studies/) |
+| Practise GitOps (Argo CD labs on Kind) | [Argo CD labs](./examples/argocd-apps/README.md) | [Argo CD labs](https://kubewekend.xeusnguyen.xyz/examples/argocd-apps/labs/) |
 | Check or bump pinned versions | [Versions](#versions) | [Versions](https://kubewekend.xeusnguyen.xyz/docs/reference/versions.html) |
 | Fix a problem | [Troubleshoot](#troubleshoot) | [Troubleshooting](https://kubewekend.xeusnguyen.xyz/docs/troubleshooting/) |
 | Learn the background, session by session | [Kubewekend Major Session](#kubewekend-major-session-) | [Learn](https://kubewekend.xeusnguyen.xyz/docs/learn/) |

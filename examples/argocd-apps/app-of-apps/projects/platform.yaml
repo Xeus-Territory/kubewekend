@@ -3,13 +3,14 @@ kind: AppProject
 metadata:
   name: platform
   namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   description: "Platform layer - manages tooling integrations (monitoring, logging, service mesh, ingress) via GitOps IDP"
   sourceRepos:
     - https://github.com/Xeus-Territory/kubewekend.git
     - https://prometheus-community.github.io/helm-charts
     - https://grafana.github.io/helm-charts
-    - https://helm.nginx.com/stable
     - https://charts.jetstack.io
   sourceNamespaces:
     - argocd
@@ -17,7 +18,7 @@ spec:
     # Block only the core system namespace; platform tools install in dedicated namespaces
     - namespace: '!kube-system'
       server: '*'
-    # Allow all other namespaces (monitoring, logging, cert-manager, ingress-nginx, etc.)
+    # Allow all other namespaces (monitoring, logging, cert-manager, traefik, etc.)
     - server: https://kubernetes.default.svc
       namespace: '*'
   # Allow all namespace-scoped resources so platform tools can install any workload type

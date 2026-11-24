@@ -3,6 +3,8 @@ kind: AppProject
 metadata:
   name: apps
   namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   description: "Application layer - manages workload Deployments and StatefulSets via GitOps IDP"
   sourceRepos:
@@ -22,8 +24,6 @@ spec:
     - namespace: '!cert-manager'
       server: '*'
     - namespace: '!traefik'
-      server: '*'
-    - namespace: '!ingress-nginx'
       server: '*'
     # Allow all other namespaces on the local cluster
     - server: https://kubernetes.default.svc
@@ -62,10 +62,11 @@ spec:
       kind: Pod
     - group: 'apps'
       kind: ReplicaSet
-  # Explicitly block all cluster-wide resources at the app layer
-  clusterResourceBlacklist:
-    - group: '*'
-      kind: '*'
+  # Cluster-wide resources are blocked at the app layer (no ClusterRole, CRD, webhook...), with ONE exception:
+  # Namespace, which `CreateNamespace=true` needs. Anything not listed here is denied.
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
   roles:
     - name: developer
       description: "Application developer - can deploy and sync workloads"

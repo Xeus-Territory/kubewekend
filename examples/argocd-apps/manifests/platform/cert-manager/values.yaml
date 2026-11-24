@@ -3,7 +3,12 @@
 # Declare variables to be passed into your templates.
 
 cert-manager:
-  installCRDs: true
+  crds:
+    enabled: true
+  global:
+    leaderElection:
+      # Default is kube-system, which the `platform` AppProject denies. Keep it in cert-manager's own namespace.
+      namespace: cert-manager
   prometheus:
     enabled: false
 

@@ -1,0 +1,19 @@
+# Lab 1, break it #2: an app in the `apps` project ships a cluster-wide object (a ClusterRole).
+# The project only allows Namespace as a cluster-scoped kind, so the sync is rejected.
+# Apply by hand (it is NOT under app-of-apps/, so the root app never creates it).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: break-clusterrole
+  namespace: argocd
+spec:
+  project: apps
+  source:
+    repoURL: "https://github.com/Xeus-Territory/kubewekend"
+    targetRevision: HEAD
+    path: "examples/argocd-apps/labs/01-bootstrap-multi-tenancy/break-it/rbac"
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: hello-helm
+  syncPolicy:
+    automated: {}

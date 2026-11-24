@@ -1,0 +1,19 @@
+# Lab 1, break it #1: an app in the `apps` project tries to deploy into kube-system.
+# The project's destination rules deny it, so Argo CD refuses the Application before anything is applied.
+# Apply by hand (it is NOT under app-of-apps/, so the root app never creates it).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: break-namespace
+  namespace: argocd
+spec:
+  project: apps
+  source:
+    repoURL: "https://github.com/Xeus-Territory/kubewekend"
+    targetRevision: HEAD
+    path: "examples/argocd-apps/workloads/hello-helm"
+    helm:
+      releaseName: break-namespace
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: kube-system

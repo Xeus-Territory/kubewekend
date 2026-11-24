@@ -3,11 +3,13 @@ kind: Application
 metadata:
   name: argocd
   namespace: argocd
+  annotations:
+    # Wave 0: after the projects (-1), before platform (1) and apps (2)
+    argocd.argoproj.io/sync-wave: "0"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  # The `default` project is fine for this app since it doesn't have any special requirements.
-  # Using for initialization of ArgoCD itself, so that the project can be used by the app of apps to manage the platform and app layer apps.
+  # Argo CD manages its own installation (and Image Updater) from Git.
   project: infrastructure
   source:
     repoURL: "https://github.com/Xeus-Territory/kubewekend"
@@ -25,5 +27,8 @@ spec:
     server: "https://kubernetes.default.svc"
     namespace: "argocd"
   syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true

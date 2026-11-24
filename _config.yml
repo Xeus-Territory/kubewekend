@@ -86,7 +86,13 @@ exclude:
   - kubernetes/charts/common/
   - kubernetes/charts/pinniped/templates/
   - kubernetes/charts/pinniped/*.yaml
-  - examples/argocd-apps/
+  - examples/argocd-apps/README.md
+  - examples/argocd-apps/app-of-apps.yaml
+  - examples/argocd-apps/app-of-apps/
+  - examples/argocd-apps/manifests/
+  - examples/argocd-apps/workloads/
+  - examples/argocd-apps/app/
+  - examples/argocd-apps/archives/
   - examples/lgtm-testing/backend/
   - examples/lgtm-testing/frontend/
   - examples/lgtm-testing/k8s/
@@ -125,6 +131,148 @@ defaults:
       description: "A FastAPI and PostgreSQL demo app that sends traces, logs and profiles to Grafana Tempo, Loki and Pyroscope through Alloy on Kubernetes."
       parent: Examples
       nav_order: 1
+      nav_exclude: false
+      search_exclude: false
+  # Istio case studies: the overview is a parent page, every lab and note is a child of it
+  - scope:
+      path: "examples/istio-case-studies/README.md"
+    values:
+      title: Istio case studies
+      description: "Hands-on Istio labs on Kind: sidecar vs ambient, mTLS and authorization, ingress and egress gateways, and a two-cluster multi-network mesh."
+      parent: Examples
+      has_children: true
+      nav_order: 2
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/istio-case-studies/00-platform/README.md"
+    values:
+      title: 00 Platform
+      description: "Prepare Kind, load balancer addresses and Istio in the ambient profile for the Istio labs."
+      parent: Istio case studies
+      grand_parent: Examples
+      nav_order: 1
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/istio-case-studies/01-sidecar-vs-ambient/README.md"
+    values:
+      title: 01 Sidecar vs Ambient
+      description: "Compare Istio's sidecar and ambient data planes: pods, metrics, memory, waypoints and migration."
+      parent: Istio case studies
+      grand_parent: Examples
+      nav_order: 2
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/istio-case-studies/02-mtls-and-policies/README.md"
+    values:
+      title: 02 mTLS and Policies
+      description: "Strict mTLS, workload identity and authorization in Istio, and where each rule is enforced: sidecar, ztunnel or waypoint."
+      parent: Istio case studies
+      grand_parent: Examples
+      nav_order: 3
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/istio-case-studies/03-ingress-egress-traffic/README.md"
+    values:
+      title: 03 Ingress and Egress
+      description: "Istio traffic management: Gateway API ingress, canaries, TLS, timeouts, retries, circuit breaking, mirroring and egress control."
+      parent: Istio case studies
+      grand_parent: Examples
+      nav_order: 4
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/istio-case-studies/04-multicluster-multinetwork/README.md"
+    values:
+      title: 04 Multi-cluster
+      description: "Build one Istio mesh across two Kind clusters on separate networks, with east-west gateways, locality failover and remote secrets."
+      parent: Istio case studies
+      grand_parent: Examples
+      nav_order: 5
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/istio-case-studies/05-observability-debug.md"
+    values:
+      title: 05 Observability and debugging
+      description: "Istio metrics, access logs, traces and the debug toolkit, with ideas to extend on a Prometheus, Grafana, Loki and Tempo stack."
+      parent: Istio case studies
+      grand_parent: Examples
+      nav_order: 6
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/istio-case-studies/06-operations.md"
+    values:
+      title: 06 Operations
+      description: "Istio day-two topics to explore: revision upgrades, scoping proxy configuration, pod lifecycle and extending Envoy."
+      parent: Istio case studies
+      grand_parent: Examples
+      nav_order: 7
+      nav_exclude: false
+      search_exclude: false
+  # Argo CD labs: the overview is a parent page, every lab is a child of it
+  - scope:
+      path: "examples/argocd-apps/labs/README.md"
+    values:
+      title: Argo CD labs
+      description: "Hands-on Argo CD labs on Kind: App of Apps and AppProjects, Application vs ApplicationSet, Image Updater and argocd-agent."
+      parent: Examples
+      has_children: true
+      nav_order: 3
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/argocd-apps/labs/00-platform/README.md"
+    values:
+      title: 00 Platform
+      description: "Prepare a one-node Kind cluster with Traefik for the Argo CD labs, and optionally point the manifests at your fork."
+      parent: Argo CD labs
+      grand_parent: Examples
+      nav_order: 1
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/argocd-apps/labs/01-bootstrap-multi-tenancy/README.md"
+    values:
+      title: 01 Bootstrap and multi-tenancy
+      description: "Build a cluster from one manifest with Argo CD's App of Apps pattern and sync waves, and fence applications into AppProjects."
+      parent: Argo CD labs
+      grand_parent: Examples
+      nav_order: 2
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/argocd-apps/labs/02-application-vs-applicationset/README.md"
+    values:
+      title: 02 Application vs ApplicationSet
+      description: "Deploy the same app with a hand-written Application and with an ApplicationSet that generates one Application per Kustomize overlay."
+      parent: Argo CD labs
+      grand_parent: Examples
+      nav_order: 3
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/argocd-apps/labs/03-image-updater/README.md"
+    values:
+      title: 03 Image Updater
+      description: "Argo CD Image Updater 1.x commits new image tags to Git for a Helm app and a Kustomize app, so a new image rolls out with no human step."
+      parent: Argo CD labs
+      grand_parent: Examples
+      nav_order: 4
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/argocd-apps/labs/04-argocd-agent/README.md"
+    values:
+      title: 04 argocd-agent
+      description: "Manage a second Kind cluster from a hub over an outbound-only connection with argocd-agent: managed mode, live data and outage behaviour."
+      parent: Argo CD labs
+      grand_parent: Examples
+      nav_order: 5
       nav_exclude: false
       search_exclude: false
   - scope:

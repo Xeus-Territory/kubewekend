@@ -1,0 +1,8 @@
+# One-node Kind cluster for the Argo CD labs 1-3 (Kind v0.33, Kubernetes v1.36).
+# kind create cluster --config kind-gitops.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: gitops
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.36.4
