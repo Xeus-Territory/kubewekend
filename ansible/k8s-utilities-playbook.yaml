@@ -666,7 +666,7 @@
             helm repo add argo https://argoproj.github.io/argo-helm
             helm repo update
             helm upgrade --install argocd argo/argo-cd \
-              --namespace argocd --create-namespace --version 9.1.3 --wait \
+              --namespace argocd --create-namespace --version 10.16.0 --wait \
               --set global.domain={{ utilities.gitops.argocd.host }} \
               --set server.ingress.enabled=true \
               --set server.ingress.ingressClassName={{ utilities.gitops.argocd.ingressClass }} \
@@ -703,7 +703,7 @@
           when: utilities.gitops.type == "argocd" and utilities.gitops.argocd.argocdExtensions | default(false)
           ansible.builtin.shell: |
             helm upgrade --install argocd argo/argo-cd \
-              --namespace argocd --version 9.1.3 --wait \
+              --namespace argocd --version 10.16.0 --wait \
               --reuse-values \
               --set server.extensions.enabled=true \
               --set server.extensions.extensionList[0].name="argocd-extension-metrics" \
