@@ -36,14 +36,14 @@ Add platform tools to any Kubewekend cluster with one command. Each utility is a
 | `ingress_test` | Test nginx Deployment + Service + Ingress | `ingressClass: traefik`, `host` | [Test deployments](#test-deployments) |
 | `apigateway_test` | Test Gateway + HTTPRoute (Gateway API) with weighted routing | `gatewayClass: traefik`, `host` | [Test deployments](#test-deployments) |
 | `certmanager` | cert-manager | `selfSignedIssuer` (local CA for `*.kubewekend.local`) | |
-| `dashboard` | A Kubernetes dashboard | `type`: `headlamp`, `kubernetes-dashboard`, `rancher` | |
+| `dashboard` | A Kubernetes dashboard; Rancher also works as an authentication proxy for `kubectl` | `type`: `headlamp`, `kubernetes-dashboard`, `rancher` (needs `certmanager`) | [Dashboard]({% link docs/utilities/dashboard.md %}) |
 | `storage` | Longhorn or local-path-provisioner, plus a PVC test | `type`: `longhorn`, `local-path`; `test.enable` | [Storage]({% link docs/utilities/storage.md %}) |
 | `secret_management` | Vault or OpenBao | `type`: `vault`, `openbao`; `config.mode`: `dev`, `standalone`; `config.injector` | [Secret management]({% link docs/utilities/secret-management.md %}) |
 | `k8s_extensions` | Reflector, Reloader, External Secrets Operator | one `enable` per extension | |
-| `gitops` | Argo CD (+ Image Updater, extensions) or Flux (+ Weave GitOps UI); Kargo | `type`: `argocd`, `flux`; `kargo.enable` | [Argo CD apps example]({% link docs/examples/index.md %}) |
+| `gitops` | Argo CD (+ Image Updater, extensions) or Flux (+ Weave GitOps UI); Kargo | `type`: `argocd`, `flux`; `kargo.enable` | [GitOps]({% link docs/utilities/gitops.md %}) |
 | `security` | Kyverno or OPA Gatekeeper; Dex identity provider | `policy.type`: `kyverno`, `opa-gatekeeper`; `identity.enable` | |
 | `monitoring` | kube-prometheus-stack, Alloy, Loki, Tempo, Pyroscope (LGTM) | `apm` / `logging` / `tracing` / `profiling` `.enable` | [LGTM example]({% link examples/lgtm-testing/README.md %}) |
-| `service_mesh` | Istio (`base` + `istiod`, sidecar mode) | `type: istio` | |
+| `service_mesh` | Istio (`base` + `istiod`, sidecar mode) | `type: istio` | [Istio case studies]({% link examples/istio-case-studies/README.md %}) |
 
 Pinned chart versions are listed in [Versions]({% link docs/reference/versions.md %}).
 
