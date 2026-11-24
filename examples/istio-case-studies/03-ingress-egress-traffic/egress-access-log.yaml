@@ -1,0 +1,14 @@
+# Turn on the access log of the egress gateway (off by default), to see every outbound request and the decision
+# taken for it: the destination cluster (outbound|443||example.com) or the reason for a denial.
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: egress-access-log
+  namespace: istio-system
+spec:
+  selector:
+    matchLabels:
+      istio: egressgateway
+  accessLogging:
+    - providers:
+        - name: envoy

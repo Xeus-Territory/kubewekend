@@ -1,0 +1,16 @@
+# Two namespaces for the same app, one per data plane.
+#   lab-sidecar: istio-injection=enabled           -> every pod gets an Envoy sidecar (istio-proxy)
+#   lab-ambient: istio.io/dataplane-mode=ambient   -> pods stay untouched; ztunnel on each node handles their traffic
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab-sidecar
+  labels:
+    istio-injection: enabled
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab-ambient
+  labels:
+    istio.io/dataplane-mode: ambient

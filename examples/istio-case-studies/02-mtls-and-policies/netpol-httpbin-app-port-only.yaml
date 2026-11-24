@@ -1,0 +1,21 @@
+# A "normal" NetworkPolicy for httpbin: only pods labelled app=curl may connect, and only to the app port 8080.
+# It looks complete, and it breaks ambient traffic: between pods, ambient traffic arrives on the HBONE tunnel
+# port 15008, not on 8080. Needs a CNI that enforces NetworkPolicy (check with the test in the README).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: httpbin-from-curl
+  namespace: lab-ambient
+spec:
+  podSelector:
+    matchLabels:
+      app: httpbin
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: curl
+      ports:
+        - port: 8080
+          protocol: TCP

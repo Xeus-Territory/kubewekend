@@ -1,0 +1,14 @@
+# The Service `helloworld.sample` in BOTH clusters. Istio merges the endpoints of same-named Services across
+# clusters: east contributes v1 pods, west contributes v2 pods, and a call to `helloworld` can reach either.
+apiVersion: v1
+kind: Service
+metadata:
+  name: helloworld
+  namespace: sample
+spec:
+  selector:
+    app: helloworld
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000

@@ -1,0 +1,22 @@
+# curl: a client pod to send requests from. Sleeps forever; no Service and no probes (it serves nothing).
+# Install:  ./deploy.sh <namespace> curl
+fullnameOverride: curl          # Deployment, ServiceAccount and Pod names are all "curl"
+
+image:
+  repository: curlimages/curl
+  tag: "8.23.0"
+
+command: ["/bin/sleep", "3650d"]
+
+service:
+  enabled: false
+probes:
+  disableProbes: ["all"]
+
+podLabels:
+  app: curl
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 16Mi

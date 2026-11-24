@@ -1,0 +1,8 @@
+# An ALLOW policy with no rules allows nothing: every request to every workload in lab-sidecar is denied.
+# Policies are additive, so you then add small ALLOW policies for the calls you want.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-all
+  namespace: lab-sidecar
+spec: {}

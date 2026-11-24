@@ -1,0 +1,22 @@
+# Header-based canary: requests with `x-canary: true` go to v2, everyone else stays on v1.
+# Same route name as httproute-canary.yaml, so applying it replaces the weighted split.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: helloworld
+  namespace: lab-traffic
+spec:
+  parentRefs:
+    - name: lab-gateway
+  hostnames: ["hello.lab.test"]
+  rules:
+    - matches:
+        - headers:
+            - name: x-canary
+              value: "true"
+      backendRefs:
+        - name: helloworld-v2
+          port: 5000
+    - backendRefs:
+        - name: helloworld-v1
+          port: 5000

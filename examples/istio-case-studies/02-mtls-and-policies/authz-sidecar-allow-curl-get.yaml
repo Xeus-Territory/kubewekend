@@ -1,0 +1,20 @@
+# Allow exactly one thing: the `curl` ServiceAccount may call httpbin with GET /get.
+# "principals" is the caller's mTLS identity (SPIFFE ID without the spiffe:// prefix): cluster.local/ns/<ns>/sa/<sa>.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-curl-get
+  namespace: lab-sidecar
+spec:
+  selector:
+    matchLabels:
+      app: httpbin
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["cluster.local/ns/lab-sidecar/sa/curl"]
+      to:
+        - operation:
+            methods: ["GET"]
+            paths: ["/get"]

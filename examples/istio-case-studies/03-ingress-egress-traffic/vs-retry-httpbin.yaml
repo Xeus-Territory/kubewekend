@@ -1,0 +1,17 @@
+# Retries: up to 3 more attempts when httpbin answers 5xx. Test it with the flaky endpoint /status/200,503, which
+# returns 200 or 503 at random: without this rule about half of the calls fail, with it almost none do.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: httpbin
+  namespace: lab-traffic
+spec:
+  hosts: ["httpbin"]
+  http:
+    - retries:
+        attempts: 3
+        perTryTimeout: 2s
+        retryOn: 5xx
+      route:
+        - destination:
+            host: httpbin

@@ -1,0 +1,22 @@
+# Three namespaces:
+#   lab-sidecar: sidecar-injected mesh namespace (Part A)
+#   lab-ambient: ambient mesh namespace (Part B)
+#   legacy:      NOT in the mesh (no labels): stands for a workload that has not been onboarded yet
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab-sidecar
+  labels:
+    istio-injection: enabled
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab-ambient
+  labels:
+    istio.io/dataplane-mode: ambient
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: legacy

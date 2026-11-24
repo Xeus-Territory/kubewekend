@@ -1,0 +1,18 @@
+# An L4 allow rule: identity (principals) and port. ztunnel can enforce this on its own, with no waypoint.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-curl-l4
+  namespace: lab-ambient
+spec:
+  selector:
+    matchLabels:
+      app: httpbin
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["cluster.local/ns/lab-ambient/sa/curl"]
+      to:
+        - operation:
+            ports: ["8080"]

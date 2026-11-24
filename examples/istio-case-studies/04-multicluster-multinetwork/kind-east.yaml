@@ -1,0 +1,14 @@
+# Cluster "east" for lab 04: a single node is enough. Its pod and service subnets differ from west's, so an
+# address always identifies one cluster when you read endpoints.
+#
+#   kind create cluster --config kind-east.yaml          # context: kind-east
+#
+# Add `image: kindest/node:<tag>` under the node to use the node image pinned in Kubewekend's Versions page.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: east
+networking:
+  podSubnet: "10.10.0.0/16"
+  serviceSubnet: "10.110.0.0/16"
+nodes:
+  - role: control-plane

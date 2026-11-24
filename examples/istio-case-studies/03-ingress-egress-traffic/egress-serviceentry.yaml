@@ -1,0 +1,19 @@
+# Register one external host in the mesh. With REGISTRY_ONLY this is what makes example.com reachable again, and it
+# makes the destination visible to routing, policies and metrics like any other service. Port 443 is declared
+# as HTTPS so that, later, the egress gateway can originate the TLS connection itself.
+apiVersion: networking.istio.io/v1
+kind: ServiceEntry
+metadata:
+  name: example-com
+  namespace: lab-egress
+spec:
+  hosts: ["example.com"]
+  ports:
+    - number: 80
+      name: http-port
+      protocol: HTTP
+    - number: 443
+      name: https-port
+      protocol: HTTPS
+  resolution: DNS
+  location: MESH_EXTERNAL

@@ -1,0 +1,27 @@
+# The same gateway with an HTTPS listener that terminates TLS with the certificate in the Secret `lab-tls`
+# (created in the README with openssl). The route attaches to both listeners.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: lab-gateway
+  namespace: lab-traffic
+spec:
+  gatewayClassName: istio
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https
+      port: 443
+      protocol: HTTPS
+      hostname: hello.lab.test
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: lab-tls
+      allowedRoutes:
+        namespaces:
+          from: Same

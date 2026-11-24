@@ -1,0 +1,15 @@
+# Name the two versions as subsets, by the `version` pod label. VirtualServices then route to subset v1 / v2.
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: helloworld
+  namespace: lab-traffic
+spec:
+  host: helloworld
+  subsets:
+    - name: v1
+      labels:
+        version: v1
+    - name: v2
+      labels:
+        version: v2

@@ -1,0 +1,14 @@
+# One Service in front of both versions: it selects app=helloworld, which the pods of helloworld-v1 and
+# helloworld-v2 share. In-mesh routing rules (VirtualService / DestinationRule) are written against this name.
+apiVersion: v1
+kind: Service
+metadata:
+  name: helloworld
+  namespace: lab-traffic
+spec:
+  selector:
+    app: helloworld
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000

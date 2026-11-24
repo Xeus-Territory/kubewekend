@@ -1,0 +1,16 @@
+# Two sidecar-injected namespaces:
+#   lab-traffic: the app, the ingress gateway and the traffic-management experiments
+#   lab-egress:  a client whose outbound traffic is restricted and routed through an egress gateway
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab-traffic
+  labels:
+    istio-injection: enabled
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab-egress
+  labels:
+    istio-injection: enabled
