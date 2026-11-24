@@ -1,0 +1,33 @@
+# Lab 2, case study 1: an `Application`.
+# One hand-written object = one deployment: one source, one destination, one sync policy.
+# Use it when you have a single, explicit thing to deploy.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hello-helm
+  namespace: argocd
+  annotations:
+    # Wave 2: last, after the platform layer is healthy
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  # Least privilege: the `apps` project allows workloads in application namespaces only
+  project: apps
+  source:
+    repoURL: "https://github.com/Xeus-Territory/kubewekend"
+    targetRevision: HEAD
+    path: "examples/argocd-apps/workloads/hello-helm"
+    helm:
+      releaseName: hello-helm
+      valueFiles:
+        - values.yaml
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: hello-helm
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,6 @@
+dependencies:
+- name: common
+  repository: https://kubewekend.xeusnguyen.xyz
+  version: 0.4.0
+digest: sha256:3292a112a6acfb8a0384c87a1a5ab34d6a49d719c615ff577e0a0c604627deed
+generated: "2026-11-24T14:38:25.947585014+07:00"

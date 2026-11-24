@@ -1,0 +1,8 @@
+# The application namespace, created in BOTH clusters. A multi-cluster mesh matches services by name and
+# namespace, so `sample` must exist in east and in west.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sample
+  labels:
+    istio-injection: enabled

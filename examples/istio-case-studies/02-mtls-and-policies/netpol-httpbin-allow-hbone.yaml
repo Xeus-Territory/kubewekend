@@ -1,0 +1,22 @@
+# The fix: also allow the HBONE tunnel port 15008. Identity checks still happen in ztunnel (AuthorizationPolicy);
+# the NetworkPolicy only decides which pods may open a connection at all.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: httpbin-from-curl
+  namespace: lab-ambient
+spec:
+  podSelector:
+    matchLabels:
+      app: httpbin
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: curl
+      ports:
+        - port: 8080
+          protocol: TCP
+        - port: 15008
+          protocol: TCP

@@ -1,0 +1,18 @@
+# In-mesh weighted routing (service to service, enforced by the caller's sidecar): 80% v1, 20% v2.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: helloworld
+  namespace: lab-traffic
+spec:
+  hosts: ["helloworld"]
+  http:
+    - route:
+        - destination:
+            host: helloworld
+            subset: v1
+          weight: 80
+        - destination:
+            host: helloworld
+            subset: v2
+          weight: 20

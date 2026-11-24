@@ -1030,7 +1030,7 @@ alertmanager:
 ## Using default values from https://github.com/grafana/helm-charts/blob/main/charts/grafana/values.yaml
 ##
 grafana:
-  enabled: true
+  enabled: {{ utilities.monitoring.config.grafana.enable | default(true) | bool | ternary('true','false') }}
   namespaceOverride: ""
 
   ## ForceDeployDatasources Create datasource configmap even if grafana deployment has been disabled
@@ -1714,7 +1714,7 @@ kubelet:
 ## Component scraping the kube controller manager
 ##
 kubeControllerManager:
-  enabled: {{ utilities.monitoring.kubeControllerManager.enable | default(false) }}
+  enabled: {{ utilities.monitoring.config.scraping.kubeControllerManager | default(false) }}
 
   # Overrides the job selector in Grafana dashboards and Prometheus rules
   # For k3s clusters, change to k3s-server
@@ -3255,7 +3255,7 @@ prometheusOperator:
 ## Deploy a Prometheus instance
 ##
 prometheus:
-  enabled: {{ utilities.monitoring.config.prometheus.enable | default(true) }}
+  enabled: {{ utilities.monitoring.config.prometheus.enable | default(true) | bool | ternary('true','false') }}
 
   ## Toggle prometheus into agent mode
   ## Note many of features described below (e.g. rules, query, alerting, remote read, thanos) will not work in agent mode.

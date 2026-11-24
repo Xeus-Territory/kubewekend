@@ -20,7 +20,7 @@ spec:
       - name: deployment-container
         image: {{ utilities.ingressTestDeployment.image | default('nginx:latest') }}
         ports:
-        - containerPort: {{ utilities.ingressTestDeployment.port | default(80) }}
+        - containerPort: 80
 ---
 # Write the test service with custom settings
 apiVersion: v1
@@ -35,8 +35,8 @@ spec:
     app: test-deployment
   ports:
   - protocol: TCP
-    port: {{ utilities.ingressTestDeployment.port | default(80) }}
-    targetPort: {{ utilities.ingressTestDeployment.port | default(80) }}
+    port: 80
+    targetPort: 80
   type: {{ utilities.ingressTestDeployment.type | default('ClusterIP') }}
 ---
 # Write the test ingress with custom settings
@@ -48,7 +48,7 @@ metadata:
     app: test-deployment
   namespace: {{ utilities.ingressTestDeployment.namespace | default('default') }}
 spec:
-  ingressClassName: {{ utilities.ingressTestDeployment.ingressClass | default('nginx') }}
+  ingressClassName: {{ utilities.ingressTestDeployment.ingressClass | default('traefik') }}
   rules:
   - host: {{ utilities.ingressTestDeployment.host | default('') }}
     http:
@@ -59,4 +59,4 @@ spec:
           service:
             name: test-service
             port:
-              number: {{ utilities.ingressTestDeployment.port | default(80) }}
+              number: 80

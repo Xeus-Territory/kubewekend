@@ -1,0 +1,29 @@
+# Circuit breaking: allow very little concurrency to helloworld, so a burst of parallel requests overflows the
+# limits. The excess is rejected immediately with 503 (Envoy response flag UO, "upstream overflow") instead of
+# queueing up and overloading the service. outlierDetection additionally ejects an endpoint that keeps failing.
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: helloworld
+  namespace: lab-traffic
+spec:
+  host: helloworld
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 1
+      http:
+        http1MaxPendingRequests: 1
+        maxRequestsPerConnection: 1
+    outlierDetection:
+      consecutive5xxErrors: 3
+      interval: 5s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 100
+  subsets:
+    - name: v1
+      labels:
+        version: v1
+    - name: v2
+      labels:
+        version: v2

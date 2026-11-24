@@ -1,0 +1,16 @@
+# An ingress gateway with the Kubernetes Gateway API. `gatewayClassName: istio` makes Istio create the Envoy
+# Deployment and a LoadBalancer Service for it (named lab-gateway-istio); cloud-provider-kind gives that Service an IP.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: lab-gateway
+  namespace: lab-traffic
+spec:
+  gatewayClassName: istio
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same

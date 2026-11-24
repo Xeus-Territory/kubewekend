@@ -1,0 +1,14 @@
+# Kind cluster for labs 01-03: one control plane and two workers (so a waypoint or gateway can land on a
+# different node than the app). No ingress controller: the Istio gateways in the labs take ports 80/443.
+#
+#   kind create cluster --config kind-mesh.yaml          # context: kind-mesh
+#
+# Add `image: kindest/node:<tag>` under each node (or pass `--image`) to use the node image pinned in
+# Kubewekend's Versions page; without it Kind uses the default image of your Kind CLI version.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: mesh
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker

@@ -1,0 +1,18 @@
+# A run-to-completion Job that calls httpbin once. It shows a classic sidecar pitfall: with a regular sidecar the
+# istio-proxy container keeps running after the app container exits, so the Pod (and the Job) never completes.
+# Apply the same file to lab-sidecar and lab-ambient and compare:
+#   kubectl -n lab-sidecar apply -f job-hello.yaml
+#   kubectl -n lab-ambient apply -f job-hello.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hello-job
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.23.0
+          command: ["/bin/sh", "-c", "curl -s http://httpbin:8080/get > /dev/null && echo 'hello-job: call succeeded'"]

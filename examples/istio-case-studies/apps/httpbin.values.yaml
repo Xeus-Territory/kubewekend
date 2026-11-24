@@ -1,0 +1,29 @@
+# httpbin: an HTTP echo server. Useful paths: /get, /headers (shows the X-Forwarded-Client-Cert header when
+# mTLS is used), /status/<code>, /delay/<seconds>, /anything.
+# Install:  ./deploy.sh <namespace> httpbin
+fullnameOverride: httpbin
+
+image:
+  repository: mccutchen/go-httpbin
+  tag: "2.26.0"
+
+containerPorts:
+  - name: http
+    containerPort: 8080
+    protocol: TCP
+
+service:
+  port: 8080
+  targetPort: http
+
+probes:
+  path: /get
+
+podLabels:
+  app: httpbin
+  version: v1
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi

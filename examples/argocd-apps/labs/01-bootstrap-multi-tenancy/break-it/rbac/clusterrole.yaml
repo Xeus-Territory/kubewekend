@@ -1,0 +1,9 @@
+# A harmless ClusterRole. Cluster-wide, so the `apps` project must reject it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: lab-break-it
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]

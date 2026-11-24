@@ -1,0 +1,19 @@
+# The same Job, but with native sidecars turned off for this Pod (the behaviour of older Istio versions or of
+# clusters without sidecar containers): istio-proxy is a regular container that never exits, so the Pod stays
+# "NotReady 1/2" and the Job never completes. Apply it to lab-sidecar only.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hello-job-legacy
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/nativeSidecar: "false"
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.23.0
+          command: ["/bin/sh", "-c", "sleep 5; curl -s http://httpbin:8080/get > /dev/null && echo 'hello-job-legacy: call succeeded'"]

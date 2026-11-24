@@ -3,6 +3,9 @@ kind: Application
 metadata:
   name: cert-manager
   namespace: argocd
+  annotations:
+    # Wave 1: platform tooling comes up before the workloads (wave 2)
+    argocd.argoproj.io/sync-wave: "1"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -23,5 +26,8 @@ spec:
     server: "https://kubernetes.default.svc"
     namespace: "cert-manager"
   syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true

@@ -1,0 +1,21 @@
+# "Break it": an L7 rule (HTTP method and path) attached to the workload with `selector`, in a namespace that has
+# no waypoint. ztunnel is the only enforcement point and it cannot read HTTP, so predict what happens before
+# you apply this, then compare with what you see.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-curl-get-l7
+  namespace: lab-ambient
+spec:
+  selector:
+    matchLabels:
+      app: httpbin
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["cluster.local/ns/lab-ambient/sa/curl"]
+      to:
+        - operation:
+            methods: ["GET"]
+            paths: ["/get"]

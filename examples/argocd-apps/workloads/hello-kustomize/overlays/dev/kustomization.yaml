@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: hello-dev
+resources:
+  - ../../base
+# Argo CD Image Updater (lab 3) rewrites this block and commits the change to Git
+images:
+  - name: xeusnguyen/kubewekend-todo
+    newTag: v1.0.0
+patches:
+  - target:
+      kind: Ingress
+      name: hello-kustomize
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: hello-dev.kubewekend.local

@@ -1,0 +1,5 @@
+// Just the Docs layout variables, loaded before the theme's own defaults.
+// A wider content column with a slightly narrower sidebar: the page is centred, so a wider column
+// leaves less gutter on both sides and the sidebar sits further to the left.
+$nav-width: 15rem;           // theme default: 16.5rem
+$content-width: 64rem;       // theme default: 50rem (reading column max width, ~1024px)

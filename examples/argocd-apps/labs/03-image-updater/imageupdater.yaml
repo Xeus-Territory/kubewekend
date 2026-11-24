@@ -1,0 +1,62 @@
+# Lab 3: Argo CD Image Updater (v1.x) with an `ImageUpdater` custom resource (no annotations on the Applications).
+#
+# What it does, every few minutes:
+#   1. looks up the tags of xeusnguyen/kubewekend-todo in the registry
+#   2. picks the newest semver tag (v1.0.0 -> v1.1.0)
+#   3. commits the new tag to Git (the `git` write-back method), so Git stays the source of truth
+#   4. Argo CD sees the new commit and rolls the Deployment out
+#
+# Two applications are tracked, one per tool; `hello-kustomize-prod` is deliberately NOT tracked:
+#   hello-helm            -> writes common.image.tag in workloads/hello-helm/values.yaml
+#   hello-kustomize-dev   -> writes the `images:` block of overlays/dev/kustomization.yaml
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: hello
+  namespace: argocd
+spec:
+  # The namespace where the Argo CD Applications live
+  namespace: argocd
+  # `git:secret:<namespace>/<name>` reads `username` and `password` from that Secret (see the lab for the command)
+  writeBackConfig:
+    method: git:secret:argocd/git-creds
+    gitConfig:
+      branch: main
+      # Use the URL of YOUR fork: the commit is pushed there
+      repository: https://github.com/Xeus-Territory/kubewekend
+  commonUpdateSettings:
+    updateStrategy: semver
+    ignoreTags:
+      - latest
+  applicationRefs:
+    - namePattern: hello-helm
+      writeBackConfig:
+        method: git:secret:argocd/git-creds
+        gitConfig:
+          branch: main
+          repository: https://github.com/Xeus-Territory/kubewekend
+          # Helm: write the tag into the chart's values file (path relative to the Application's source path)
+          writeBackTarget: helmvalues:values.yaml
+      images:
+        - alias: todo
+          imageName: xeusnguyen/kubewekend-todo
+          manifestTargets:
+            helm:
+              # Value paths in values.yaml. The `common` chart is a dependency, hence the `common.` prefix
+              name: common.image.repository
+              tag: common.image.tag
+    - namePattern: hello-kustomize-dev
+      writeBackConfig:
+        method: git:secret:argocd/git-creds
+        gitConfig:
+          branch: main
+          repository: https://github.com/Xeus-Territory/kubewekend
+          # Kustomize: edit the `images:` block of the kustomization.yaml in the Application's source path
+          writeBackTarget: kustomization
+      images:
+        - alias: todo
+          imageName: xeusnguyen/kubewekend-todo
+          manifestTargets:
+            kustomize:
+              # The image name exactly as written in `images:` (overlays/dev/kustomization.yaml)
+              name: xeusnguyen/kubewekend-todo

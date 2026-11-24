@@ -1,0 +1,10 @@
+# Require mutual TLS for every workload in lab-sidecar. Plain-text callers (the `legacy` namespace) are refused.
+# The mesh default is PERMISSIVE: workloads accept both mTLS and plain text, which eases onboarding.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: lab-sidecar
+spec:
+  mtls:
+    mode: STRICT

@@ -1,0 +1,19 @@
+# Traffic mirroring ("shadowing"): every request goes to v1 and answers from v1, and a copy is sent to v2 whose
+# response is discarded. Test a new version with real traffic without affecting any user.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: helloworld
+  namespace: lab-traffic
+spec:
+  hosts: ["helloworld"]
+  http:
+    - route:
+        - destination:
+            host: helloworld
+            subset: v1
+      mirror:
+        host: helloworld
+        subset: v2
+      mirrorPercentage:
+        value: 100

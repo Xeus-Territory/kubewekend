@@ -1,0 +1,12 @@
+# Close the outbound door for lab-egress: sidecars in this namespace may only call destinations the mesh knows
+# about (Kubernetes Services and ServiceEntries). Anything else, such as example.com, is refused with 502.
+# The mesh-wide default is ALLOW_ANY (`meshConfig.outboundTrafficPolicy.mode`); a Sidecar resource changes it
+# for one namespace.
+apiVersion: networking.istio.io/v1
+kind: Sidecar
+metadata:
+  name: default
+  namespace: lab-egress
+spec:
+  outboundTrafficPolicy:
+    mode: REGISTRY_ONLY

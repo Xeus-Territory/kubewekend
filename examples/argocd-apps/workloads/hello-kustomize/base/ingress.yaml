@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hello-kustomize
+  labels:
+    app.kubernetes.io/name: hello-kustomize
+spec:
+  ingressClassName: traefik
+  rules:
+    # Each overlay patches the host
+    - host: hello-kustomize.kubewekend.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hello-kustomize
+                port:
+                  name: http

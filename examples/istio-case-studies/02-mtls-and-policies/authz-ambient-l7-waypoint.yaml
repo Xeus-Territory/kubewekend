@@ -1,0 +1,21 @@
+# The same L7 rule, attached to the waypoint with `targetRefs` instead of `selector`: the waypoint (Envoy) reads
+# HTTP, so it can enforce methods and paths. Requires the waypoint from `istioctl waypoint apply -n lab-ambient --enroll-namespace`.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-curl-get-l7
+  namespace: lab-ambient
+spec:
+  targetRefs:
+    - kind: Gateway
+      group: gateway.networking.k8s.io
+      name: waypoint
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["cluster.local/ns/lab-ambient/sa/curl"]
+      to:
+        - operation:
+            methods: ["GET"]
+            paths: ["/get"]

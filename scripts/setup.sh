@@ -459,6 +459,385 @@ INVENTORY
 }
 
 # ---------------------------------------------------------------------------
+# K8s utilities: one registry shared by `kind|k3s|rke2 utils`, their help and `utils --list`
+# ---------------------------------------------------------------------------
+# One entry per tag of ansible/k8s-utilities-playbook.yaml:
+#   tag | master.yaml key (under `utilities:`) | description | supported options | in development | current-value paths
+# - supported options: what the playbook implements today
+# - in development:    options documented in master.yaml that the playbook does not implement yet
+# - current-value paths: comma-separated keys under `utilities.<key>` shown by `utils --list`
+# Keep this table in sync when changing tags in k8s-utilities-playbook.yaml.
+# master.yaml blocks without an entry here are listed as "in development" automatically.
+UTILITY_REGISTRY=(
+    "ingress_test|ingressTestDeployment|Deploy a test nginx Deployment + Service + Ingress|ingressClass: traefik|ingressClass: nginx, cilium, kong (archived controllers, see the archive NOTE above SETUP_REGISTRY_KIND)|ingressClass,host"
+    "apigateway_test|apiGatewayTestDeployment|Deploy a test Gateway + HTTPRoute (Gateway API)|gatewayClass: traefik|gatewayClass: cilium, kong (archived controllers; templates in ansible/templates/archives/)|gatewayClass,host"
+    "certmanager|certmanager|Install cert-manager|selfSignedIssuer (local CA for *.kubewekend.local hosts)||selfSignedIssuer.enable"
+    "dashboard|dashboard|Install a Kubernetes dashboard|type: kubernetes-dashboard, headlamp, rancher||type,host"
+    "storage|storage|Install Kubernetes Storage for workloads provisioned|type: longhorn (namespace longhorn-system; longhorn.setup: iscsi, nfs; longhorn.replicaStorage), local-path (rancher local-path-provisioner manifest); test.enable: nginx Pod + 2Gi RWO PVC (StorageClass = type) in test.namespace|csi.nfs (nfs-subdir-external-provisioner or csi-driver-nfs)|type,longhorn.setup.iscsi,longhorn.setup.nfs,longhorn.replicaStorage,test.enable"
+    "secret_management|secretManagement|Install Vault or OpenBao|type: vault, openbao; config.mode: dev, standalone (needs a StorageClass); config.injector (Vault agent injector); host, ingressClass||type,config.mode,config.injector,host"
+    "k8s_extensions|extensions|Install cluster extensions|reflector, reloader, externalsecrets|sealedsecrets, schemahero|reflector.enable,reloader.enable,externalsecrets.enable"
+    "gitops|gitops|Install GitOps tooling|type: argocd (argocdImageUpdater, argocdExtensions), flux (ui); kargo||type,kargo.enable"
+    "security|security|Install a policy engine and an identity provider|policy.type: kyverno, opa-gatekeeper; identity.type: dex|policy.type: default (VAP/MAP); kubernetesAuth.type: impersonation-proxy (impersonationProxy.type: pinniped; conf: issuerUrl, clientId, clientSecret), oidc, authentication-proxy; intelligence.type: falco, tetragon|policy.type,identity.enable"
+    "monitoring|monitoring|Install the LGTM observability stack|type: kube-prometheus-stack; apm: alloy; logging: loki; tracing: tempo; profiling: pyroscope; alertmanager; grafana operator|alertmanager.config (notification, oncall); logging.config.collector; logging.config.pattern_ingester|type,apm.enable,logging.enable,tracing.enable,profiling.enable"
+    "service_mesh|serviceMesh|Install the Istio service mesh|type: istio (sidecar mode)|dataplane.mode: ambient|type,dataplane.mode"
+)
+
+# Field accessors for a registry entry
+_util_field() { local -a f; IFS='|' read -r -a f <<< "$1"; printf '%s' "${f[$2]:-}"; }
+
+# Registry entry for a tag (empty when the tag is unknown)
+_util_entry() {
+    local entry
+    for entry in "${UTILITY_REGISTRY[@]}"; do
+        [[ "$(_util_field "$entry" 0)" == "$1" ]] && { printf '%s' "$entry"; return 0; }
+    done
+    return 1
+}
+
+# Read `<top>.<dotted.path>` from a host_vars YAML file, matching the exact indentation (2 spaces per level)
+# so that nested keys with the same name (e.g. `enable`, `type`) never collide.
+# Scalars are returned as-is, block lists ("- item") comma-joined, block scalars (`|`) as "(multi-line)".
+# Missing keys return an empty string.
+_yaml_get() {
+    local file="$1" top="$2" path="$3" data indent=2 part last line value
+    [[ -f "$file" ]] || return 0
+    data=$(_yblock "$top" "$file")
+    local -a parts
+    IFS='.' read -r -a parts <<< "$path"
+    last="${parts[${#parts[@]}-1]}"
+    for part in "${parts[@]:0:${#parts[@]}-1}"; do
+        data=$(printf '%s\n' "$data" | _ysub "$part" "$indent")
+        indent=$((indent + 2))
+    done
+    line=$({ printf '%s\n' "$data" | grep -m1 -E "^ {${indent}}${last}:" || true; })
+    [[ -n "$line" ]] || return 0
+    value=$(printf '%s\n' "$line" | sed -E 's/^[^:]*:[[:space:]]*//; s/[[:space:]]+#.*$//; s/^#.*$//' \
+        | tr -d '"' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')
+    case "$value" in
+        "|"|"|-"|">"|">-") value="(multi-line)" ;;
+        "")
+            value=$(printf '%s\n' "$data" | _ysub "$last" "$indent" \
+                | { grep -E '^[[:space:]]*-[[:space:]]' || true; } \
+                | sed -E 's/^[[:space:]]*-[[:space:]]*//; s/[[:space:]]+#.*$//' | tr -d '"' \
+                | paste -sd, - | sed 's/,/, /g') ;;
+    esac
+    printf '%s' "$value"
+}
+
+# Read `utilities.<block>.<dotted.path>` from master.yaml
+_util_value() { _yaml_get "$HOST_VARS_DIR/master.yaml" "utilities" "$1.$2"; }
+
+# Highlight a current value from master.yaml / worker.yaml for `--list` output:
+# bold green when set, red "(unset)" when the key is missing
+_cur() {
+    if [[ -n "$1" ]]; then
+        printf '%s' "${BOLD}${GREEN}$1${NC}"
+    else
+        printf '%s' "${RED}(unset)${NC}"
+    fi
+}
+
+# Bold "current:" label used by the `--list` views
+_cur_label() { printf '%s' "${BOLD}current:${NC}"; }
+
+# Top-level keys under `utilities:` in master.yaml
+_util_master_blocks() {
+    local file="$HOST_VARS_DIR/master.yaml"
+    [[ -f "$file" ]] || return 0
+    _yblock "utilities" "$file" | { grep -E '^  [A-Za-z][A-Za-z0-9]*:' || true; } | sed -E 's/^  ([A-Za-z0-9]+):.*/\1/'
+}
+
+# master.yaml blocks that no tag installs yet, with their documented options when available
+_util_in_development() {
+    local file="$HOST_VARS_DIR/master.yaml" block entry known opts
+    for block in $(_util_master_blocks); do
+        known=false
+        for entry in "${UTILITY_REGISTRY[@]}"; do
+            [[ "$(_util_field "$entry" 1)" == "$block" ]] && { known=true; break; }
+        done
+        [[ "$known" == true ]] && continue
+        # Options from the inline comment of `type:` (e.g. `type: "k8gb"  # k8gb`), else the sub-keys
+        opts=$(_yblock "utilities" "$file" | _ysub "$block" 2 \
+            | { grep -m1 -E '^    type:.*#' || true; } | sed -E 's/^[^#]*#[[:space:]]*//')
+        if [[ -z "$opts" ]]; then
+            opts=$(_yblock "utilities" "$file" | _ysub "$block" 2 \
+                | { grep -E '^    [A-Za-z][A-Za-z0-9]*:' || true; } | sed -E 's/^    ([A-Za-z0-9]+):.*/\1/' \
+                | { grep -v '^enable$' || true; } | paste -sd, - | sed 's/,/, /g')
+        fi
+        printf '%s|%s\n' "$block" "$opts"
+    done
+}
+
+# Compact tag table for the kind/k3s/rke2 help pages
+utils_help_section() {
+    local entry dev_blocks
+    echo "UTILITY TAGS (options supported by k8s-utilities-playbook.yaml; enable each in master.yaml)"
+    for entry in "${UTILITY_REGISTRY[@]}"; do
+        printf "  %-20s %s\n" "$(_util_field "$entry" 0)" "$(_util_field "$entry" 2)"
+        printf "  %-20s   options: %s\n" "" "$(_util_field "$entry" 3)"
+    done
+    dev_blocks=$(_util_in_development | cut -d'|' -f1 | paste -sd, - | sed 's/,/, /g')
+    if [[ -n "$dev_blocks" ]]; then
+        echo ""
+        echo "  In development (in master.yaml, no tag yet): $dev_blocks"
+    fi
+    echo "  Details and current values from master.yaml: ./scripts/setup.sh <kind|k3s|rke2> utils --list"
+    echo ""
+}
+
+# Full list: tags, supported / in-development options and the current values from master.yaml
+utils_list() {
+    local file="$HOST_VARS_DIR/master.yaml" entry tag key desc opts dev paths path enabled status current line
+    header "Kubewekend utility tags"
+    printf "  Playbook: ${BOLD}%s${NC}\n" "$ANSIBLE_DIR/k8s-utilities-playbook.yaml"
+    printf "  Values:   ${BOLD}%s${NC}\n" "$file"
+    [[ -f "$file" ]] || warn "master.yaml not found: status and current values are unavailable"
+
+    _sec "SUPPORTED TAGS"
+    for entry in "${UTILITY_REGISTRY[@]}"; do
+        tag=$(_util_field "$entry" 0);  key=$(_util_field "$entry" 1)
+        desc=$(_util_field "$entry" 2); opts=$(_util_field "$entry" 3)
+        dev=$(_util_field "$entry" 4);  paths=$(_util_field "$entry" 5)
+        enabled=$(_util_value "$key" "enable")
+        if [[ "$enabled" == "true" ]]; then status="${GREEN}ON ${NC}"; else status="${RED}OFF${NC}"; fi
+        printf "  ${CYAN}%-20s${NC} %s  %s\n" "$tag" "$status" "$desc"
+        printf "  %-20s      key:     utilities.%s\n" "" "$key"
+        printf "  %-20s      options: %s\n" "" "$opts"
+        [[ -n "$dev" ]] && printf "  %-20s      ${YELLOW}in dev:${NC}  %s\n" "" "$dev"
+        current=""
+        IFS=',' read -r -a line <<< "$paths"
+        for path in "${line[@]}"; do
+            [[ -n "$path" ]] && current+="${path}=$(_cur "$(_util_value "$key" "$path")") "
+        done
+        [[ -n "$current" ]] && printf "  %-20s      %s %s\n" "" "$(_cur_label)" "${current% }"
+    done
+
+    _sec "IN DEVELOPMENT (defined in master.yaml, not supported yet)"
+    local block bopts found=false
+    while IFS='|' read -r block bopts; do
+        [[ -z "$block" ]] && continue
+        found=true
+        printf "  ${YELLOW}%-20s${NC} %s\n" "$block" "${bopts:--}"
+    done < <(_util_in_development)
+    [[ "$found" == true ]] || echo "  (none)"
+
+    echo ""
+    info "Install: ./scripts/setup.sh <kind|k3s|rke2> utils <tag...>  (set utilities.<key>.enable: true first)"
+}
+
+# Shared implementation of `kind|k3s|rke2 utils`
+run_utils() {
+    local distro="$1"; shift
+    local arg
+    [[ "${1:-}" == "list" ]] && { utils_list; return 0; }
+    for arg in "$@"; do
+        [[ "$arg" == "--list" || "$arg" == "-l" ]] && { utils_list; return 0; }
+    done
+
+    parse_ansible_opts "$@"
+    if [[ ${#ANSIBLE_TAGS[@]} -eq 0 ]]; then
+        error "Specify at least one utility tag."
+        echo ""
+        utils_help_section
+        echo "Example: ./scripts/setup.sh $distro utils certmanager monitoring"
+        return 1
+    fi
+
+    # Reject unknown tags instead of letting ansible silently run nothing
+    local tag entry key enabled unknown=()
+    for tag in "${ANSIBLE_TAGS[@]}"; do
+        _util_entry "$tag" >/dev/null || unknown+=("$tag")
+    done
+    if [[ ${#unknown[@]} -gt 0 ]]; then
+        error "Unknown utility tag(s): ${unknown[*]}"
+        echo "  List supported tags: ./scripts/setup.sh $distro utils --list"
+        return 1
+    fi
+
+    # The playbook skips a block whose `enable` is not true, so warn before running
+    for tag in "${ANSIBLE_TAGS[@]}"; do
+        entry=$(_util_entry "$tag"); key=$(_util_field "$entry" 1)
+        enabled=$(_util_value "$key" "enable")
+        if [[ "$enabled" != "true" ]]; then
+            warn "'$tag' is disabled in master.yaml (utilities.$key.enable: ${enabled:-unset}); the playbook will skip it"
+        fi
+    done
+
+    local tags_str
+    tags_str=$(IFS=,; echo "${ANSIBLE_TAGS[*]}")
+    header "Installing K8s utilities: $tags_str (target: $HOST_NAME)"
+    run_ansible_playbook "k8s-utilities-playbook.yaml" "$tags_str"
+    info "Utilities installed: $tags_str"
+}
+
+# ---------------------------------------------------------------------------
+# Cluster setup options: one registry per distribution (kindCluster / k3sCluster / rke2Cluster in master.yaml)
+# ---------------------------------------------------------------------------
+# One entry per top-level key of the cluster block:
+#   key | description | supported options | in development | current-value paths
+# - supported options: what the setup playbooks / templates implement today
+# - in development:    options documented in master.yaml that the playbooks do not read yet
+# - current-value paths: comma-separated keys under `<cluster>.` shown by `config --list`
+# Keep these tables in sync with kind-playbook / k3s-(ha-)playbook / rke2-(ha-)playbook and their templates.
+# Cluster keys without an entry here are listed as "in development" automatically.
+#
+# NOTE — Archived (2026-11-20): ingress / Gateway API controllers other than Traefik.
+#   NGINX, Kong and Cilium ingress, and Kong and Cilium Gateway API, changed too often to keep working, so
+#   Kubewekend now supports Traefik only, for Kind, K3s and RKE2. They are archived, not deleted:
+#   - Kind tasks: commented out in ansible/kind-playbook.yaml ("(Archive - Stop supporting)" blocks)
+#   - RKE2 ingress-nginx (`rke2Cluster.ingress.class: ingress-nginx`): being archived; its tasks are still in
+#     ansible/rke2-playbook.yaml and rke2-ha-playbook.yaml until they are commented out
+#   - test-deployment templates: ansible/templates/archives/
+#   - version pins: commented-out entries in VERSION_REGISTRY (kong, traefik-gateway-rbac)
+#   Cilium stays supported as CNI (`cni: cilium`) and as the Kind load balancer (`loadbalancer.type: cilium-ipam-lb`).
+#   To restore one: uncomment its tasks / registry entries and move it back to the supported options below.
+KIND_ARCHIVED_INGRESS_CLASSES="nginx kong cilium"
+KIND_ARCHIVED_GATEWAY_CLASSES="kong cilium"
+RKE2_ARCHIVED_INGRESS_CLASSES="ingress-nginx"
+SETUP_REGISTRY_KIND=(
+    "numberOfNodes|Node count (Kind always needs one control-plane)|controlPlane, worker||numberOfNodes.controlPlane,numberOfNodes.worker"
+    "image|Node image, sets the Kubernetes version|kindest/node:<version>||image"
+    "networking|API server, subnets, CNI and kube-proxy|apiServer; podSubnet; serviceSubnet; disableDefaultCNI (kindnet); cni: calico, flannel, cilium; kubeProxyMode: iptables, nftables, ipvs, none||networking.disableDefaultCNI,networking.cni,networking.kubeProxyMode,networking.podSubnet,networking.serviceSubnet"
+    "loadbalancer|Service type LoadBalancer|type: cloud-provider-kind, metallb, cilium-ipam-lb (needs cni: cilium)||loadbalancer.enable,loadbalancer.type"
+    "ingress|Ingress controller (Traefik only)|class: traefik; traefik.ports (web, websecure); traefik.allowCrossNamespace; traefik.dashboard (enable, host)|class: nginx, kong, cilium (archived, see NOTE above)|ingress.enable,ingress.class,ingress.traefik.dashboard.enable"
+    "apigateway|Gateway API controller (Traefik only)|class: traefik; crd (install, version)|class: kong, cilium (archived, see NOTE above)|apigateway.enable,apigateway.class,apigateway.crd.install"
+    "networkForwarding|Forward host ports 80/443 to the cluster (socat services)|enable||networkForwarding.enable"
+)
+SETUP_REGISTRY_K3S=(
+    "version|K3s release, sets the Kubernetes version|vX.Y.Z+k3sN||version"
+    "highAvailability|HA control plane, used by \`k3s ha-setup\`|dataStorage.type: etcd, postgres (externalDatabase)|clusterLB (bring your own HAProxy / Kube-VIP)|highAvailability.dataStorage.type"
+    "tlsSANs|Extra SANs for the API server certificate|list of hostnames / IPs||tlsSANs"
+    "nodeLabels|Kubelet node labels|list of key=value||nodeLabels"
+    "nodeTaints|Kubelet node taints|list of key=value:effect||nodeTaints"
+    "cni|CNI plugin|type: flannel (default), calico, cilium||cni.type"
+    "loadBalancer|Service type LoadBalancer|type: servicelb, metallb||loadBalancer.enable,loadBalancer.type"
+    "ingress|Traefik ingress controller (Helm; the bundled K3s Traefik is disabled)|class: traefik; traefik.ports (web, websecure); traefik.allowCrossNamespace; traefik.dashboard (enable, host); traefik.gateway (enable, crd.install, crd.version)||ingress.enable,ingress.class,ingress.traefik.dashboard.enable,ingress.traefik.gateway.enable"
+)
+SETUP_REGISTRY_RKE2=(
+    "version|RKE2 release, sets the Kubernetes version|vX.Y.Z+rke2rN||version"
+    "highAvailability|HA control plane, used by \`rke2 ha-setup\`|dataStorage.type: etcd, postgres (externalDatabase)|clusterLB (bring your own HAProxy / Kube-VIP)|highAvailability.dataStorage.type"
+    "tlsSANs|Extra SANs for the API server certificate|list of hostnames / IPs||tlsSANs"
+    "nodeLabels|Kubelet node labels|list of key=value||nodeLabels"
+    "nodeTaints|Kubelet node taints|list of key=value:effect||nodeTaints"
+    "cni|CNI plugin|type: canal (default), calico, cilium, flannel||cni.type"
+    "loadBalancer|Service type LoadBalancer|type: servicelb, metallb||loadBalancer.enable,loadBalancer.type"
+    "ingress|Bundled Traefik ingress controller|class: traefik; config.traefik (HelmChartConfig values)|class: ingress-nginx (archived, see the archive NOTE above SETUP_REGISTRY_KIND)|ingress.enable,ingress.class"
+)
+
+# master.yaml top-level key for a distribution
+_setup_top() {
+    case "$1" in
+        kind) echo "kindCluster" ;;
+        k3s)  echo "k3sCluster" ;;
+        rke2) echo "rke2Cluster" ;;
+        *)    return 1 ;;
+    esac
+}
+
+# Print the registry entries of a distribution, one per line
+_setup_entries() {
+    local -n _reg="SETUP_REGISTRY_${1^^}"
+    printf '%s\n' "${_reg[@]}"
+}
+
+# Cluster keys that no playbook reads yet: "key|current value or sub-keys"
+_setup_in_development() {
+    local distro="$1" top file="$HOST_VARS_DIR/master.yaml" key value known
+    top=$(_setup_top "$distro") || return 0
+    [[ -f "$file" ]] || return 0
+    known=$(_setup_entries "$distro" | cut -d'|' -f1)
+    for key in $(_yblock "$top" "$file" | { grep -E '^  [A-Za-z][A-Za-z0-9]*:' || true; } | sed -E 's/^  ([A-Za-z0-9]+):.*/\1/'); do
+        grep -qx "$key" <<< "$known" && continue
+        value=$(_yaml_get "$file" "$top" "$key")
+        if [[ -z "$value" ]]; then
+            value=$(_yblock "$top" "$file" | _ysub "$key" 2 \
+                | { grep -E '^    [A-Za-z][A-Za-z0-9]*:' || true; } | sed -E 's/^    ([A-Za-z0-9]+):.*/\1/' \
+                | paste -sd, - | sed 's/,/, /g')
+        fi
+        printf '%s|%s\n' "$key" "$value"
+    done
+}
+
+# Compact setup-option table for the kind/k3s/rke2 help pages
+setup_help_section() {
+    local distro="$1" top entry key desc opts dev_keys
+    top=$(_setup_top "$distro") || return 0
+    echo "SETUP OPTIONS (master.yaml → $top)"
+    while IFS= read -r entry; do
+        IFS='|' read -r key desc opts _ <<< "$entry"
+        printf "  %-20s %s\n" "$key" "$desc"
+        printf "  %-20s   options: %s\n" "" "$opts"
+    done < <(_setup_entries "$distro")
+    dev_keys=$(_setup_in_development "$distro" | cut -d'|' -f1 | paste -sd, - | sed 's/,/, /g')
+    [[ -n "$dev_keys" ]] && echo "" && echo "  In development (in master.yaml, not read by the playbooks yet): $dev_keys"
+    echo "  Details and current values from master.yaml: ./scripts/setup.sh config --list $distro"
+    echo ""
+}
+
+# Full setup-option view of one distribution
+_config_list_distro() {
+    local distro="$1" top file="$HOST_VARS_DIR/master.yaml" wfile="$HOST_VARS_DIR/worker.yaml"
+    local entry key desc opts dev paths path current used_by found=false
+    top=$(_setup_top "$distro") || return 1
+    case "$distro" in
+        kind) used_by="kind setup" ;;
+        *)    used_by="$distro setup / $distro ha-setup" ;;
+    esac
+
+    _sec "${distro^^} SETUP OPTIONS  (master.yaml → $top, used by: $used_by)"
+    while IFS= read -r entry; do
+        IFS='|' read -r key desc opts dev paths <<< "$entry"
+        printf "  ${CYAN}%-20s${NC} %s\n" "$key" "$desc"
+        printf "  %-20s   options: %s\n" "" "$opts"
+        [[ -n "$dev" ]] && printf "  %-20s   ${YELLOW}in dev:${NC}  %s\n" "" "$dev"
+        current=""
+        local -a plist
+        IFS=',' read -r -a plist <<< "$paths"
+        for path in "${plist[@]}"; do
+            [[ -n "$path" ]] && current+="${path}=$(_cur "$(_yaml_get "$file" "$top" "$path")") "
+        done
+        [[ -n "$current" ]] && printf "  %-20s   %s %s\n" "" "$(_cur_label)" "${current% }"
+    done < <(_setup_entries "$distro")
+
+    local dkey dval
+    while IFS='|' read -r dkey dval; do
+        [[ -z "$dkey" ]] && continue
+        if [[ "$found" == false ]]; then
+            printf "\n  ${YELLOW}In development${NC} (in master.yaml, not read by the playbooks yet):\n"
+            found=true
+        fi
+        printf "  ${YELLOW}%-20s${NC}   %s %s\n" "$dkey" "$(_cur_label)" "$(_cur "$dval")"
+    done < <(_setup_in_development "$distro")
+
+    # Worker nodes read their own file for the agent configuration
+    if [[ "$distro" != "kind" && -f "$wfile" ]]; then
+        printf "\n  Worker nodes (worker.yaml → %s) %s version=%s  tlsSANs=%s  nodeLabels=%s  nodeTaints=%s\n" "$top" \
+            "$(_cur_label)" \
+            "$(_cur "$(_yaml_get "$wfile" "$top" version)")" "$(_cur "$(_yaml_get "$wfile" "$top" tlsSANs)")" \
+            "$(_cur "$(_yaml_get "$wfile" "$top" nodeLabels)")" "$(_cur "$(_yaml_get "$wfile" "$top" nodeTaints)")"
+    fi
+}
+
+# `config --list [kind|k3s|rke2|utils]`: supported / in-development options and current values
+config_list() {
+    local target="${1:-all}" distro
+    case "$target" in
+        utils|utilities) utils_list; return 0 ;;
+        all|kind|k3s|rke2) ;;
+        *) error "Unknown target: $target (expected: kind, k3s, rke2, utils)"; return 1 ;;
+    esac
+
+    header "Kubewekend setup options"
+    printf "  Values: ${BOLD}%s${NC}\n" "$HOST_VARS_DIR/master.yaml"
+    [[ -f "$HOST_VARS_DIR/master.yaml" ]] || warn "master.yaml not found: current values are unavailable"
+    for distro in kind k3s rke2; do
+        [[ "$target" == "all" || "$target" == "$distro" ]] && _config_list_distro "$distro"
+    done
+    echo ""
+    info "Utility options: ./scripts/setup.sh config --list utils  (same as: <kind|k3s|rke2> utils --list)"
+}
+
+# ---------------------------------------------------------------------------
 # COMMAND: kind
 # ---------------------------------------------------------------------------
 cmd_kind_help() {
@@ -468,7 +847,9 @@ kubewekend kind - KIND (Kubernetes in Docker) cluster management
 SUBCOMMANDS
   setup                 Install tools + create Kind cluster + networking
   destroy               Remove Kind cluster and related components
-  utils [tags...]       Run K8s utilities (see available tags below)
+  utils [tags...]       Run K8s utilities (see UTILITY TAGS below)
+  utils --list          List utility tags with options and status from master.yaml
+                        (setup options: ./scripts/setup.sh config --list kind)
 
 OPTIONS
   --host, -H <name>    Ansible host target (default: k8s-master-machine)
@@ -476,20 +857,10 @@ OPTIONS
   --skip-tags <tags>    Comma-separated tags to skip (e.g: install_common)
   --extra-vars <vars>   Additional ansible extra-vars (key=value)
 
-AVAILABLE UTILITY TAGS
-  ingress_test          Deploy test ingress workload
-  apigateway_test       Deploy test API gateway workload
-  certmanager           Install cert-manager
-  dashboard             Install K8s dashboard (kubernetes-dashboard / headlamp / rancher)
-  storage               Install Longhorn distributed block storage (iSCSI / NFS)
-  secret_management     Install Vault or OpenBao (auto-unseal, Vault Operator)
-  k8s_extensions        Install Reflector, Reloader, External Secrets Operator
-  gitops                Install ArgoCD (Image Updater + Extensions) or Flux + Kargo
-  security              Install Kyverno / OPA Gatekeeper + Dex identity provider
-  idp                   Install Backstage Internal Developer Portal
-  monitoring            Install LGTM stack: kube-prometheus-stack + Alloy + Loki + Tempo + Pyroscope
-  service_mesh          Install Istio service mesh
-
+EOF
+    setup_help_section kind
+    utils_help_section
+    cat <<'EOF'
 EXAMPLES
   # Full Kind cluster setup on master
   ./scripts/setup.sh kind setup
@@ -506,11 +877,14 @@ EXAMPLES
   # Install full LGTM observability stack
   ./scripts/setup.sh kind utils monitoring
 
-  # Install security policy engine + IDP portal
-  ./scripts/setup.sh kind utils security idp
+  # Install security policy engine
+  ./scripts/setup.sh kind utils security
 
   # Install storage + secret management
   ./scripts/setup.sh kind utils storage secret_management
+
+  # List utility tags, supported options and what is enabled in master.yaml
+  ./scripts/setup.sh kind utils --list
 
   # Dry run to see what ansible would execute
   ./scripts/setup.sh kind setup --dry-run
@@ -584,8 +958,36 @@ run_ansible_playbook() {
     "${cmd[@]}"
 }
 
+# Warn when master.yaml selects an ingress / Gateway API class whose tasks are archived (see the archive NOTE
+# above SETUP_REGISTRY_KIND): the playbook would not install that controller, or not the way you expect.
+# Usage: _check_archived_classes <kind|rke2>
+_check_archived_classes() {
+    local file="$HOST_VARS_DIR/master.yaml" top enabled class
+    case "$1" in
+        kind)
+            top="kindCluster"
+            enabled=$(_yaml_get "$file" "$top" ingress.enable); class=$(_yaml_get "$file" "$top" ingress.class)
+            if [[ "$enabled" == "true" && " $KIND_ARCHIVED_INGRESS_CLASSES " == *" $class "* ]]; then
+                warn "$top.ingress.class: $class is archived, so no ingress controller will be installed (supported: traefik)"
+            fi
+            enabled=$(_yaml_get "$file" "$top" apigateway.enable); class=$(_yaml_get "$file" "$top" apigateway.class)
+            if [[ "$enabled" == "true" && " $KIND_ARCHIVED_GATEWAY_CLASSES " == *" $class "* ]]; then
+                warn "$top.apigateway.class: $class is archived, so no Gateway API controller will be installed (supported: traefik)"
+            fi
+            ;;
+        rke2)
+            top="rke2Cluster"
+            enabled=$(_yaml_get "$file" "$top" ingress.enable); class=$(_yaml_get "$file" "$top" ingress.class)
+            if [[ "$enabled" == "true" && " $RKE2_ARCHIVED_INGRESS_CLASSES " == *" $class "* ]]; then
+                warn "$top.ingress.class: $class is archived and no longer supported (supported: traefik)"
+            fi
+            ;;
+    esac
+}
+
 kind_setup() {
     parse_ansible_opts "$@"
+    _check_archived_classes kind
     header "Setting up Kind cluster on $HOST_NAME"
     run_ansible_playbook "kind-playbook.yaml" "install_common,setup_kind"
     info "Kind cluster setup complete!"
@@ -599,30 +1001,7 @@ kind_destroy() {
     info "Kind cluster destroyed"
 }
 
-kind_utils() {
-    parse_ansible_opts "$@"
-    if [[ ${#ANSIBLE_TAGS[@]} -eq 0 ]]; then
-        error "Specify at least one utility tag."
-        echo ""
-        echo "Available tags:"
-        echo "  Test:        ingress_test, apigateway_test"
-        echo "  Cluster:     certmanager, dashboard, storage, secret_management, k8s_extensions"
-        echo "  GitOps:      gitops"
-        echo "  Security:    security, idp"
-        echo "  Observ.:     monitoring"
-        echo "  Networking:  service_mesh"
-        echo ""
-        echo "Example: ./scripts/setup.sh kind utils certmanager monitoring"
-        echo "         ./scripts/setup.sh kind utils security idp gitops"
-        return 1
-    fi
-
-    local tags_str
-    tags_str=$(IFS=,; echo "${ANSIBLE_TAGS[*]}")
-    header "Installing K8s utilities: $tags_str on $HOST_NAME"
-    run_ansible_playbook "k8s-utilities-playbook.yaml" "$tags_str"
-    info "Utilities installed: $tags_str"
-}
+kind_utils() { run_utils kind "$@"; }
 
 # ---------------------------------------------------------------------------
 # COMMAND: k3s
@@ -635,7 +1014,9 @@ SUBCOMMANDS
   setup                 Setup standalone K3s cluster (1 master + N workers)
   ha-setup              Setup HA K3s cluster (3+ masters + N workers)
   destroy               Remove K3s from all nodes
-  utils [tags...]       Run K8s utilities (same tags as kind utils)
+  utils [tags...]       Run K8s utilities (see UTILITY TAGS below)
+  utils --list          List utility tags with options and status from master.yaml
+                        (setup options: ./scripts/setup.sh config --list k3s)
 
 OPTIONS
   --host, -H <name>    Ansible host target (default: k8s-master-machine)
@@ -644,6 +1025,10 @@ OPTIONS
   --extra-vars <vars>   Additional ansible extra-vars (key=value)
   --ask-become-pass      Prompt for sudo password when needed
 
+EOF
+    setup_help_section k3s
+    utils_help_section
+    cat <<'EOF'
 EXAMPLES
   # --- Standalone K3s (Vagrant VMs) ---
   # The playbook targets one host at a time and auto-detects master vs worker
@@ -685,6 +1070,7 @@ EXAMPLES
 
   # --- Utilities ---
   ./scripts/setup.sh k3s utils certmanager gitops dashboard
+  ./scripts/setup.sh k3s utils --list
 
   # --- Teardown ---
   ./scripts/setup.sh k3s destroy
@@ -742,30 +1128,7 @@ k3s_destroy() {
     info "K3s removed from all nodes"
 }
 
-k3s_utils() {
-    parse_ansible_opts "$@"
-    if [[ ${#ANSIBLE_TAGS[@]} -eq 0 ]]; then
-        error "Specify at least one utility tag."
-        echo ""
-        echo "Available tags:"
-        echo "  Test:        ingress_test, apigateway_test"
-        echo "  Cluster:     certmanager, dashboard, storage, secret_management, k8s_extensions"
-        echo "  GitOps:      gitops"
-        echo "  Security:    security, idp"
-        echo "  Observ.:     monitoring"
-        echo "  Networking:  service_mesh"
-        echo ""
-        echo "Example: ./scripts/setup.sh k3s utils certmanager monitoring"
-        echo "         ./scripts/setup.sh k3s utils security idp gitops"
-        return 1
-    fi
-
-    local tags_str
-    tags_str=$(IFS=,; echo "${ANSIBLE_TAGS[*]}")
-    header "Installing K8s utilities: $tags_str (target: $HOST_NAME)"
-    run_ansible_playbook "k8s-utilities-playbook.yaml" "$tags_str"
-    info "Utilities installed: $tags_str"
-}
+k3s_utils() { run_utils k3s "$@"; }
 
 # ---------------------------------------------------------------------------
 # COMMAND: rke2
@@ -778,7 +1141,9 @@ SUBCOMMANDS
   setup                 Setup standalone RKE2 cluster (1 master + N workers)
   ha-setup              Setup HA RKE2 cluster (3+ masters + N workers)
   destroy               Remove RKE2 from all nodes
-  utils [tags...]       Run K8s utilities (same tags as kind utils)
+  utils [tags...]       Run K8s utilities (see UTILITY TAGS below)
+  utils --list          List utility tags with options and status from master.yaml
+                        (setup options: ./scripts/setup.sh config --list rke2)
 
 OPTIONS
   --host, -H <name>    Ansible host target (default: k8s-master-machine)
@@ -787,6 +1152,10 @@ OPTIONS
   --extra-vars <vars>   Additional ansible extra-vars (key=value)
   --ask-become-pass      Prompt for sudo password when needed
 
+EOF
+    setup_help_section rke2
+    utils_help_section
+    cat <<'EOF'
 EXAMPLES
   # --- Standalone RKE2 (Vagrant VMs) ---
   # The playbook targets one host at a time and auto-detects master vs worker
@@ -828,6 +1197,7 @@ EXAMPLES
 
   # --- Utilities ---
   ./scripts/setup.sh rke2 utils certmanager gitops dashboard
+  ./scripts/setup.sh rke2 utils --list
 
   # --- Teardown ---
   ./scripts/setup.sh rke2 destroy
@@ -847,6 +1217,7 @@ cmd_rke2() {
 
 rke2_setup() {
     parse_ansible_opts "$@"
+    [[ "$HOST_NAME" == *master* ]] && _check_archived_classes rke2
     header "Setting up RKE2 node: $HOST_NAME"
     # The playbook detects master vs worker via hostname pattern:
     #   *master* → loads master.yaml → installs RKE2 server
@@ -865,6 +1236,7 @@ rke2_setup() {
 
 rke2_ha_setup() {
     parse_ansible_opts "$@"
+    _check_archived_classes rke2
     header "Setting up HA RKE2 cluster"
 
     info "Ensure you have configured:"
@@ -885,30 +1257,7 @@ rke2_destroy() {
     info "RKE2 removed from all nodes"
 }
 
-rke2_utils() {
-    parse_ansible_opts "$@"
-    if [[ ${#ANSIBLE_TAGS[@]} -eq 0 ]]; then
-        error "Specify at least one utility tag."
-        echo ""
-        echo "Available tags:"
-        echo "  Test:        ingress_test, apigateway_test"
-        echo "  Cluster:     certmanager, dashboard, storage, secret_management, k8s_extensions"
-        echo "  GitOps:      gitops"
-        echo "  Security:    security, idp"
-        echo "  Observ.:     monitoring"
-        echo "  Networking:  service_mesh"
-        echo ""
-        echo "Example: ./scripts/setup.sh rke2 utils certmanager monitoring"
-        echo "         ./scripts/setup.sh rke2 utils security idp gitops"
-        return 1
-    fi
-
-    local tags_str
-    tags_str=$(IFS=,; echo "${ANSIBLE_TAGS[*]}")
-    header "Installing K8s utilities: $tags_str (target: $HOST_NAME)"
-    run_ansible_playbook "k8s-utilities-playbook.yaml" "$tags_str"
-    info "Utilities installed: $tags_str"
-}
+rke2_utils() { run_utils rke2 "$@"; }
 
 # ---------------------------------------------------------------------------
 # COMMAND: network (VirtualBox NAT Network management)
@@ -1361,18 +1710,20 @@ _ysub() {
 }
 
 # Get the first scalar value for a key from stdin
+# A missing key returns an empty string instead of failing: under `set -euo pipefail` a grep without a match
+# would otherwise abort the whole command (e.g. `config show` after a key moves in master.yaml).
 _yval() {
-    grep -m1 "^\s*${1}:" \
+    { grep -m1 "^\s*${1}:" || true; } \
       | sed 's/[^:]*:[[:space:]]*//' \
       | tr -d '"' \
       | sed 's/[[:space:]]*#.*//' \
-      | xargs
+      | sed -E 's/^[[:space:]]+|[[:space:]]+$//g'
 }
 
 # Collect YAML list items ("  - value") from stdin → comma-joined
 _ylist() {
     local result
-    result=$(grep "^\s*-[[:space:]]" \
+    result=$({ grep "^\s*-[[:space:]]" || true; } \
       | sed 's/^\s*-[[:space:]]*//' \
       | tr -d '"' \
       | sed 's/[[:space:]]*#.*//' \
@@ -1396,7 +1747,8 @@ _row() { printf "  ${CYAN}%-24s${NC}  %s\n" "$1" "$2"; }
 # Section header with divider line
 _sec() {
     printf "\n  ${BOLD}${YELLOW}▸ %s${NC}\n" "$1"
-    printf '  %s\n' "$(printf '%52s' '' | tr ' ' '─')"
+    # printf repetition instead of `tr`, which is byte-based and garbles the multi-byte '─'
+    printf '  %s\n' "$(printf '─%.0s' {1..52})"
 }
 
 # ---------------------------------------------------------------------------
@@ -1443,6 +1795,15 @@ config_show_master() {
     k_gw_cls=$( echo "$k_gw"  | _yval "class")
     k_fwd_en=$( echo "$k_fwd" | _yval "enable")
 
+    # Traefik dashboard: ingress.traefik.dashboard; Gateway API CRDs: apigateway.crd
+    local k_dash k_dash_en k_dash_host k_crd k_crd_install k_crd_ver
+    k_dash=$(       echo "$k_ing"  | _ysub "traefik" 4 | _ysub "dashboard" 6)
+    k_dash_en=$(    echo "$k_dash" | _yval "enable")
+    k_dash_host=$(  echo "$k_dash" | _yval "host")
+    k_crd=$(        echo "$k_gw"   | _ysub "crd" 4)
+    k_crd_install=$(echo "$k_crd"  | _yval "install")
+    k_crd_ver=$(    echo "$k_crd"  | _yval "version")
+
     _row "Node Image"          "$k_image"
     _row "Pod Subnet"          "$k_pod"
     _row "Service Subnet"      "$k_svc"
@@ -1452,7 +1813,9 @@ config_show_master() {
     [[ "$k_lb_type" == "metallb" ]] && \
         _row "  LB IP Pool"    "$k_lb_cidr"
     _row "Ingress"             "$(_badge "$k_ing_en" "$k_ing_cls")"
+    _row "  Dashboard"         "$(_badge "$k_dash_en" "$k_dash_host")"
     _row "API Gateway"         "$(_badge "$k_gw_en" "$k_gw_cls")"
+    _row "  Gateway API CRDs"  "$(_badge "$k_crd_install" "$k_crd_ver")"
     _row "Network Forwarding"  "$(_badge "$k_fwd_en")"
 
     # ---- K3S CLUSTER --------------------------------------------------------
@@ -1466,13 +1829,19 @@ config_show_master() {
     k3_lb=$(      echo "$k3s"    | _ysub "loadBalancer"     2)
     k3_lb_pool=$( echo "$k3_lb"  | _ysub "ippool"           4)
     k3_ing=$(     echo "$k3s"    | _ysub "ingress"          2)
-    k3_ing_dash=$(echo "$k3_ing" | _ysub "dashboard"        4)
+    # Traefik options live under ingress.traefik (dashboard, gateway, ports, allowCrossNamespace)
+    local k3_trf k3_gw k3_gw_crd gw_en crd_install crd_ver
+    k3_trf=$(     echo "$k3_ing" | _ysub "traefik"          4)
+    k3_ing_dash=$(echo "$k3_trf" | _ysub "dashboard"        6)
+    k3_gw=$(      echo "$k3_trf" | _ysub "gateway"          6)
+    k3_gw_crd=$(  echo "$k3_gw"  | _ysub "crd"              8)
+    gw_en=$(      echo "$k3_gw"     | _yval "enable")
+    crd_install=$(echo "$k3_gw_crd" | _yval "install")
+    crd_ver=$(    echo "$k3_gw_crd" | _yval "version")
 
     local version ha_en ha_rep ha_db_type cni_type lb_en lb_type lb_cidr
     local ing_en ing_cls dash_en dash_host labels tlssans
     version=$(    echo "$k3s"         | _yval "version")
-    ha_en=$(      echo "$k3_ha"       | _yval "enable")
-    ha_rep=$(     echo "$k3_ha"       | _yval "replicas")
     ha_db_type=$( echo "$k3_ds"       | _yval "type")
     cni_type=$(   echo "$k3_cni"      | _yval "type")
     lb_en=$(      echo "$k3_lb"       | _yval "enable")
@@ -1486,16 +1855,15 @@ config_show_master() {
     tlssans=$(    echo "$k3s"         | _ysub "tlsSANs"    2 | _ylist)
 
     _row "Version"          "$version"
-    if [[ "$ha_en" == "true" ]]; then
-        _row "High Availability" "$(_badge "$ha_en" "replicas: $ha_rep  datastore: $ha_db_type")"
-    else
-        _row "High Availability" "$(_badge "$ha_en")"
-    fi
+    # HA is not a master.yaml switch: `k3s ha-setup` + the inventory groups decide the control-plane count
+    _row "High Availability" "datastore: $ha_db_type (used by \`k3s ha-setup\`; nodes from inventory)"
     _row "CNI"              "$cni_type"
     _row "Load Balancer"    "$(_badge "$lb_en" "$lb_type")"
-    _row "  LB IP Pool"     "$lb_cidr"
+    [[ "$lb_type" == "metallb" ]] && \
+        _row "  LB IP Pool"    "$lb_cidr"
     _row "Ingress"          "$(_badge "$ing_en" "$ing_cls")"
     _row "  Dashboard"      "$(_badge "$dash_en" "$dash_host")"
+    _row "  Gateway API"    "$(_badge "$gw_en" "traefik provider, CRDs: $( [[ "$crd_install" == "true" ]] && echo "${crd_ver:-?}" || echo "not installed")")"
     _row "Node Labels"      "$labels"
     _row "TLS SANs"         "$tlssans"
 
@@ -1514,8 +1882,6 @@ config_show_master() {
     local version ha_en ha_rep ha_db_type cni_type lb_en lb_type lb_cidr
     local ing_en ing_cls labels tlssans
     version=$(    echo "$rke2"         | _yval "version")
-    ha_en=$(      echo "$rk_ha"       | _yval "enable")
-    ha_rep=$(     echo "$rk_ha"       | _yval "replicas")
     ha_db_type=$( echo "$rk_ds"       | _yval "type")
     cni_type=$(   echo "$rk_cni"      | _yval "type")
     lb_en=$(      echo "$rk_lb"       | _yval "enable")
@@ -1527,14 +1893,12 @@ config_show_master() {
     tlssans=$(    echo "$rke2"         | _ysub "tlsSANs"    2 | _ylist)
 
     _row "Version"          "$version"
-    if [[ "$ha_en" == "true" ]]; then
-        _row "High Availability" "$(_badge "$ha_en" "replicas: $ha_rep  datastore: $ha_db_type")"
-    else
-        _row "High Availability" "$(_badge "$ha_en")"
-    fi
+    # HA is not a master.yaml switch: `rke2 ha-setup` + the inventory groups decide the control-plane count
+    _row "High Availability" "datastore: $ha_db_type (used by \`rke2 ha-setup\`; nodes from inventory)"
     _row "CNI"              "$cni_type"
     _row "Load Balancer"    "$(_badge "$lb_en" "$lb_type")"
-    _row "  LB IP Pool"     "$lb_cidr"
+    [[ "$lb_type" == "metallb" ]] && \
+        _row "  LB IP Pool"    "$lb_cidr"
     _row "Ingress"          "$(_badge "$ing_en" "$ing_cls")"
     _row "Node Labels"      "$labels"
     _row "TLS SANs"         "$tlssans"
@@ -1542,7 +1906,7 @@ config_show_master() {
     # ---- UTILITIES ----------------------------------------------------------
     _sec "UTILITIES"
 
-    local u_ing u_gw u_cm u_dash u_stor u_sec u_git u_ext u_security u_idp u_mon u_svcmesh
+    local u_ing u_gw u_cm u_dash u_stor u_sec u_git u_ext u_security u_mon u_svcmesh
     u_ing=$(     echo "$util" | _ysub "ingressTestDeployment"    2)
     u_gw=$(      echo "$util" | _ysub "apiGatewayTestDeployment" 2)
     u_cm=$(      echo "$util" | _ysub "certmanager"              2)
@@ -1552,13 +1916,18 @@ config_show_master() {
     u_git=$(     echo "$util" | _ysub "gitops"                   2)
     u_ext=$(     echo "$util" | _ysub "extensions"               2)
     u_security=$(echo "$util" | _ysub "security"                 2)
-    u_idp=$(     echo "$util" | _ysub "idp"                      2)
     u_mon=$(     echo "$util" | _ysub "monitoring"               2)
     u_svcmesh=$( echo "$util" | _ysub "serviceMesh"              2)
 
     local ing_en2 ing_host gw_en gw_host cm_en
-    local dash_en2 dash_type stor_en stor_type sec_en sec_type git_en git_type ext_en
-    local security_en policy_type idp_en idp_type mon_en mon_type svcmesh_en svcmesh_type
+    local dash_en2 dash_type 
+    local stor_en stor_type stor_test stor_test_en
+    local git_en git_type
+    local ext_en ext_reloader ext_eso ext_reflector
+    local sec_en sec_type
+    local security_en policy_en policy_type identity_en identity_type k8sauth_en k8sauth_type 
+    local mon_en mon_type 
+    local svcmesh_en svcmesh_type
     ing_en2=$(    echo "$u_ing"      | _yval "enable")
     ing_host=$(   echo "$u_ing"      | _yval "host")
     gw_en=$(      echo "$u_gw"       | _yval "enable")
@@ -1568,35 +1937,47 @@ config_show_master() {
     dash_type=$(  echo "$u_dash"     | _yval "type")
     stor_en=$(    echo "$u_stor"     | _yval "enable")
     stor_type=$(  echo "$u_stor"     | _yval "type")
+    stor_test=$(  echo "$u_stor"     | _ysub "test" 4)
+    stor_test_en=$(echo "$stor_test" | _yval "enable")
     sec_en=$(     echo "$u_sec"      | _yval "enable")
     sec_type=$(   echo "$u_sec"      | _yval "type")
     git_en=$(     echo "$u_git"      | _yval "enable")
     git_type=$(   echo "$u_git"      | _yval "type")
     ext_en=$(     echo "$u_ext"      | _yval "enable")
+    ext_reloader=$(echo "$u_ext" | _ysub "reloader" 4 | _yval "enable")
+    ext_eso=$(echo "$u_ext" | _ysub "externalsecrets" 4 | _yval "enable")
+    ext_reflector=$(echo "$u_ext"| _ysub "reflector" 4 | _yval "enable")
     security_en=$(echo "$u_security" | _yval "enable")
-    policy_type=$(echo "$u_security" | _ysub "policyEngine" 4 | _yval "type")
-    idp_en=$(     echo "$u_idp"      | _yval "enable")
-    idp_type=$(   echo "$u_idp"      | _ysub "portal" 4 | _yval "type")
+    policy_en=$(echo "$u_security" | _ysub "policy" 4 | _yval "enable")
+    policy_type=$(echo "$u_security" | _ysub "policy" 4 | _yval "type")
+    identity_en=$(echo "$u_security" | _ysub "identity" 4 | _yval "enable")
+    identity_type=$(echo "$u_security" | _ysub "identity" 4 | _yval "type")
+    k8sauth_en=$(echo "$u_security" | _ysub "kubernetesAuth" 4 | _yval "enable")
+    k8sauth_type=$(echo "$u_security" | _ysub "kubernetesAuth" 4 | _yval "type")
     mon_en=$(     echo "$u_mon"      | _yval "enable")
     mon_type=$(   echo "$u_mon"      | _yval "type")
     svcmesh_en=$( echo "$u_svcmesh"  | _yval "enable")
     svcmesh_type=$(echo "$u_svcmesh" | _yval "type")
 
     _sec "UTILITIES — TEST DEPLOYMENTS"
-    _row "Ingress Test"       "$(_badge "$ing_en2"  "$ing_host")"
-    _row "API Gateway Test"   "$(_badge "$gw_en"    "$gw_host")"
+    _row "Ingress Test"       "$(_badge "$ing_en2"  "$(echo "$u_ing" | _yval "ingressClass") → $ing_host")"
+    _row "API Gateway Test"   "$(_badge "$gw_en"    "$(echo "$u_gw" | _yval "gatewayClass") → $gw_host")"
+    # Runs with the `storage` tag (needs utilities.storage.enable); the PVC uses the StorageClass named after storage.type
+    _row "Storage Test (PVC)" "$(_badge "$stor_test_en" "RWO 2Gi on $stor_type → ns $(echo "$stor_test" | _yval "namespace")")"
 
     _sec "UTILITIES — CLUSTER SERVICES"
     _row "Cert-Manager"       "$(_badge "$cm_en")"
     _row "Dashboard"          "$(_badge "$dash_en2" "$dash_type")"
     _row "Storage"            "$(_badge "$stor_en"  "$stor_type")"
     _row "Secret Management"  "$(_badge "$sec_en"   "$sec_type")"
-    _row "Extensions"         "$(_badge "$ext_en")"
+    _row "Extensions"         "$(_badge "$ext_en" "externalsecrets: $ext_eso, reloader: $ext_reloader, reflector: $ext_reflector")"
 
     _sec "UTILITIES — GITOPS & SECURITY"
     _row "GitOps"             "$(_badge "$git_en"   "$git_type")"
-    _row "Security"           "$(_badge "$security_en" "policy: $policy_type")"
-    _row "IDP Portal"         "$(_badge "$idp_en"   "$idp_type")"
+    _row "Security"           "$(_badge "$security_en")"
+    _row "  Security (Policy)"  "$(_badge "$policy_en" "$policy_type")"
+    _row "  Security (Identity)" "$(_badge "$identity_en" "$identity_type")"
+    _row "  Security (K8s Auth)" "$(_badge "$k8sauth_en" "$k8sauth_type")"
 
     _sec "UTILITIES — OBSERVABILITY & NETWORKING"
     _row "Monitoring (LGTM)"  "$(_badge "$mon_en"     "$mon_type")"
@@ -1654,12 +2035,18 @@ cmd_config_help() {
 kubewekend config - View and edit cluster configuration
 
 SUBCOMMANDS
+  list [target]         Supported setup / utility options with current values from master.yaml
+                        target: kind | k3s | rke2 | utils (default: kind, k3s and rke2)
+                        aliases: --list, -l
   show [--raw]          Summary table of master.yaml (--raw: full file)
   edit                  Open master.yaml in $EDITOR
   worker-show [--raw]   Summary table of worker.yaml (--raw: full file)
   worker-edit           Open worker.yaml in $EDITOR
 
 EXAMPLES
+  ./scripts/setup.sh config --list
+  ./scripts/setup.sh config --list k3s
+  ./scripts/setup.sh config --list utils
   ./scripts/setup.sh config show
   ./scripts/setup.sh config show --raw
   ./scripts/setup.sh config edit
@@ -1670,6 +2057,7 @@ EOF
 cmd_config() {
     local sub="${1:-help}"; shift || true
     case "$sub" in
+        list|--list|-l) config_list "$@" ;;
         show)
             if [[ "${1:-}" == "--raw" ]]; then
                 cat "$HOST_VARS_DIR/master.yaml"
@@ -1685,6 +2073,465 @@ cmd_config() {
             fi ;;
         worker-edit) ${EDITOR:-vi} "$HOST_VARS_DIR/worker.yaml" ;;
         *)           cmd_config_help ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# COMMAND: versions — list and bump pinned versions (charts, tools, manifests)
+# ---------------------------------------------------------------------------
+# One entry per pinned component (also the source of the README.md "Versions" table, see `versions sync`):
+#   name | group | files (globs relative to the project root) | anchor (ERE) | extract (ERE, group 1 = version) | note
+# - note (optional): essential configuration Kubewekend applies to the component, shown in `versions list`,
+#   the `versions bump` preview and the README.md Versions table, so users do not need to read the playbooks.
+#   Plain text or Markdown code spans; no `|` and no single quote.
+# - The anchor finds the line; the version is read with `extract` from that line or one of the next 4 lines
+#   (multi-line `helm upgrade --install` commands, `repository:` + `tag:`, `- name:` + `version:` in Chart.yaml).
+# - Helm charts leave `extract` empty: it defaults to `--version <v>`.
+# - Pins are located by pattern, not line number, so edits elsewhere in the files do not break them.
+# - Patterns must not contain `|` (field separator): use `( .*)?$` instead of `( |$)` alternations.
+# - Groups (in display order): kubernetes, host-tools, networking, utilities, templates, charts, examples, repo-tooling.
+# Not tracked (listed by hand in README.md): unpinned tools (kubectl, Helm, Calico, Flux CLI).
+VERSION_REGISTRY=(
+    # --- Kubernetes distributions (ansible/inventories/host_vars) ---
+    'kind-node|kubernetes|ansible/inventories/host_vars/master.yaml|kindest/node:v|kindest/node:(v[0-9][^" ]*)'
+    'k3s|kubernetes|ansible/inventories/host_vars/master.yaml ansible/inventories/host_vars/worker.yaml|^ +version: "v[^"]+\+k3s|version: "(v[^"]+)"'
+    'rke2|kubernetes|ansible/inventories/host_vars/master.yaml ansible/inventories/host_vars/worker.yaml|^ +version: "v[^"]+\+rke2|version: "(v[^"]+)"'
+    'gateway-api-crd|kubernetes|ansible/inventories/host_vars/master.yaml|^ +crd: *$|version: "(v[^"]+)"|Standard channel CRDs applied before the Traefik Gateway API provider: Kind `apigateway.crd`, K3s `ingress.traefik.gateway.crd` (when `install: true`); keep both on the same version'
+    # --- Host tools (install_common + Python requirements) ---
+    'ansible|host-tools|requirements.txt|^ansible==|ansible==([0-9][^ ]*)'
+    'ansible-core|host-tools|requirements.txt|^ansible-core==|ansible-core==([0-9][^ ]*)'
+    'kind-cli|host-tools|ansible/kind-playbook.yaml|kind\.sigs\.k8s\.io/dl/|kind\.sigs\.k8s\.io/dl/(v[^/]+)/'
+    'vault-cli|host-tools|ansible/*-playbook.yaml|releases\.hashicorp\.com/vault/|releases\.hashicorp\.com/vault/([0-9][^/]*)/'
+    'openbao-cli|host-tools|ansible/*-playbook.yaml|openbao/releases/download/|openbao/releases/download/v([0-9][^/]*)/'
+    'weave-gitops-cli|host-tools|ansible/k8s-utilities-playbook.yaml|weave-gitops/releases/download/|weave-gitops/releases/download/(v[^/]+)/'
+    # --- Cluster networking (setup playbooks) ---
+    'cloud-provider-kind|networking|ansible/kind-playbook.yaml|/cloud-provider-kind:|cloud-provider-kind:([^ ]+)|Runs as a Docker container on the `kind` network, not inside the cluster'
+    'metallb|networking|ansible/*.yaml|metallb/metallb( .*)?$||L2 mode; the IP pool comes from `<cluster>.loadBalancer.ippool.cidr` (Kind: `kindCluster.loadbalancer.ippool.cidr`)'
+    'cni-plugins|networking|ansible/kind-playbook.yaml|containernetworking/plugins/releases/download/|plugins/releases/download/(v[^/]+)/|Required for Kind run Flannel CNI; not needed for K3s or RKE2'
+    'flannel|networking|ansible/kind-playbook.yaml|flannel-io/flannel/refs/tags/|flannel/refs/tags/(v[^/]+)/'
+    'cilium|networking|ansible/*.yaml|cilium/cilium( .*)?$||CNI only (Hubble relay + UI, `ipam.mode=cluster-pool`, 1 operator replica) when `cni: cilium` (Kind needs `disableDefaultCNI: true`); Kind ingress / Gateway API with Cilium are archived'
+    'traefik|networking|ansible/*.yaml|traefik/traefik( .*)?$||Only ingress / Gateway API controller for Kind, K3s and RKE2 (NGINX, Kong, Cilium and RKE2 ingress-nginx archived). Installed in steps: ingress, optional dashboard, optional Gateway API provider (Kind: `ingress.traefik.*`, `apigateway.class: traefik`; K3s: `ingress.traefik.dashboard.enable`, `ingress.traefik.gateway.enable`); the base install resets the dashboard and the dashboard step enables it'
+    # Archived (2026-11-20), kept for reference: their tasks are commented out in ansible/kind-playbook.yaml,
+    # so `versions sync` would report them as missing. Uncomment when the tasks are restored.
+    # 'kong|networking|ansible/*.yaml|kong/kong( .*)?$||Kind ingress / Gateway API controller (archived)'
+    # 'traefik-gateway-rbac|networking|ansible/kind-playbook.yaml|traefik/traefik/refs/tags/|traefik/refs/tags/(v[^/]+)/'
+    # --- Utilities (ansible/k8s-utilities-playbook.yaml) ---
+    'cert-manager|utilities|ansible/k8s-utilities-playbook.yaml|jetstack/cert-manager( .*)?$||CRDs installed by the chart (`crds.enabled=true`); optional self-signed CA issuer via `utilities.certmanager.selfSignedIssuer`'
+    'kubernetes-dashboard|utilities|ansible/k8s-utilities-playbook.yaml|kubernetes-dashboard/kubernetes-dashboard( .*)?$|'
+    'headlamp|utilities|ansible/k8s-utilities-playbook.yaml|headlamp/headlamp( .*)?$|'
+    'rancher|utilities|ansible/k8s-utilities-playbook.yaml|rancher-stable/rancher( .*)?$|'
+    'longhorn|utilities|ansible/k8s-utilities-playbook.yaml|longhorn/longhorn( .*)?$||UI with 1 replica; default volume replica count from `utilities.storage.longhorn.replicaStorage`; iSCSI / NFS node setup from `utilities.storage.longhorn.setup`; namespace `longhorn-system`'
+    'local-path-provisioner|utilities|ansible/k8s-utilities-playbook.yaml|rancher/local-path-provisioner/|local-path-provisioner/(v[^/]+)/|Manifest applied when `utilities.storage.type: local-path` (StorageClass `local-path`)'
+    'vault|utilities|ansible/k8s-utilities-playbook.yaml|hashicorp/vault( .*)?$||Namespace `vault`; ingress at `utilities.secretManagement.host` (`ingressClass`); `config.mode` dev (in-memory, root token) or standalone (needs a StorageClass); agent injector with `config.injector`'
+    'openbao|utilities|ansible/k8s-utilities-playbook.yaml|openbao/openbao( .*)?$||Namespace `openbao`; ingress at `utilities.secretManagement.host`; `config.mode` dev or standalone (needs a StorageClass); recent charts need Kubernetes >= 1.30'
+    # Archived (2026-11-20), kept for reference: the Vault Secrets Operator task is commented out in
+    # k8s-utilities-playbook.yaml, so `versions sync` would report it as missing. Uncomment when restored.
+    # 'vault-secrets-operator|utilities|ansible/k8s-utilities-playbook.yaml|hashicorp/vault-secrets-operator( .*)?$|'
+    'reflector|utilities|ansible/k8s-utilities-playbook.yaml|emberstack/reflector( .*)?$|'
+    'reloader|utilities|ansible/k8s-utilities-playbook.yaml|stakater/reloader( .*)?$|'
+    'external-secrets|utilities|ansible/k8s-utilities-playbook.yaml|external-secrets/external-secrets( .*)?$|'
+    'argo-cd|utilities|ansible/k8s-utilities-playbook.yaml|argo/argo-cd( .*)?$||Ingress at `utilities.gitops.argocd.host` with `server.insecure=true` (TLS ends at the ingress); bundled Dex disabled'
+    'argocd-image-updater|utilities|ansible/k8s-utilities-playbook.yaml|argo/argocd-image-updater( .*)?$|'
+    'argocd-extension-metrics|utilities|ansible/k8s-utilities-playbook.yaml|argocd-extension-metrics/releases/download/|argocd-extension-metrics/releases/download/(v[^/]+)/'
+    'argocd-rollout-extension|utilities|ansible/k8s-utilities-playbook.yaml|rollout-extension/releases/download/|rollout-extension/releases/download/(v[^/]+)/'
+    'flux|utilities|ansible/k8s-utilities-playbook.yaml|fluxcd/flux2/releases/download/|flux2/releases/download/(v[^/]+)/'
+    'weave-gitops|utilities|ansible/k8s-utilities-playbook.yaml|charts/weave-gitops:|weave-gitops:([0-9][^ ]*)'
+    'kargo|utilities|ansible/k8s-utilities-playbook.yaml|kargo-charts/kargo( .*)?$|'
+    'gatekeeper|utilities|ansible/k8s-utilities-playbook.yaml|gatekeeper/gatekeeper( .*)?$|'
+    'kyverno|utilities|ansible/k8s-utilities-playbook.yaml|kyverno/kyverno( .*)?$|'
+    'dex|utilities|ansible/k8s-utilities-playbook.yaml|dex/dex( .*)?$|'
+    'kube-prometheus-stack|utilities|ansible/k8s-utilities-playbook.yaml|prometheus-community/kube-prometheus-stack( .*)?$||Values from `ansible/templates/kube-prometheus-stack-values.yaml.j2`, which also pins Prometheus / Alertmanager / Thanos images (see templates)'
+    'grafana-operator|utilities|ansible/k8s-utilities-playbook.yaml|grafana/grafana-operator( .*)?$|'
+    'alloy|utilities|ansible/k8s-utilities-playbook.yaml|grafana/alloy( .*)?$||Values from `ansible/templates/alloy-values.yaml.j2`'
+    'loki|utilities|ansible/k8s-utilities-playbook.yaml|grafana-community/loki( .*)?$||Values from `ansible/templates/loki-values.yaml.j2`'
+    'tempo|utilities|ansible/k8s-utilities-playbook.yaml|grafana-community/tempo( .*)?$||Values from `ansible/templates/tempo-values.yaml.j2`'
+    'pyroscope|utilities|ansible/k8s-utilities-playbook.yaml|grafana/pyroscope( .*)?$||Values from `ansible/templates/pyroscope-values.yaml.j2`'
+    'istio|utilities|ansible/k8s-utilities-playbook.yaml|istio/[a-z]+( .*)?$||Installs `base` + `istiod` only (sidecar mode); `serviceMesh.dataplane.mode: ambient` is not supported yet'
+#     # --- Image pins inside templates / test workloads ---
+#     'alertmanager|templates|ansible/templates/kube-prometheus-stack-values.yaml.j2|repository: prometheus/alertmanager *$|tag: "?(v[^" ]+)'
+#     'prometheus|templates|ansible/templates/kube-prometheus-stack-values.yaml.j2|repository: prometheus/prometheus *$|tag: "?(v[^" ]+)'
+#     'thanos|templates|ansible/templates/kube-prometheus-stack-values.yaml.j2|repository: thanos/thanos *$|tag: "?(v[^" ]+)'
+#     'kube-webhook-certgen|templates|ansible/templates/kube-prometheus-stack-values.yaml.j2|repository: jkroepke/kube-webhook-certgen *$|tag: "?([0-9v][^" ]*)'
+#     'go-echo|templates|ansible/templates/apigateway-test-deployment.yaml.j2|image: kong/go-echo:|go-echo:([^" ]+)'
+#     'ingress-test-nginx|templates|ansible/inventories/host_vars/master.yaml|^ +image: "nginx:|nginx:([^"]+)"'
+#     'longhorn-iscsi-alpine|templates|ansible/templates/longhorn-iscsi-installation.yaml.j2|image: alpine:|alpine:([^" ]+)'
+#     'longhorn-nfs-alpine|templates|ansible/templates/longhorn-nfs-installation.yaml.j2|image: alpine:|alpine:([^" ]+)'
+#     'pause|templates|ansible/templates/longhorn-*-installation.yaml.j2|registry\.k8s\.io/pause:|pause:([^" ]+)'
+#     # --- Helm charts in this repository ---
+#     'chart-common|charts|kubernetes/charts/common/Chart.yaml|^version: |^version: "?([0-9][^" ]*)'
+#     'chart-pinniped|charts|kubernetes/charts/pinniped/Chart.yaml|^version: |^version: "?([0-9][^" ]*)'
+#     'pinniped-app|charts|kubernetes/charts/pinniped/Chart.yaml|^appVersion: |^appVersion: "?(v?[0-9][^" ]*)'
+#     # --- Examples ---
+#     'example-cert-manager|examples|examples/argocd-apps/manifests/platform/cert-manager/Chart.yaml|- name: cert-manager *$|version: "?(v?[0-9][^" ]*)'
+#     'example-argo-rollouts|examples|examples/argocd-apps/manifests/infrastructure/argo-rollouts/Chart.yaml|- name: argo-rollouts *$|version: "?([0-9][^" ]*)'
+#     'example-argo-workflows|examples|examples/argocd-apps/manifests/infrastructure/argo-workflow/Chart.yaml|- name: argo-workflows *$|version: "?([0-9][^" ]*)'
+#     'example-argo-cd|examples|examples/argocd-apps/manifests/infrastructure/argocd/Chart.yaml|- name: argo-cd *$|version: "?([0-9][^" ]*)'
+#     'example-argocd-apps|examples|examples/argocd-apps/manifests/infrastructure/argocd/Chart.yaml|- name: argocd-apps *$|version: "?([0-9][^" ]*)'
+#     'example-argocd-image-updater|examples|examples/argocd-apps/manifests/infrastructure/argocd/Chart.yaml|- name: argocd-image-updater *$|version: "?([0-9][^" ]*)'
+#     'example-todo-list-common|examples|examples/argocd-apps/manifests/apps/todo-list/Chart.yaml|- name: common *$|version: "?([0-9][^" ]*)'
+#     'lgtm-postgres|examples|examples/lgtm-testing/docker-compose.yaml examples/lgtm-testing/k8s/postgres.yaml|image: postgres:|postgres:([^" ]+)'
+#     'lgtm-python|examples|examples/lgtm-testing/backend/Dockerfile|^FROM python:|python:([^ ]+)'
+#     'lgtm-nginx|examples|examples/lgtm-testing/frontend/Dockerfile|^FROM nginx:|nginx:([^ ]+)'
+#     'lgtm-backend-image|examples|examples/lgtm-testing/k8s/backend.yaml|lgtm-testing-backend:|lgtm-testing-backend:([^" ]+)'
+#     'lgtm-frontend-image|examples|examples/lgtm-testing/k8s/frontend.yaml|lgtm-testing-frontend:|lgtm-testing-frontend:([^" ]+)'
+#     # --- Repository tooling ---
+#     'actions-checkout|repo-tooling|.github/workflows/*.yaml|uses: actions/checkout@|actions/checkout@([^ ]+)'
+#     'chart-releaser-action|repo-tooling|.github/workflows/*.yaml|uses: helm/chart-releaser-action@|chart-releaser-action@([^ ]+)'
+#     'actions-configure-pages|repo-tooling|.github/workflows/*.yaml|uses: actions/configure-pages@|configure-pages@([^ ]+)'
+#     'actions-jekyll-build-pages|repo-tooling|.github/workflows/*.yaml|uses: actions/jekyll-build-pages@|jekyll-build-pages@([^ ]+)'
+#     'actions-upload-pages-artifact|repo-tooling|.github/workflows/*.yaml|uses: actions/upload-pages-artifact@|upload-pages-artifact@([^ ]+)'
+#     'actions-deploy-pages|repo-tooling|.github/workflows/*.yaml|uses: actions/deploy-pages@|deploy-pages@([^ ]+)'
+#     'helm-docs|repo-tooling|.pre-commit-config.yaml|norwoodj/helm-docs *$|rev: +"?(v[^" ]+)'
+#     'jekyll-theme-primer|repo-tooling|_config.yml|pages-themes/primer@|primer@([^ ]+)'
+)
+
+# Registry entry for a component name (empty + non-zero when unknown)
+_ver_entry() {
+    local entry
+    for entry in "${VERSION_REGISTRY[@]}"; do
+        [[ "${entry%%|*}" == "$1" ]] && { printf '%s' "$entry"; return 0; }
+    done
+    return 1
+}
+
+# Note (6th field) of a registry entry, empty when not set
+_ver_note() {
+    local -a f
+    IFS='|' read -r -a f <<< "$1"
+    printf '%s' "${f[5]:-}"
+}
+
+# Locate every pin of a registry entry: prints "relative/file|line|version", one per pin (sorted, unique)
+_ver_locate() {
+    local name group files anchor extract note g f n i ln v
+    IFS='|' read -r name group files anchor extract note <<< "$1"
+    [[ -n "$extract" ]] || extract='--version ([0-9v][^ ]*)'   # Helm charts
+    local -a globs
+    read -r -a globs <<< "$files"
+    {
+        for g in "${globs[@]}"; do
+            for f in $(cd "$PROJECT_ROOT" && compgen -G "$g" || true); do
+                while IFS=: read -r n _; do
+                    # The version sits on the anchor line or one of the next 4 lines
+                    i=0
+                    # `|| [[ -n $ln ]]` keeps a last line that has no trailing newline
+                    while IFS= read -r ln || [[ -n "$ln" ]]; do
+                        v=$(sed -nE "s#.*${extract}.*#\1#p" <<< "$ln")
+                        if [[ -n "$v" ]]; then
+                            printf '%s|%s|%s\n' "$f" "$((n + i))" "$v"
+                            break
+                        fi
+                        i=$((i + 1))
+                    done < <(sed -n "${n},$((n + 4))p" "$PROJECT_ROOT/$f")
+                done < <(grep -nE -- "$anchor" "$PROJECT_ROOT/$f" | grep -vE '^[0-9]+:[[:space:]]*#' || true)
+            done
+        done
+    } | sort -t'|' -k1,1 -k2,2n -u
+}
+
+# Replace every literal occurrence of <old> with <new> on one line of a file.
+# Keeps the file permissions and a missing trailing newline, so only the version line changes.
+_ver_replace_line() {
+    local file="$1" line="$2" old="$3" new="$4" tmp
+    tmp=$(mktemp)
+    awk -v n="$line" -v old="$old" -v new="$new" '
+        NR == n {
+            out = ""; s = $0
+            while ((i = index(s, old)) > 0) { out = out substr(s, 1, i - 1) new; s = substr(s, i + length(old)) }
+            $0 = out s
+        }
+        { print }' "$file" > "$tmp"
+    if [[ -n "$(tail -c1 "$file")" ]]; then
+        head -c -1 "$tmp" > "$file"   # original had no trailing newline: drop the one awk added
+    else
+        cat "$tmp" > "$file"
+    fi
+    rm -f "$tmp"
+}
+
+# Disclaimer shown before every bump
+_ver_disclaimer() {
+    printf "\n  ${BOLD}${YELLOW}DISCLAIMER — bumping versions is at your own risk${NC}\n"
+    cat <<'EOF'
+  Kubewekend only tests the versions pinned in this repository. A newer chart or tool can change its
+  templates, values and defaults, drop support for your Kubernetes version, or stop matching the
+  Kubewekend playbooks and value templates (ansible/templates/*-values.yaml.j2), and can break the
+  setup, the utilities or an upgrade of a running cluster.
+  Before bumping: read the release notes / upgrade guide, preview with --dry-run, and try it on a
+  disposable cluster first. You decide whether to keep, adjust or revert the change.
+EOF
+    echo ""
+}
+
+# `versions list [filter]`: current pinned versions and where they live
+versions_list() {
+    local filter="${1:-}" entry name group current_group="" locs versions where mixed note count=0
+    header "Kubewekend pinned versions"
+    printf "  Source of truth: the files below; overview with notes in README.md → Versions\n"
+    for entry in "${VERSION_REGISTRY[@]}"; do
+        IFS='|' read -r name group _ <<< "$entry"
+        if [[ -n "$filter" && "$name" != *"$filter"* && "$group" != "$filter" ]]; then continue; fi
+        if [[ "$group" != "$current_group" ]]; then
+            _sec "${group^^}"
+            current_group="$group"
+        fi
+        locs=$(_ver_locate "$entry")
+        count=$((count + 1))
+        if [[ -z "$locs" ]]; then
+            printf "  ${CYAN}%-24s${NC} %s\n" "$name" "${RED}not found (pattern needs an update)${NC}"
+            continue
+        fi
+        versions=$(cut -d'|' -f3 <<< "$locs" | sort -u | paste -sd, - | sed 's/,/, /g')
+        mixed=""
+        [[ "$versions" == *,* ]] && mixed="  ${YELLOW}(mixed versions)${NC}"
+        # Group locations per file: file:l1,l2
+        where=$(awk -F'|' '{ sub(/^ansible\//, "", $1); a[$1] = (a[$1] ? a[$1] "," : "") $2; if (!($1 in o)) { o[$1] = ++k; f[k] = $1 } }
+            END { for (j = 1; j <= k; j++) printf "%s%s:%s", (j > 1 ? "  " : ""), f[j], a[f[j]] }' <<< "$locs")
+        printf "  ${CYAN}%-24s${NC} %s%s\n" "$name" "$(_cur "$versions")" "$mixed"
+        printf "  %-24s %s\n" "" "$where"
+        note=$(_ver_note "$entry")
+        [[ -n "$note" ]] && printf "  %-24s ${YELLOW}note:${NC} %s\n" "" "$note"
+    done
+    [[ "$count" -gt 0 ]] || warn "No component matches '$filter' (groups: kubernetes, host-tools, networking, utilities, templates, charts, examples, repo-tooling)"
+    echo ""
+    info "Bump: ./scripts/setup.sh versions bump <component> <new-version> [--dry-run]"
+    echo "  Not tracked (hand-written in README.md): kubectl (latest) / Helm (V3 latest) / Calico (latest) / Flux CLI (latest)"
+}
+
+# `versions bump <component> <new-version> [--dry-run] [--yes]`
+versions_bump() {
+    local name="" new="" dry_run=false assume_yes=false arg entry locs file line old changed=0
+    for arg in "$@"; do
+        case "$arg" in
+            --dry-run) dry_run=true ;;
+            --yes|-y)  assume_yes=true ;;
+            -*)        warn "Unknown option: $arg" ;;
+            *)         if [[ -z "$name" ]]; then name="$arg"; elif [[ -z "$new" ]]; then new="$arg"; fi ;;
+        esac
+    done
+    if [[ -z "$name" || -z "$new" ]]; then
+        error "Usage: ./scripts/setup.sh versions bump <component> <new-version> [--dry-run] [--yes]"
+        echo "  Components: ./scripts/setup.sh versions list"
+        return 1
+    fi
+    if ! entry=$(_ver_entry "$name"); then
+        error "Unknown component: $name"
+        echo "  Components: ./scripts/setup.sh versions list"
+        return 1
+    fi
+    locs=$(_ver_locate "$entry")
+    if [[ -z "$locs" ]]; then
+        error "No pin found for '$name' (the registry pattern may need an update)"
+        return 1
+    fi
+
+    header "Bump $name → $new"
+    _ver_disclaimer
+    local note
+    note=$(_ver_note "$entry")
+    if [[ -n "$note" ]]; then
+        printf "  ${BOLD}Kubewekend configuration:${NC} %s\n\n" "$note"
+    fi
+
+    # Keep the `v` prefix style consistent with the current pins
+    old=$(head -1 <<< "$locs" | cut -d'|' -f3)
+    if [[ "${old:0:1}" == "v" && "${new:0:1}" != "v" ]] || [[ "${old:0:1}" != "v" && "${new:0:1}" == "v" ]]; then
+        warn "Current pins look like '$old' but the new version is '$new' (check the 'v' prefix)"
+    fi
+
+    echo "  Changes:"
+    while IFS='|' read -r file line old; do
+        if [[ "$old" == "$new" ]]; then
+            printf "    %-48s %s\n" "$file:$line" "already $new"
+        else
+            printf "    %-48s %s → %s\n" "$file:$line" "$old" "$(_cur "$new")"
+            changed=$((changed + 1))
+        fi
+    done <<< "$locs"
+    echo ""
+
+    if [[ "$changed" -eq 0 ]]; then
+        info "Nothing to change: $name is already $new"
+        return 0
+    fi
+    if [[ "$dry_run" == true ]]; then
+        info "[DRY RUN] $changed line(s) would change; no file was modified"
+        return 0
+    fi
+    if [[ "$assume_yes" != true ]]; then
+        confirm "Apply $changed change(s) for $name? You accept the risk described above" || { info "Aborted, nothing changed"; return 0; }
+    fi
+
+    while IFS='|' read -r file line old; do
+        [[ "$old" == "$new" ]] || _ver_replace_line "$PROJECT_ROOT/$file" "$line" "$old" "$new"
+    done <<< "$locs"
+    info "Bumped $name to $new in $changed line(s)"
+    echo "  Next: review with 'git diff', run './scripts/setup.sh versions sync' (or commit: the pre-commit hook runs it)"
+    echo "        to refresh the README.md Versions table, and test on a disposable cluster"
+}
+
+# Title of a registry group in README.md
+_ver_group_title() {
+    case "$1" in
+        kubernetes)   echo "Kubernetes distributions" ;;
+        host-tools)   echo "Host tools" ;;
+        networking)   echo "Cluster networking" ;;
+        utilities)    echo "Utilities" ;;
+        templates)    echo "Image pins in templates" ;;
+        charts)       echo "Helm charts in this repository" ;;
+        examples)     echo "Examples" ;;
+        repo-tooling) echo "Repository tooling" ;;
+        *)            echo "$1" ;;
+    esac
+}
+
+# Markdown tables of every registry entry (the generated part of README.md → Versions)
+_ver_markdown() {
+    local entry name group current_group="" locs versions where
+    for entry in "${VERSION_REGISTRY[@]}"; do
+        IFS='|' read -r name group _ <<< "$entry"
+        if [[ "$group" != "$current_group" ]]; then
+            [[ -n "$current_group" ]] && echo ""
+            echo "#### $(_ver_group_title "$group")"
+            echo ""
+            echo "| Component | Version | Where to update | Notes |"
+            echo "| --------- | ------- | --------------- | ----- |"
+            current_group="$group"
+        fi
+        locs=$(_ver_locate "$entry")
+        if [[ -z "$locs" ]]; then
+            echo "| \`$name\` | not found | pattern in \`VERSION_REGISTRY\` needs an update | |"
+            continue
+        fi
+        versions=$(cut -d'|' -f3 <<< "$locs" | sort -u | sed 's/.*/`&`/' | paste -sd, - | sed 's/,/, /g')
+        # file:l1,l2 per file, in a code span
+        where=$(awk -F'|' '{ a[$1] = (a[$1] ? a[$1] "," : "") $2; if (!($1 in o)) { o[$1] = ++k; f[k] = $1 } }
+            END { for (j = 1; j <= k; j++) printf "%s`%s:%s`", (j > 1 ? ", " : ""), f[j], a[f[j]] }' <<< "$locs")
+        echo "| \`$name\` | $versions | $where | $(_ver_note "$entry") |"
+    done
+}
+
+# Validate the registry against the files: every entry must be found and pinned to one version.
+# Prints one line per problem; returns the number of problems.
+_ver_validate() {
+    local entry name locs versions problems=0
+    for entry in "${VERSION_REGISTRY[@]}"; do
+        name="${entry%%|*}"
+        locs=$(_ver_locate "$entry")
+        if [[ -z "$locs" ]]; then
+            error "$name: no pin found (update its pattern in VERSION_REGISTRY or remove the entry)"
+            problems=$((problems + 1))
+            continue
+        fi
+        versions=$(cut -d'|' -f3 <<< "$locs" | sort -u)
+        if [[ $(wc -l <<< "$versions") -gt 1 ]]; then
+            error "$name: pinned to different versions:"
+            awk -F'|' '{ printf "          %s:%s  %s\n", $1, $2, $3 }' <<< "$locs" >&2
+            echo "        fix: ./scripts/setup.sh versions bump $name <version>" >&2
+            problems=$((problems + 1))
+        fi
+    done
+    return "$problems"
+}
+
+# Files that carry the generated Versions tables between the markers: README.md (required) and the
+# documentation site page (optional, skipped when the file does not exist)
+VERSION_SYNC_TARGETS=("README.md" "docs/reference/versions.md")
+
+# `versions sync [--check]`: validate the pins and regenerate the Versions tables (between the markers) in
+# every VERSION_SYNC_TARGETS file. Pre-commit friendly: rewrites a stale file (the hook then reports the
+# modified file); with --check (CI) it only reports. Exits 1 on validation problems or, with --check, a stale file.
+versions_sync() {
+    local check=false begin="<!-- versions:begin -->" end="<!-- versions:end -->"
+    local generated current tmp target file problems=0 rc=0
+    [[ "${1:-}" == "--check" ]] && check=true
+    if ! grep -qxF "$begin" "$PROJECT_ROOT/README.md" || ! grep -qxF "$end" "$PROJECT_ROOT/README.md"; then
+        error "README.md is missing the '$begin' / '$end' markers around the generated Versions tables"
+        return 1
+    fi
+
+    _ver_validate || problems=$?
+
+    generated=$(_ver_markdown)
+    # Exact block between the markers: blank lines around the tables keep the end marker out of the last
+    # table (kramdown on the docs site otherwise renders that table as plain text). The trailing `x`
+    # sentinel stops $(...) from stripping the final blank line.
+    local block
+    block=$(printf '\n%s\n\n' "$generated"; echo x); block=${block%x}
+    for target in "${VERSION_SYNC_TARGETS[@]}"; do
+        file="$PROJECT_ROOT/$target"
+        [[ -f "$file" ]] || continue
+        if ! grep -qxF "$begin" "$file" || ! grep -qxF "$end" "$file"; then
+            error "$target is missing the '$begin' / '$end' markers around the generated Versions tables"
+            rc=1
+            continue
+        fi
+        current=$(awk -v b="$begin" -v e="$end" '$0 == e { f = 0 } f { print } $0 == b { f = 1 }' "$file"; echo x)
+        current=${current%x}
+        if [[ "$block" == "$current" ]]; then
+            info "$target Versions table is up to date"
+        elif [[ "$check" == true ]]; then
+            error "$target Versions table is out of date: run ./scripts/setup.sh versions sync"
+            rc=1
+        else
+            tmp=$(mktemp)
+            printf '%s' "$block" > "$tmp"
+            awk -v b="$begin" -v e="$end" -v gen="$tmp" '
+                $0 == b { print; while ((getline line < gen) > 0) print line; skip = 1; next }
+                $0 == e { skip = 0 }
+                !skip { print }' "$file" > "$tmp.out"
+            cat "$tmp.out" > "$file"
+            rm -f "$tmp" "$tmp.out"
+            info "Updated $target Versions table (review and stage it)"
+        fi
+    done
+
+    if [[ "$problems" -gt 0 ]]; then
+        error "$problems version problem(s) found"
+        return 1
+    fi
+    return "$rc"
+}
+
+cmd_versions_help() {
+    cat <<'EOF'
+kubewekend versions - List and bump pinned versions of charts, tools and manifests
+
+SUBCOMMANDS
+  list [filter]                         Current pinned versions and their file:line locations
+                                        filter: component name or group (kubernetes, host-tools,
+                                        networking, utilities)
+  bump <component> <version> [opts]     Replace the pinned version everywhere it is used
+  sync [--check]                        Validate the pins (found, one version each) and regenerate the
+                                        Versions tables in README.md and docs/reference/versions.md;
+                                        --check only reports (CI).
+                                        Runs as a pre-commit hook (.pre-commit-config.yaml)
+
+OPTIONS (bump)
+  --dry-run                             Show the changes without modifying files
+  --yes, -y                             Skip the confirmation prompt
+
+DISCLAIMER
+  Bumping is at your own risk: Kubewekend only tests the versions pinned in this repository. A newer
+  chart or tool can change templates, values or defaults and stop working with the Kubewekend
+  playbooks and value templates. Read the release notes, use --dry-run, and test on a disposable
+  cluster first.
+
+EXAMPLES
+  ./scripts/setup.sh versions list
+  ./scripts/setup.sh versions list networking
+  ./scripts/setup.sh versions bump cilium 1.20.6 --dry-run
+  ./scripts/setup.sh versions bump k3s v1.35.8+k3s1
+EOF
+}
+
+cmd_versions() {
+    local sub="${1:-help}"; shift || true
+    case "$sub" in
+        list|ls) versions_list "$@" ;;
+        bump)    versions_bump "$@" ;;
+        sync)    versions_sync "$@" ;;
+        *)       cmd_versions_help ;;
     esac
 }
 
@@ -1707,7 +2554,8 @@ ${BOLD}COMMANDS${NC}
   ${CYAN}rke2${NC}           RKE2 cluster operations (setup, ha-setup, destroy, utilities)
   ${CYAN}network${NC}        VirtualBox NAT network management
   ${CYAN}quickstart${NC}     Guided quick-start workflows with examples
-  ${CYAN}config${NC}         View/edit cluster configuration (master.yaml, worker.yaml)
+  ${CYAN}config${NC}         View/edit cluster configuration, list supported options (config --list)
+  ${CYAN}versions${NC}       List and bump pinned versions of charts, tools and manifests
   ${CYAN}status${NC}         Show overall project status
   ${CYAN}help${NC}           Show this help message
 
@@ -1768,6 +2616,7 @@ main() {
         network)    cmd_network "$@" ;;
         quickstart) cmd_quickstart "$@" ;;
         config)     cmd_config "$@" ;;
+        versions)   cmd_versions "$@" ;;
         status)     cmd_status ;;
         help|--help|-h) show_help ;;
         *)

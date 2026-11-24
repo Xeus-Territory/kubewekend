@@ -1,0 +1,25 @@
+# The wall: pods in lab-egress may only talk to istio-system (egress gateway, istiod) and to DNS. A pod that skips
+# the sidecar can no longer reach the internet directly, so the egress gateway becomes the only way out.
+# Needs a CNI that enforces NetworkPolicy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-only-via-gateway
+  namespace: lab-egress
+spec:
+  podSelector: {}
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

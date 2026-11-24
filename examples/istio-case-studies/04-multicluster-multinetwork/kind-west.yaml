@@ -1,0 +1,11 @@
+# Cluster "west" for lab 04 (see kind-east.yaml): a single node, different pod and service subnets.
+#
+#   kind create cluster --config kind-west.yaml          # context: kind-west
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: west
+networking:
+  podSubnet: "10.20.0.0/16"
+  serviceSubnet: "10.120.0.0/16"
+nodes:
+  - role: control-plane

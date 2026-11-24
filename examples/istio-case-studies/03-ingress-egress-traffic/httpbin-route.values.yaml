@@ -1,0 +1,15 @@
+# Extra values for the `common` chart: the chart can attach its own HTTPRoute to the Istio gateway, so an app
+# publishes itself without hand-written route YAML. Use it on top of the app values:
+#   helm upgrade --install httpbin ../../../kubernetes/charts/common -n lab-traffic \
+#     -f ../apps/httpbin.values.yaml -f httpbin-route.values.yaml
+httpRoute:
+  enabled: true
+  parentRefs:
+    - name: lab-gateway
+  hostnames:
+    - httpbin.lab.test
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
