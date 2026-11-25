@@ -13,10 +13,8 @@ apiVersion: argocd-image-updater.argoproj.io/v1alpha1
 kind: ImageUpdater
 metadata:
   name: hello
-  namespace: argocd
+  namespace: argocd # Use this namespace where the ArgoCD Application live, instead spec.namespace
 spec:
-  # The namespace where the Argo CD Applications live
-  namespace: argocd
   # `git:secret:<namespace>/<name>` reads `username` and `password` from that Secret (see the lab for the command)
   writeBackConfig:
     method: git:secret:argocd/git-creds
