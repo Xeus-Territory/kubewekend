@@ -166,10 +166,8 @@ docker push localhost:5001/xeusnguyen/kubewekend-todo:v1.0.0
 
 **4. Make the scratch copy and push it to Gitea.**
 
-The three `sed` edits rewrite the repository URL, the image name and, if a manifest has a pull request provider, the key
-`github: {}` to `gitea: {}`: the provider key says which API Image Updater calls, and here that is Gitea (see
-[lab 03](../03-image-updater/README.md#open-a-pull-request-instead-of-committing)). The `printf` appends a registry entry
-to the Argo CD values, so Image Updater knows how to reach your HTTP registry.
+The two `sed` edits rewrite the repository URL and the image name. The `printf` appends a registry entry to the Argo CD
+values, so Image Updater knows how to reach your HTTP registry.
 
 ```bash
 export LAB_DIR=$(mktemp -d)
@@ -178,8 +176,7 @@ cd $LAB_DIR
 rm -rf examples/argocd-apps/app
 find examples -name '*.yaml' | xargs sed -i \
   -e 's|https://github.com/Xeus-Territory/kubewekend|https://lab-gitea:3000/lab/kubewekend|g' \
-  -e 's|xeusnguyen/kubewekend-todo|lab-registry:5000/xeusnguyen/kubewekend-todo|g' \
-  -e 's|github: {}|gitea: {}|g'
+  -e 's|xeusnguyen/kubewekend-todo|lab-registry:5000/xeusnguyen/kubewekend-todo|g'
 printf '\n  config:\n    registries:\n      - name: lab\n        api_url: http://lab-registry:5000\n        prefix: lab-registry:5000\n        insecure: yes\n        ping: no\n' \
   >> examples/argocd-apps/manifests/infrastructure/argocd/values.yaml
 
@@ -235,7 +232,7 @@ its step 3.
 
 ```bash
 kubectl -n argocd create secret generic git-creds --from-literal=username=lab --from-literal=password=lab-password-1
-kubectl apply -f $LAB_DIR/examples/argocd-apps/labs/03-image-updater/imageupdater.yaml
+kubectl apply -f $LAB_DIR/examples/argocd-apps/labs/03-image-updater/imageupdater-gitea.yaml
 
 docker build -t localhost:5001/xeusnguyen/kubewekend-todo:v1.1.0 \
   --build-arg APP_VERSION=v1.1.0 \

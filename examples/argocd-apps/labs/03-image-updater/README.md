@@ -49,10 +49,10 @@ What the API server says depends on how the resource is applied. These are the r
 the old form:
 
 ```text
-$ kubectl apply -f imageupdater.yaml
-Error from server (BadRequest): error when creating "imageupdater.yaml": ImageUpdater in version "v1alpha1" cannot be handled as a ImageUpdater: strict decoding error: unknown field "spec.namespace"
+$ kubectl apply -f imageupdater-gitea.yaml
+Error from server (BadRequest): error when creating "imageupdater-gitea.yaml": ImageUpdater in version "v1alpha1" cannot be handled as a ImageUpdater: strict decoding error: unknown field "spec.namespace"
 
-$ kubectl apply --server-side -f imageupdater.yaml
+$ kubectl apply --server-side -f imageupdater-gitea.yaml
 Error from server: failed to create typed patch object (argocd/hello; argocd-image-updater.argoproj.io/v1alpha1, Kind=ImageUpdater): .spec.namespace: field not declared in schema
 ```
 
@@ -60,7 +60,7 @@ The second form is what a GitOps tool uses, so a manifest that still has the fie
 applying. The dangerous case is a client that skips validation:
 
 ```text
-$ kubectl apply --validate=false -f imageupdater.yaml
+$ kubectl apply --validate=false -f imageupdater-gitea.yaml
 imageupdater.argocd-image-updater.argoproj.io/hello created
 ```
 
@@ -69,7 +69,7 @@ nothing, and if it pointed at a different namespace than the resource, the updat
 
 ### The same strictness catches other mistakes
 
-The schema is strict everywhere, not only for `namespace`. While testing this lab, the committed `imageupdater.yaml` had a
+The schema is strict everywhere, not only for `namespace`. While testing this lab, an earlier version of the manifest had a
 `pullRequest` block indented one level too shallow (under `writeBackConfig` instead of under `gitConfig`) for one of the
 two applications. The whole resource was refused:
 
@@ -81,7 +81,7 @@ Check every `ImageUpdater` manifest against the real schema **before** you commi
 to the cluster:
 
 ```bash
-kubectl apply --dry-run=server -f imageupdater.yaml
+kubectl apply --dry-run=server -f imageupdater-gitea.yaml
 ```
 
 ```text
@@ -132,7 +132,7 @@ flowchart LR
 
 ## The resource
 
-[`imageupdater.yaml`](imageupdater.yaml), trimmed:
+[`imageupdater-gitea.yaml`](imageupdater-gitea.yaml), trimmed:
 
 ```yaml
 apiVersion: argocd-image-updater.argoproj.io/v1alpha1
@@ -174,6 +174,13 @@ spec:
 >
 > The CRD still describes `writeBackTarget` as "required if the write-back method is Git". As in 1.0.1, it is not:
 > leaving it out is what selects the override-file behaviour, and both applications were updated on 1.5.0.
+
+> [!NOTE]
+>
+> This file commits **directly** to the branch. If your branch is protected and requires pull requests, apply
+> [`imageupdater-github.yaml`](imageupdater-github.yaml) instead: it is the same resource with a `pullRequest` block (see
+> [Open a pull request](#open-a-pull-request-instead-of-committing)). Apply **one** of the two files, not both, because
+> they manage the same Applications.
 
 Only two of the three apps are listed. **`hello-kustomize-prod` is not tracked**, so it stays on its old tag: a simple
 way to see the difference between an environment that follows automatically and one that waits for a reviewed commit.
@@ -500,8 +507,8 @@ The only change to the resource is a `pullRequest` block under `gitConfig` (prov
 ```
 
 **Use `gitea` for Gitea and for Forgejo, and `github` for GitHub.** The provider key chooses which API the updater
-calls, so it has to match your Git server. If your copy of `imageupdater.yaml` already has `pullRequest: github: {}`,
-replace `github` with `gitea` when you practise on the local Gitea. See the
+calls, so it has to match your Git server. [`imageupdater-github.yaml`](imageupdater-github.yaml) uses `github`: change
+it to `gitea` if you use that file against a Gitea server. See the
 [Gitea section](https://argocd-image-updater.readthedocs.io/en/stable/basics/update-methods/#gitea) of the update methods page.
 
 About 10 seconds after applying it, **two pull requests** were open, one per application:
@@ -552,6 +559,11 @@ What this run showed:
 
 ### Examples
 
+The repository ships one ready-made file, [`imageupdater-github.yaml`](imageupdater-github.yaml): GitHub, with `pullRequest`
+set **once**, inside the global `gitConfig`, while each application repeats its own `writeBackConfig` without it. That is the
+shape of the official example. It was checked against the 1.5.0 schema but **not run** against GitHub. Example 2 is its
+smallest form.
+
 **Example 1: Gitea or Forgejo (the one tested here).** Same shape, with the `gitea` provider (not `github`) and a token.
 The [Gitea section](https://argocd-image-updater.readthedocs.io/en/stable/basics/update-methods/#gitea) of the docs covers it:
 
@@ -569,7 +581,7 @@ spec:
           - automated
 ```
 
-**Example 2: GitHub, with the default override file.** The smallest change from this lab's `imageupdater.yaml`. Keep `branch`
+**Example 2: GitHub, with the default override file.** The smallest change from `imageupdater-gitea.yaml`. Keep `branch`
 as the base branch only:
 
 ```yaml
@@ -688,14 +700,14 @@ curl -sk -u lab:lab-password-1 -H 'Content-Type: application/json' \
   https://127.0.0.1:3001/api/v1/repos/lab/kubewekend/branch_protections
 ```
 
-**4. Use the `gitea` provider.** In your copy of `imageupdater.yaml`
-(`$LAB_DIR/examples/argocd-apps/labs/03-image-updater/imageupdater.yaml`), each application's `gitConfig` needs
-`pullRequest: gitea: {}`. If a `pullRequest: github: {}` block is already there, change `github` to `gitea` (the lab 00
-scratch copy already does that for you). Check it, apply it, and publish a new tag:
+**4. Use the `gitea` provider.** Start from `imageupdater-gitea.yaml` in your scratch copy
+(`$LAB_DIR/examples/argocd-apps/labs/03-image-updater/imageupdater-gitea.yaml`) and add `pullRequest: gitea: {}` under the
+`gitConfig` of each application, as in the test run. (`imageupdater-github.yaml` sets it once, globally; that shape was not
+run here, and if you start from it you must change `github` to `gitea`.) Check it, apply it, and publish a new tag:
 
 ```bash
-kubectl apply --dry-run=server -f $LAB_DIR/examples/argocd-apps/labs/03-image-updater/imageupdater.yaml
-kubectl apply -f $LAB_DIR/examples/argocd-apps/labs/03-image-updater/imageupdater.yaml
+kubectl apply --dry-run=server -f $LAB_DIR/examples/argocd-apps/labs/03-image-updater/imageupdater-gitea.yaml
+kubectl apply -f $LAB_DIR/examples/argocd-apps/labs/03-image-updater/imageupdater-gitea.yaml
 docker tag localhost:5001/xeusnguyen/kubewekend-todo:v1.1.0 localhost:5001/xeusnguyen/kubewekend-todo:v2.0.0
 docker push localhost:5001/xeusnguyen/kubewekend-todo:v2.0.0
 ```
@@ -723,9 +735,10 @@ annotation, or wait up to three minutes) and watch `hello hello-dev` change.
 > [!TIP]
 >
 > Use pull request mode for environments that are protected, such as production overlays, and direct commits for
-> environments you want to follow automatically, such as `dev`. The docs do not say how a per-application
-> `writeBackConfig` merges with a `pullRequest` set at the `spec` level, so the safe way to mix both is **two
-> `ImageUpdater` resources**: one with `pullRequest` for the protected applications and one without for the rest.
+> environments you want to follow automatically, such as `dev`. The repository keeps the two modes in **two files** so each
+> one stays simple. To run both at once, split the applications between **two `ImageUpdater` resources** with different
+> names and different `namePattern`s, so they never manage the same Application. The docs show a global `pullRequest` with
+> per-application overrides (the shape of `imageupdater-github.yaml`) but do not describe mixing modes inside one resource.
 
 ## Break it: an `http://` repository
 
@@ -778,9 +791,9 @@ level wins**:
 | `gitConfig.branch` | Branch to commit to, or the **base** branch in pull request mode. Required for `git` unless set at the `spec` level | `main` |
 | `gitConfig.repository` | Repository URL. If left out, it is taken from the Application's `spec.source.repoURL` | Yes |
 | `gitConfig.writeBackTarget` | The file to change, such as `helmvalues:./helm/values.yaml` or `kustomization:./kustomize/overlays/production`. **Leave it out for the override file** | Omitted (the manifest-editing variant sets it) |
-| `gitConfig.pullRequest` (**new**) | Open a pull request instead of pushing to the branch. Pick the provider inside it. See [Open a pull request](#open-a-pull-request-instead-of-committing) | No |
-| `gitConfig.pullRequest.github`, `.gitea`, `.gitlab`, `.azuredevops` (**new**) | Choose the provider. Each is an empty object (`github: {}`). `gitea` is also used for Forgejo; GitLab opens a merge request | See the pull request section |
-| `gitConfig.pullRequest.labels` (**new**) | Labels for every pull or merge request. GitLab sets them on creation; the others apply them in a follow-up call, so a labelling failure does not fail the update | See the pull request section |
+| `gitConfig.pullRequest` (**new**) | Open a pull request instead of pushing to the branch. Pick the provider inside it. See [Open a pull request](#open-a-pull-request-instead-of-committing) | Only in `imageupdater-github.yaml` |
+| `gitConfig.pullRequest.github`, `.gitea`, `.gitlab`, `.azuredevops` (**new**) | Choose the provider. Each is an empty object (`github: {}`). `gitea` is also used for Forgejo; GitLab opens a merge request | `github: {}` in `imageupdater-github.yaml` |
+| `gitConfig.pullRequest.labels` (**new**) | Labels for every pull or merge request. GitLab sets them on creation; the others apply them in a follow-up call, so a labelling failure does not fail the update | In `imageupdater-github.yaml` |
 
 `gitConfig` is only valid when `method` is `git` or starts with `git:`. The CRD text still says `writeBackTarget` is "required"
 for `git`; it is not (see [The resource](#the-resource)).
@@ -864,7 +877,10 @@ with exactly this lab, run against containers on your own machine.
 Otherwise you need a **throwaway fork** (see [lab 00](../00-platform/README.md#using-your-own-fork-needed-for-one-step-in-lab-2)),
 an image repository you can push to, and a Git token that can write to **only that fork**. Do not use your real project.
 
-1. Change `xeusnguyen/kubewekend-todo` to your image everywhere it appears (`workloads/` and `imageupdater.yaml`) and
+**Is the branch protected?** Apply `imageupdater-github.yaml` instead of `imageupdater-gitea.yaml` below. It opens a pull
+request, and the token must be allowed to push a branch and open pull requests on the fork.
+
+1. Change `xeusnguyen/kubewekend-todo` to your image everywhere it appears (`workloads/` and `imageupdater-gitea.yaml`) and
    push, or keep the public image and only change `repository` in the resource to your fork.
 2. Create the credentials. Never commit the token, and give it a short expiry:
 
@@ -878,8 +894,8 @@ an image repository you can push to, and a Git token that can write to **only th
    as `spec.namespace`, or a block at the wrong indentation, before anything changes:
 
    ```bash
-   kubectl apply --dry-run=server -f $REPO/examples/argocd-apps/labs/03-image-updater/imageupdater.yaml
-   kubectl apply -f $REPO/examples/argocd-apps/labs/03-image-updater/imageupdater.yaml
+   kubectl apply --dry-run=server -f $REPO/examples/argocd-apps/labs/03-image-updater/imageupdater-gitea.yaml
+   kubectl apply -f $REPO/examples/argocd-apps/labs/03-image-updater/imageupdater-gitea.yaml
    kubectl -n argocd logs deploy/argocd-image-updater-controller -f | grep -E 'new image|Committing|images_updated|error'
    ```
 
