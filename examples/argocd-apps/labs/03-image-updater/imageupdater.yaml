@@ -38,6 +38,12 @@ spec:
           # # NOTE: use the default write with newfile `.argocd-source-<appName>.yaml`
           # # Helm: write the tag into the chart's values file (path relative to the Application's source path)
           # writeBackTarget: helmvalues:values.yaml
+          # NOTE: default if not set `pullRequest`, image-updater will commit directly into target branch.
+          pullRequest:
+            github: {}
+            labels:
+              - image-update
+              - automated
       images:
         - alias: todo
           imageName: xeusnguyen/kubewekend-todo
@@ -55,6 +61,12 @@ spec:
           # # NOTE: use the default write with newfile `.argocd-source-<appName>.yaml`
           # # Kustomize: edit the `images:` block of the kustomization.yaml in the Application's source path
           # writeBackTarget: kustomization
+          # NOTE: default if not set `pullRequest`, image-updater will commit directly into target branch.
+        pullRequest:
+          github: {}
+          labels:
+            - image-update
+            - automated
       images:
         - alias: todo
           imageName: xeusnguyen/kubewekend-todo

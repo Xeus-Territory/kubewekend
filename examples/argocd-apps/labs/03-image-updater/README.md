@@ -20,6 +20,15 @@ Suggested time: 45 minutes to read, 1 hour to repeat. Needs the cluster from
 > it. Use a throwaway fork, a token that can write to **only that fork** and expires soon, and delete both when you are
 > done.
 
+> [!NOTE]
+>
+> **Versions.** The captured output and the field tables below were produced with Image Updater **1.0.1**, before the
+> chart was bumped, and have not been re-run on 1.5.x. **Pull request support starts in Image Updater v1.2.0** (not the app's `v1.2.0`
+> image tag used later in this page): from that release the `git` write-back can open a pull request through
+> `gitConfig.pullRequest`. Earlier releases, such as 1.0.1 (its CRD has
+> no `pullRequest` field), can only commit directly to the target branch, or to a different branch (the `base:target`
+> form of `branch`). See [Open a pull request instead of committing](#open-a-pull-request-instead-of-committing).
+
 ## Concepts
 
 ```mermaid
@@ -303,6 +312,144 @@ updater keeps writing it. To hold an environment on a tag, stop the updater for 
 [reference](#configuration-reference)). To **promote** a tag to an environment that is not tracked, such as
 `hello-kustomize-prod`, change its own `kustomization.yaml` in a normal reviewed commit.
 
+## Open a pull request instead of committing
+
+> [!NOTE]
+>
+> **Not run in this lab.** The examples in this section come from the official Image Updater documentation (the stable
+> line) and are adapted to the lab's apps. They need Image Updater **v1.2.0 or newer**, the first release with `gitConfig.pullRequest` (the 1.0.1
+> used for the captures above does not have it). Treat them as a starting point and check the
+> [update methods](https://argocd-image-updater.readthedocs.io/en/stable/basics/update-methods/) page for your version.
+
+Everything above pushes straight to the branch Argo CD tracks. That fails when the branch is **protected**: if GitHub
+requires a pull request and forbids direct pushes, the updater's commit is rejected. **Pull request mode** keeps the
+same `git` write-back but changes the last step: instead of pushing to `main`, the updater
+
+1. pushes the update commit to a **new head branch** it names itself, `image-updater-<targetKey>-<sha256>`, where
+   `<targetKey>` is a short hash of the write-back target (repository, branch and target path), and
+2. **opens a pull request** from that branch into the base branch you configured.
+
+Nothing changes in the cluster until a person reviews and merges the pull request, and Argo CD then syncs the merged
+commit as usual. If a pull request for the same head and base already exists, the updater leaves it alone and does not open
+a duplicate. Applications that share the same write-back target reuse the same head branch, which avoids duplicate pull requests.
+
+```mermaid
+flowchart LR
+    iu["Image Updater"] -->|"pushes image-updater-... branch"| head["Head branch"]
+    iu -->|"opens a pull request"| pr["Pull request into main"]
+    you["You review and merge"] --> pr
+    pr -->|"merged"| main["main (protected)"]
+    argo["Argo CD"] -->|"reads"| main
+    argo -->|"syncs"| k8s["Deployment rolls out"]
+```
+
+### Example 1: GitHub, with the default override file
+
+The smallest change from this lab's `imageupdater.yaml` is to add `pullRequest.github` to the `gitConfig`. Keep `branch` as
+the **base** branch only:
+
+```yaml
+spec:
+  namespace: argocd
+  writeBackConfig:
+    method: git:secret:argocd/git-creds    # a token (PAT or GitHub App), not an SSH key
+    gitConfig:
+      repository: https://github.com/<you>/<throwaway-fork>.git
+      branch: main                         # the BASE branch; no "base:target" form in PR mode
+      pullRequest:
+        github: {}
+```
+
+The pull request then contains the `.argocd-source-<app>.yaml` file, so reviewers see a one-line change. The official
+examples set a `writeBackTarget`; leaving it out, as here, relies on PR mode extending the default `git` write-back, which
+the docs describe but do not show in an example. Try it on a throwaway repository first.
+
+### Example 2: GitHub, editing the manifest (per-application target)
+
+This is the shape of the official example. The pull request changes your own `values.yaml` or `kustomization.yaml`. A path
+that starts with `/` is relative to the repository root. `helmvalues:` takes a values **file**, `kustomization:` takes a
+**directory**:
+
+```yaml
+spec:
+  namespace: argocd
+  writeBackConfig:
+    method: git:secret:argocd/git-creds
+    gitConfig:
+      repository: https://github.com/<you>/<throwaway-fork>.git
+      branch: main
+      pullRequest:
+        github: {}
+  applicationRefs:
+    - namePattern: hello-helm
+      writeBackConfig:
+        method: git:secret:argocd/git-creds
+        gitConfig:
+          branch: main
+          writeBackTarget: helmvalues:/examples/argocd-apps/workloads/hello-helm/values.yaml
+      images:
+        - alias: todo
+          imageName: xeusnguyen/kubewekend-todo
+          manifestTargets:
+            helm:
+              name: common.image.repository
+              tag: common.image.tag
+    - namePattern: hello-kustomize-dev
+      writeBackConfig:
+        method: git:secret:argocd/git-creds
+        gitConfig:
+          branch: main
+          writeBackTarget: kustomization:/examples/argocd-apps/workloads/hello-kustomize/overlays/dev
+      images:
+        - alias: todo
+          imageName: xeusnguyen/kubewekend-todo
+          manifestTargets:
+            kustomize:
+              name: xeusnguyen/kubewekend-todo
+```
+
+### Example 3: add labels to every pull request
+
+`pullRequest.labels` puts labels on each pull request the updater opens, for example to drive review rules or a merge
+queue:
+
+```yaml
+spec:
+  writeBackConfig:
+    method: git:secret:argocd/git-creds
+    gitConfig:
+      repository: https://github.com/<you>/<throwaway-fork>.git
+      branch: main
+      pullRequest:
+        github: {}
+        labels:
+          - image-update
+          - automated
+```
+
+On GitHub the labels are applied in a follow-up call after the pull request exists. If that call fails, for example because
+the token cannot write issues, the updater logs a warning and the pull request is **still created**.
+
+### What to know before you use it
+
+| Topic | Note |
+|-------|------|
+| Credentials | A bearer token is required: a personal access token or a GitHub App, given through `method: git:secret:<ns>/<name>`. **SSH keys do not work**, because the updater must call the GitHub API. The commits and the pull request are authored as that token's identity |
+| Token permissions | Enough to push a branch and open a pull request on that repository. Labels also need permission to write issues. Use a token limited to one throwaway repository, with a short expiry, and check GitHub's current permission names |
+| Branch setting | Only the base branch, for example `main`. A value with a colon (`base:target`) together with `pullRequest` is a **validation error** and the resource is not reconciled |
+| Title and body | The title is the first line of the Git commit message template and the body is the rest. Defaults: `chore: update images for <namespace>/<appName>` and a short "created automatically by argocd-image-updater" text |
+| Other providers | GitLab (`pullRequest.gitlab`), Azure DevOps and Gitea or Forgejo are supported with their own settings. See the update methods page; they are not shown here |
+| TLS | Calls to the Git provider's API always verify TLS, even if the repository is registered as `insecure` in Argo CD, because they carry the token. The self-signed Gitea in [lab 00](../00-platform/README.md#practise-locally-with-gitea-and-a-registry-no-github) would need its certificate trusted by Argo CD first, so that setup is not meant for PR mode |
+| After an upgrade | The head branch used to be named from the application (`image-updater-<namespace>-<appName>-<sha256>`). Newer releases name it from the write-back target. After upgrading, the first run creates a branch with the new name, and **old pull requests are not closed for you**: close them and delete their branches by hand |
+| Latency | Add your review time to the roughly 4.5 minutes seen above. The app stays on the old tag until the pull request is merged and Argo CD has synced |
+
+> [!TIP]
+>
+> Use pull request mode for environments that are protected, such as production overlays, and direct commits for
+> environments you want to follow automatically, such as `dev`. The docs do not say how a per-application
+> `writeBackConfig` merges with a `pullRequest` set at the `spec` level, so the safe way to mix both is **two
+> `ImageUpdater` resources**: one with `pullRequest` for the protected applications and one without for the rest.
+
 ## Break it: an `http://` repository
 
 Image Updater 1.0.1 builds Git credentials from a Secret only for `https://` and `ssh` URLs. With a plain `http://`
@@ -319,7 +466,8 @@ The error does not say "use https", so remember it: `unknown repository type` me
 ## Configuration reference
 
 Every field of the `ImageUpdater` resource in version 1.0.1, with the meaning taken from the CRD itself
-(`kubectl explain imageupdater.spec --recursive`). **Used here** says whether this lab sets the field.
+(`kubectl explain imageupdater.spec --recursive`). **Used here** says whether this lab sets the field. The two
+`pullRequest` rows are the exception: they come from the documentation of Image Updater v1.2.0 and newer, not from the 1.0.1 CRD.
 
 ### Where settings can be given
 
@@ -346,6 +494,8 @@ Every field of the `ImageUpdater` resource in version 1.0.1, with the meaning ta
 | `gitConfig.branch` | Branch to commit to. Required for `git` unless set at the `spec` level | `main` |
 | `gitConfig.repository` | Repository URL to commit to. If left out, it is taken from the Application's `spec.source.repoURL` | Yes |
 | `gitConfig.writeBackTarget` | The file to change, such as `helmvalues:./helm/values.yaml` or `kustomization:./kustomize/overlays/production`. **Leave it out for the override file** | Omitted (the manifest-editing variant sets it) |
+| `gitConfig.pullRequest` | Open a pull request instead of pushing to the branch. Pick the provider inside it: `github: {}`, `gitlab`, and others (see [above](#open-a-pull-request-instead-of-committing)). **Image Updater v1.2.0 and newer; not in the 1.0.1 CRD** | No |
+| `gitConfig.pullRequest.labels` | A list of labels to put on every pull or merge request. **v1.2.0 and newer** | No |
 
 `gitConfig` is only valid when `method` is `git` or starts with `git:`.
 
@@ -440,6 +590,10 @@ Updater values.
 - You delete `.argocd-source-hello-helm.yaml` and the updater is still running. What happens, and how do you really hold
   the app on a tag?
 - When would you choose `writeBackTarget` over the override file, and what do you give up?
+- Your `main` branch requires pull requests and forbids direct pushes. What does the updater do with the settings in this
+  lab, and which single setting changes that?
+- In pull request mode, why must `branch` be only the base branch, and what name does the updater give to the branch it
+  creates?
 - You publish release-candidate tags such as `v1.2.0-rc1` and do not want production-like environments to follow them.
   Which settings in `commonUpdateSettings` would you use to control which tags are eligible?
 
