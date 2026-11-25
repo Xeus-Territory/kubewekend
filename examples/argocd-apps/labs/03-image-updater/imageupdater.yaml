@@ -35,8 +35,9 @@ spec:
         gitConfig:
           branch: main
           repository: https://github.com/Xeus-Territory/kubewekend
-          # Helm: write the tag into the chart's values file (path relative to the Application's source path)
-          writeBackTarget: helmvalues:values.yaml
+          # # NOTE: use the default write with newfile `.argocd-source-<appName>.yaml`
+          # # Helm: write the tag into the chart's values file (path relative to the Application's source path)
+          # writeBackTarget: helmvalues:values.yaml
       images:
         - alias: todo
           imageName: xeusnguyen/kubewekend-todo
@@ -51,8 +52,9 @@ spec:
         gitConfig:
           branch: main
           repository: https://github.com/Xeus-Territory/kubewekend
-          # Kustomize: edit the `images:` block of the kustomization.yaml in the Application's source path
-          writeBackTarget: kustomization
+          # # NOTE: use the default write with newfile `.argocd-source-<appName>.yaml`
+          # # Kustomize: edit the `images:` block of the kustomization.yaml in the Application's source path
+          # writeBackTarget: kustomization
       images:
         - alias: todo
           imageName: xeusnguyen/kubewekend-todo
