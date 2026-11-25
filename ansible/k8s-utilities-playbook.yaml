@@ -689,7 +689,7 @@
             helm repo add argo https://argoproj.github.io/argo-helm
             helm repo update
             helm upgrade --install argocd-image-updater argo/argocd-image-updater \
-              --namespace argocd --version 1.0.1 --wait
+              --namespace argocd --version 1.5.0 --wait
           changed_when: false
           register: argocd_image_updater_result
 

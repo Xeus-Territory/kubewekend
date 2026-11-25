@@ -78,7 +78,7 @@ The tables between the `versions:begin` / `versions:end` markers are **generated
 | `reloader` | `2.2.7` | `ansible/k8s-utilities-playbook.yaml:629` |  |
 | `external-secrets` | `1.2.1` | `ansible/k8s-utilities-playbook.yaml:645` |  |
 | `argo-cd` | `10.16.0` | `ansible/k8s-utilities-playbook.yaml:669,706` | Ingress at `utilities.gitops.argocd.host` with `server.insecure=true` (TLS ends at the ingress); bundled Dex disabled |
-| `argocd-image-updater` | `1.0.1` | `ansible/k8s-utilities-playbook.yaml:692` |  |
+| `argocd-image-updater` | `1.5.0` | `ansible/k8s-utilities-playbook.yaml:692` |  |
 | `argocd-extension-metrics` | `v1.0.3` | `ansible/k8s-utilities-playbook.yaml:711` |  |
 | `argocd-rollout-extension` | `v0.3.7` | `ansible/k8s-utilities-playbook.yaml:716` |  |
 | `flux` | `v2.7.5` | `ansible/k8s-utilities-playbook.yaml:733` |  |
