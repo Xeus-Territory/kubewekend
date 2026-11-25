@@ -1,0 +1,65 @@
+# Lab 3: Argo CD Image Updater (v1.5.x) with an `ImageUpdater` custom resource (no annotations on the Applications).
+# This file COMMITS DIRECTLY to the branch (no pull request). It is the one the local Gitea setup in lab 00 uses.
+# For a protected GitHub branch that needs pull requests, use imageupdater-github.yaml. Apply ONE of the two, not both.
+#
+# What it does, every few minutes:
+#   1. looks up the tags of xeusnguyen/kubewekend-todo in the registry
+#   2. picks the newest semver tag (v1.0.0 -> v1.1.0)
+#   3. commits the new tag to Git (the `git` write-back method). By default that is a small override file,
+#      `.argocd-source-<appName>.yaml`, next to each application's sources: your chart and overlay files are not edited
+#   4. Argo CD sees the new commit and rolls the Deployment out
+#
+# Two applications are tracked, one per tool; `hello-kustomize-prod` is deliberately NOT tracked:
+#   hello-helm            -> workloads/hello-helm/.argocd-source-hello-helm.yaml
+#   hello-kustomize-dev   -> workloads/hello-kustomize/overlays/dev/.argocd-source-hello-kustomize-dev.yaml
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: hello
+  namespace: argocd # The namespace of the Argo CD Applications. There is no spec.namespace since Image Updater 1.5
+spec:
+  # `git:secret:<namespace>/<name>` reads `username` and `password` from that Secret (see the lab for the command)
+  writeBackConfig:
+    method: git:secret:argocd/git-creds
+    gitConfig:
+      branch: main
+      # Use the URL of YOUR Git server or throwaway fork: the commit is pushed there (lab 00 rewrites it for the local Gitea)
+      repository: https://github.com/Xeus-Territory/kubewekend
+  commonUpdateSettings:
+    updateStrategy: semver
+    ignoreTags:
+      - latest
+  applicationRefs:
+    - namePattern: hello-helm
+      writeBackConfig:
+        method: git:secret:argocd/git-creds
+        gitConfig:
+          branch: main
+          repository: https://github.com/Xeus-Territory/kubewekend
+          # # NOTE: use the default write with newfile `.argocd-source-<appName>.yaml`
+          # # Helm: write the tag into the chart's values file (path relative to the Application's source path)
+          # writeBackTarget: helmvalues:values.yaml
+      images:
+        - alias: todo
+          imageName: xeusnguyen/kubewekend-todo
+          manifestTargets:
+            helm:
+              # Value paths in values.yaml. The `common` chart is a dependency, hence the `common.` prefix
+              name: common.image.repository
+              tag: common.image.tag
+    - namePattern: hello-kustomize-dev
+      writeBackConfig:
+        method: git:secret:argocd/git-creds
+        gitConfig:
+          branch: main
+          repository: https://github.com/Xeus-Territory/kubewekend
+          # # NOTE: use the default write with newfile `.argocd-source-<appName>.yaml`
+          # # Kustomize: edit the `images:` block of the kustomization.yaml in the Application's source path
+          # writeBackTarget: kustomization
+      images:
+        - alias: todo
+          imageName: xeusnguyen/kubewekend-todo
+          manifestTargets:
+            kustomize:
+              # The image name exactly as written in `images:` (overlays/dev/kustomization.yaml)
+              name: xeusnguyen/kubewekend-todo
