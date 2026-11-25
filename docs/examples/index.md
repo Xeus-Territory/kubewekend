@@ -16,7 +16,7 @@ Ready-made workloads to practise on a Kubewekend cluster. Each example lists the
 |---------|-------------------|-------|------|
 | **Istio case studies** | A service mesh in four labs: sidecar vs ambient, mTLS and authorization, ingress and egress gateways, a two-cluster multi-network mesh | Kind, no ingress controller (the labs bring their own cluster config) | [Read here]({% link examples/istio-case-studies/README.md %}) |
 | **LGTM observability app** | Traces, logs, metrics and profiles from one app (FastAPI + PostgreSQL), correlated in Grafana | `utils monitoring` | [Read here]({% link examples/lgtm-testing/README.md %}) |
-| **Argo CD labs** | GitOps in four labs: App of Apps and AppProjects, Application vs ApplicationSet, Image Updater, and a hub and spoke pair with argocd-agent | Kind (the labs bring their own cluster config) | [Read here]({% link examples/argocd-apps/labs/README.md %}) |
+| **Argo CD labs** | GitOps in five labs: App of Apps and AppProjects, Application vs ApplicationSet, Image Updater, a hub and spoke pair with argocd-agent, and the PKI and mTLS behind it built with OpenSSL | Kind (the labs bring their own cluster config) | [Read here]({% link examples/argocd-apps/labs/README.md %}) |
 
 > [!TIP]
 >

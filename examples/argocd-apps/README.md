@@ -16,7 +16,7 @@ managed without exposing its API server.
 
 ## What you will learn
 
-Four labs, each a page with commands, real outputs, an experiment that breaks something on purpose, and a self-check:
+Five labs, each a page with commands, real outputs, an experiment that breaks something on purpose, and a self-check:
 
 | Lab | Topic |
 |-----|-------|
@@ -25,6 +25,7 @@ Four labs, each a page with commands, real outputs, an experiment that breaks so
 | [02 Application vs ApplicationSet](labs/02-application-vs-applicationset/README.md) | A hand-written `Application` (Helm) and a generated set of Applications (Kustomize overlays), side by side |
 | [03 Image Updater](labs/03-image-updater/README.md) | **argocd-image-updater** commits new image tags to Git, for both Helm and Kustomize |
 | [04 argocd-agent](labs/04-argocd-agent/README.md) | Two Kind clusters: a hub and a spoke that pulls its desired state over an **outbound-only** connection |
+| [05 PKI and mTLS](labs/05-pki-mtls/README.md) | The certificates behind lab 04's agent connection, built by hand with OpenSSL (no cluster; best done before lab 04) |
 
 The [labs index](labs/README.md) explains the example app, the layout and the versions.
 

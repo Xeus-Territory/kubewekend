@@ -219,7 +219,7 @@ defaults:
       path: "examples/argocd-apps/labs/README.md"
     values:
       title: Argo CD labs
-      description: "Hands-on Argo CD labs on Kind: App of Apps and AppProjects, Application vs ApplicationSet, Image Updater and argocd-agent."
+      description: "Hands-on Argo CD labs on Kind: App of Apps and AppProjects, Application vs ApplicationSet, Image Updater, argocd-agent, and PKI and mTLS with OpenSSL."
       parent: Examples
       has_children: true
       nav_order: 3
@@ -273,6 +273,16 @@ defaults:
       parent: Argo CD labs
       grand_parent: Examples
       nav_order: 5
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/argocd-apps/labs/05-pki-mtls/README.md"
+    values:
+      title: 05 PKI and mTLS
+      description: "Build a certificate authority, a server certificate and a client certificate with OpenSSL, connect with mTLS, and break each piece on purpose."
+      parent: Argo CD labs
+      grand_parent: Examples
+      nav_order: 6
       nav_exclude: false
       search_exclude: false
   - scope:
