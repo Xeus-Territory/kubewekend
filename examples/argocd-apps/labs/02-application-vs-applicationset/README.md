@@ -4,7 +4,8 @@
 both ways and watching what each one does when you change things.
 
 Suggested time: 1 hour. Needs the cluster from [Lab 01](../01-bootstrap-multi-tenancy/README.md). One step pushes a
-commit, so it needs [your own fork](../00-platform/README.md#using-your-own-fork-needed-for-one-step-in-lab-2).
+commit, so it needs [your own fork](../00-platform/README.md#using-your-own-fork-needed-for-one-step-in-lab-2) or the
+[local Gitea](../00-platform/README.md#practise-locally-with-gitea-and-a-registry-no-github) from lab 00.
 
 ## Concepts
 
