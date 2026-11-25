@@ -1,12 +1,13 @@
 # Argo CD labs
 
-Four hands-on labs that show the Argo CD ecosystem working together on Kind: bootstrap a whole cluster from Git with
+Five hands-on labs that show the Argo CD ecosystem working together on Kind: bootstrap a whole cluster from Git with
 the **App of Apps** pattern, isolate teams with **AppProjects**, deploy the same app with an `Application` and with an
-`ApplicationSet`, let **Argo CD Image Updater** roll out a new image by committing to Git, and connect a second
-cluster with **argocd-agent** without exposing its API server.
+`ApplicationSet`, let **Argo CD Image Updater** roll out a new image by committing to Git, connect a second
+cluster with **argocd-agent** without exposing its API server, and build the **PKI and mTLS** behind that connection by
+hand with OpenSSL.
 
 Every command and output in these pages comes from a real run (Kind v0.33, Kubernetes v1.36, Argo CD 3.2 for labs 1 to 3
-and Argo CD 3.6 for lab 4).
+and Argo CD 3.6 for lab 4; lab 5 needs only OpenSSL).
 
 ## The labs
 
@@ -17,8 +18,10 @@ and Argo CD 3.6 for lab 4).
 | [02 Application vs ApplicationSet](02-application-vs-applicationset/README.md) | The same hello-world app deployed by a hand-written `Application` (Helm) and by an `ApplicationSet` (Kustomize overlays) | When to write one object and when to generate many | Lab 01 (a fork for one step) |
 | [03 Image Updater](03-image-updater/README.md) | An `ImageUpdater` resource that tracks a registry and commits new tags to Git | A new image reaches the cluster with no human step, for Helm and for Kustomize | Lab 01 (captured output, optional to repeat) |
 | [04 argocd-agent](04-argocd-agent/README.md) | Two Kind clusters: a hub that owns the desired state and a spoke that pulls it | A cluster managed over an **outbound-only** connection, and what happens when the hub is down | Docker, Kind, kubectl, `argocd-agentctl` |
+| [05 PKI and mTLS](05-pki-mtls/README.md) | A certificate authority, a server certificate and a client certificate made with OpenSSL, and an mTLS connection between them | What the certificates behind lab 4's agent connection are, and the error each mistake produces | OpenSSL 3 only (no cluster) |
 
 Labs 1 to 3 share one cluster and build on each other. Lab 4 uses its own two clusters, so it can be done on its own.
+Lab 5 needs no cluster at all. It is a concepts lab, so if certificates and mTLS are new to you, do it **before lab 4**.
 
 ## The example app
 
@@ -63,6 +66,7 @@ examples/argocd-apps/
 | cert-manager | v1.19.2 |
 | Traefik chart | 42.0.0 |
 | argocd-agent (lab 4) | v0.11.0, which installs the Argo CD 3.6 stream |
+| OpenSSL (lab 5) | 3.0.13 |
 | Kubewekend `common` chart | 0.4.0 |
 
 > [!NOTE]
