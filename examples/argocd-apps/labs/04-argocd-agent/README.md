@@ -40,6 +40,13 @@ flowchart LR
   **Autonomous mode** is the other way round: the spoke owns its Applications and the hub only observes them (see
   [what this lab does not cover](#what-this-lab-does-not-cover)).
 
+> [!TIP]
+>
+> Step 3 and step 4 issue certificates with `argocd-agentctl pki`. If certificate authorities, SANs and client
+> certificates are new to you, do [lab 05: PKI and mTLS with OpenSSL](../05-pki-mtls/README.md) first. It builds the same
+> pieces by hand, needs no cluster, and shows the error each mistake produces, so the certificate steps here read as a
+> handful of commands you already understand.
+
 ## Steps
 
 **0. Tools and names.**

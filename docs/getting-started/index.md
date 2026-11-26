@@ -18,7 +18,7 @@ Kubewekend runs from an **Ansible controller** (your machine) and builds the clu
 ## The flow
 
 <ol class="kw-steps">
-  <li><strong>Install the tools</strong> and create <code>.env</code>: <code>./scripts/setup.sh env init</code>, then <code>env check</code>.</li>
+  <li><strong>Install the tools</strong> and create <code>.env</code>: <code>./scripts/setup.sh env init</code>, then <code>env check</code>. <code>./scripts/setup.sh doctor</code> also checks <code>master.yaml</code> and the inventory, and <code>plan kind</code> shows what a setup would do.</li>
   <li><strong>Prepare the hosts</strong>: Vagrant VMs or a VPS, plus the Ansible inventory. See <a href="{% link docs/getting-started/prepare-hosts.md %}">Prepare hosts</a>.</li>
   <li><strong>Review the configuration</strong> in <code>master.yaml</code>: <code>./scripts/setup.sh config show</code> and <code>config --list</code>.</li>
   <li><strong>Create the cluster</strong>: <a href="{% link docs/getting-started/kind.md %}">Kind</a>, <a href="{% link docs/getting-started/k3s.md %}">K3s</a> or <a href="{% link docs/getting-started/rke2.md %}">RKE2</a>.</li>
@@ -61,6 +61,10 @@ chmod +x ./scripts/setup.sh
 ./scripts/setup.sh env init
 # verifies the tools above
 ./scripts/setup.sh env check
+# also checks .env, master.yaml and the inventory, and says what to fix (read-only)
+./scripts/setup.sh doctor
+# optional: bash or zsh completion for every command, utility tag and host
+source <(./scripts/setup.sh completion bash)
 ```
 
 ## Node sizing

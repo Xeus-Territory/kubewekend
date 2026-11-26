@@ -285,13 +285,3 @@ defaults:
       nav_order: 6
       nav_exclude: false
       search_exclude: false
-  - scope:
-      path: "kubernetes/charts/pinniped/README.md"
-    values:
-      title: pinniped
-      description: "Helm chart for Pinniped Supervisor and Concierge: Kubernetes authentication through an impersonation proxy."
-      parent: Helm charts
-      grand_parent: Reference
-      nav_order: 2
-      nav_exclude: false
-      search_exclude: false
