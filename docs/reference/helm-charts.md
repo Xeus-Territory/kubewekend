@@ -18,7 +18,7 @@ helm repo update
 helm search repo kubewekend
 ```
 
-| Chart | Version | Description | Docs |
-|-------|---------|-------------|------|
-| `common` | 0.4.0 | Stateless applications (web APIs, frontends, GPU workloads) rendered as one Deployment, with Service, Ingress / HTTPRoute, autoscaling, monitors and scheduling helpers | [README on GitHub]({{ site.repo_url }}/tree/main/kubernetes/charts/common) |
-| `pinniped` | 0.1.0 (app v0.46.0) | Pinniped Supervisor and Concierge: Kubernetes authentication through an impersonation proxy | [Read here]({% link kubernetes/charts/pinniped/README.md %}) |
+| Chart | Version | Description | Docs | Status |
+|-------|---------|-------------|------|--------|
+| `common` | 0.4.0 | Stateless applications (web APIs, frontends, GPU workloads) rendered as one Deployment, with Service, Ingress / HTTPRoute, autoscaling, monitors and scheduling helpers | [README on GitHub]({{ site.repo_url }}/tree/main/kubernetes/charts/common) | Active |
+| `pinniped` | 0.1.0 (app v0.46.0) | Pinniped Supervisor and Concierge: Kubernetes authentication through an impersonation proxy | [README on GitHub]({{ site.repo_url }}/tree/main/kubernetes/charts/pinniped) | Deprecated |

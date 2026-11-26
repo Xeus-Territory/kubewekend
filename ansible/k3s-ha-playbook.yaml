@@ -4,7 +4,7 @@
 # Architecture: https://docs.k3s.io/architecture#high-availability-k3s
 #
 # This playbook provisions a production-ready K3s HA cluster with two
-# supported datastore backends (configured via ha_master.yaml):
+# supported datastore backends (k3sCluster.highAvailability.dataStorage in host_vars/master.yaml):
 #
 #   etcd     – embedded etcd, no external dependency; odd-member quorum (3+)
 #              https://docs.k3s.io/datastore/ha-embedded

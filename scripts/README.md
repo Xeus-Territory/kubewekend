@@ -22,6 +22,9 @@
     - [versions — Pinned Versions](#versions--pinned-versions)
     - [status — Project Dashboard](#status--project-dashboard)
     - [quickstart — Guided Workflows](#quickstart--guided-workflows)
+    - [doctor — Check Before You Set Up](#doctor--check-before-you-set-up)
+    - [plan — See What a Setup Would Do](#plan--see-what-a-setup-would-do)
+    - [completion — Shell Completion](#completion--shell-completion)
   - [Global Options (kind / k3s / rke2)](#global-options-kind--k3s--rke2)
   - [Workflow Examples](#workflow-examples)
     - [1. Kind on Vagrant (VirtualBox)](#1-kind-on-vagrant-virtualbox)
@@ -37,6 +40,9 @@
   - [Project Structure](#project-structure)
   - [Configuration Files](#configuration-files)
   - [Contributing](#contributing)
+    - [Code layout](#code-layout)
+    - [Debugging](#debugging)
+    - [Checks before you commit](#checks-before-you-commit)
 
 ---
 
@@ -73,8 +79,10 @@ chmod +x ./scripts/setup.sh
 ./scripts/setup.sh env init
 # Edit .env with your SSH_USER and SSH_KEY
 
-# 3. Check tools
+# 3. Check the tools, the configuration and the inventory, then see what a setup would do
 ./scripts/setup.sh env check
+./scripts/setup.sh doctor
+./scripts/setup.sh plan kind
 
 # 4. Follow a quickstart guide
 ./scripts/setup.sh quickstart kind-vagrant
@@ -256,6 +264,7 @@ chmod +x ./scripts/setup.sh
 |------------|-------------|
 | `config --list [target]` | List [setup options](#available-setup-options) (supported, in development, current values); `target`: `kind` \| `k3s` \| `rke2` \| `utils` (aliases: `list`, `-l`) |
 | `config show` | Print `ansible/inventories/host_vars/master.yaml` |
+| `config validate [--strict]` | Check `master.yaml` for keys no playbook reads (such as an `enable` switch under `highAvailability`), archived ingress / Gateway API classes and utilities enabled without a tag. Exit 1 on errors; `--strict` also fails on warnings. The setup commands print the same findings as warnings |
 | `config edit` | Open `master.yaml` in `$EDITOR` |
 | `config worker-show` | Print `worker.yaml` |
 | `config worker-edit` | Open `worker.yaml` in `$EDITOR` |
@@ -265,6 +274,7 @@ chmod +x ./scripts/setup.sh
 ./scripts/setup.sh config --list k3s    # one distribution
 ./scripts/setup.sh config --list utils  # utility tags (same as `kind utils --list`)
 ./scripts/setup.sh config show
+./scripts/setup.sh config validate      # is master.yaml saying something the playbooks ignore?
 ./scripts/setup.sh config edit
 ```
 
@@ -287,9 +297,9 @@ chmod +x ./scripts/setup.sh
 ./scripts/setup.sh versions bump k3s v1.35.8+k3s1          # updates master.yaml + worker.yaml
 ```
 
-Pins are found by pattern (registry `VERSION_REGISTRY` in `setup.sh`), not by line number. Adding a package = one registry line (`name|group|files|anchor|extract|note`, empty `extract` for Helm charts, no `|` inside patterns). The optional `note` describes the essential configuration Kubewekend applies (plain text or code spans, no `|` or single quote); it is shown by `versions list`, the `versions bump` preview and the Notes column of the README Versions table; check it with `versions list <name>`. Not tracked: unpinned tools (kubectl, Helm, Calico, Flux CLI), (listed by hand in the root README).
+Pins are found by pattern (registry `VERSION_REGISTRY` in `scripts/lib/versions_registry.sh`), not by line number. Adding a package = one registry line (`name|group|files|anchor|extract|note`, empty `extract` for Helm charts, no `|` inside patterns). The optional `note` describes the essential configuration Kubewekend applies (plain text or code spans, no `|` or single quote); it is shown by `versions list`, the `versions bump` preview and the Notes column of the README Versions table; check it with `versions list <name>`. Not tracked: unpinned tools (kubectl, Helm, Calico, Flux CLI), (listed by hand in the root README).
 
-**Pre-commit hook.** `.pre-commit-config.yaml` runs `versions sync` when pinned files, `README.md` or `setup.sh` change. If the Versions tables are stale, the hook rewrites `README.md` and the commit stops once (like `helm-docs`): review, `git add README.md`, commit again. If a pin is missing or pinned to different versions, the hook fails until it is fixed (e.g. with `versions bump`).
+**Pre-commit hook.** `.pre-commit-config.yaml` runs `versions sync` when pinned files, `README.md`, `setup.sh` or `scripts/lib/` change. If the Versions tables are stale, the hook rewrites `README.md` and the commit stops once (like `helm-docs`): review, `git add README.md`, commit again. If a pin is missing or pinned to different versions, the hook fails until it is fixed (e.g. with `versions bump`).
 
 ```bash
 pre-commit install                                   # once per clone
@@ -323,6 +333,88 @@ Shows Vagrant VMs, inventory groups, kubectl contexts, and Docker Kind container
 
 ---
 
+### doctor — Check Before You Set Up
+
+Checks this machine, `.env`, `master.yaml` / `worker.yaml` and the inventory **before** you run a setup, and says what to
+fix. It is read-only and never contacts a cluster; `--ping` additionally runs `ansible all -m ping`. The exit code is 1
+when anything fails.
+
+| Section | What it checks |
+|---------|----------------|
+| Tools | `ansible-playbook` and `ssh` are **required**; `ansible`, `vagrant`, `VBoxManage`, `kubectl`, `helm`, `docker`, `jq` and `yq` are only reported. The installed `ansible-core` is compared with the version pinned in `requirements.txt` |
+| Environment | `.env`, and the SSH key `vagrant up` needs (only when `vagrant` is installed) |
+| Configuration | `master.yaml` / `worker.yaml` exist, contain no tab, and no column-0 comment inside a block; everything `config validate` reports (keys no playbook reads, archived controllers, utilities enabled without a tag) |
+| Inventory | A master exists; a standalone cluster has exactly one; for HA, `[ha_master_init]` has exactly one host and the control-plane count is odd with embedded etcd; the SSH key named in `[all:vars]` exists |
+| This machine | The ports Kind forwarding would use (only when `networkForwarding` is on), whether the Docker daemon answers, and the current `kubectl` context |
+
+Each line is `[ OK ]`, `[ -- ]` (optional, nothing to do), `[WARN]` or `[FAIL]`. Abridged output on a machine without Ansible:
+
+```text
+  ▸ TOOLS ON THIS MACHINE
+  [FAIL] ansible-playbook is not installed (needed for: every setup, ha-setup, destroy and utils command). Install the pinned Ansible with: pip install -r requirements.txt
+  [ OK ] ssh  /usr/bin/ssh
+  [ -- ] ansible not installed (optional: inventory ping)
+  ▸ CONFIGURATION (ansible/inventories/host_vars)
+  [ OK ] master.yaml found
+  [ OK ] master.yaml passes config validate
+  ▸ INVENTORY
+  [WARN] no inventory yet: ./scripts/setup.sh inventory generate (Vagrant VMs) or inventory set-remote (a VPS)
+
+[ERROR] 1 failure(s), 2 warning(s), 12 ok: fix the [FAIL] lines first
+```
+
+```bash
+./scripts/setup.sh doctor
+./scripts/setup.sh doctor --ping
+```
+
+### plan — See What a Setup Would Do
+
+Prints what the next `kind`, `k3s` or `rke2` setup would build, read from `master.yaml` and the inventory, followed by the
+utilities you enabled and the exact commands to run, in order. Read-only: nothing is installed or contacted. It is the
+"what will happen" view that goes with [`config --list`](#config--cluster-configuration) (what is supported) and
+[`doctor`](#doctor--check-before-you-set-up) (is this machine ready). Warnings from `config validate` that apply to the
+cluster are shown too.
+
+```bash
+./scripts/setup.sh plan kind
+./scripts/setup.sh plan k3s        # also lists the inventory groups and one setup command per host
+./scripts/setup.sh plan utils      # only the enabled utilities and the tags to install
+```
+
+```text
+  ▸ KIND CLUSTER
+  Node image                kindest/node:v1.36.4
+  Nodes                     1 control-plane, 0 worker
+  Load balancer             ON  cloud-provider-kind
+  Ingress                   ON  traefik
+  ...
+  ▸ UTILITIES
+  certmanager          ON   Install cert-manager
+  ...
+  OFF: monitoring, service_mesh
+
+  ▸ COMMANDS, IN ORDER
+  1. ./scripts/setup.sh doctor
+  2. ./scripts/setup.sh kind setup
+  3. ./scripts/setup.sh kind utils ingress_test apigateway_test certmanager dashboard storage ...
+```
+
+### completion — Shell Completion
+
+Prints a completion script for bash or zsh. Nothing in it is hand-maintained: commands, subcommands, utility tags,
+version names and ansible flags are read from the CLI itself, and `--host` completes the hosts of your inventory when you
+press TAB. Because it is generated, it cannot go stale: adding a command or a utility is enough.
+
+```bash
+source <(./scripts/setup.sh completion bash)     # add to ~/.bashrc
+source <(./scripts/setup.sh completion zsh)      # add to ~/.zshrc
+```
+
+For example `./scripts/setup.sh kind utils cert<TAB>` completes `certmanager`, and `versions bump cil<TAB>` completes
+`cilium`. The zsh script loads the same function through zsh's `bashcompinit`. The pre-commit `completion` check fails
+when the generated script misses a command, a utility tag or a flag.
+
 ## Global Options (kind / k3s / rke2)
 
 These options are available on `kind setup/destroy/utils` `k3s setup/ha-setup/destroy/utils` and `rke2 setup/ha-setup/destroy/utils`:
@@ -342,10 +434,13 @@ These options are available on `kind setup/destroy/utils` `k3s setup/ha-setup/de
 ./scripts/setup.sh k3s setup --host my-vps-node
 
 # Skip specific tasks
-./scripts/setup.sh kind setup --skip-tags setup_cni
+./scripts/setup.sh kind setup --skip-tags install_common
 
-# Pass extra variables
-./scripts/setup.sh kind setup --extra-vars "kindCluster_image=kindest/node:v1.30.13"
+# Use another Kubernetes version for the Kind nodes: change kindCluster.image in master.yaml
+# (no extra-var reads it; `versions bump` edits the pinned value for you)
+./scripts/setup.sh versions bump kind-node v1.35.8 --dry-run
+./scripts/setup.sh versions bump kind-node v1.35.8
+./scripts/setup.sh kind setup
 ```
 
 ---
@@ -438,10 +533,10 @@ ssh root@<vps-ip> 'sudo cat /etc/rancher/k3s/k3s.yaml' > ~/.kube/config
 #    [ha_master_join]    — additional control-plane nodes
 #    [ha_worker]         — agent nodes
 
-# 2. Enable HA in config
+# 2. Review the HA datastore in config (there is no enable switch or replica count:
+#    the inventory groups decide how many control-plane nodes you get)
 ./scripts/setup.sh config edit
-# Set: k3sCluster.highAvailability.enable: true
-# Set: k3sCluster.highAvailability.replicas: 3
+# Set: k3sCluster.highAvailability.dataStorage.type: etcd   # etcd | postgres
 
 # 3. Run HA setup
 ./scripts/setup.sh k3s ha-setup
@@ -564,9 +659,9 @@ sed -i "s/127.0.0.1/192.168.56.99/g" ~/.kube/config
 
 ```bash
 # 1. Edit inventory with HA groups (ha_master_init / ha_master_join / ha_worker)
-# 2. Review HA settings in master.yaml
+# 2. Review the HA datastore in master.yaml (there is no enable switch or replica count:
+#    the inventory groups decide how many control-plane nodes you get)
 ./scripts/setup.sh config edit
-# Set: rke2Cluster.highAvailability.enable: true
 # Set: rke2Cluster.highAvailability.dataStorage.type: etcd   # etcd | postgres
 
 # 3. Run HA setup, then teardown when done
@@ -587,14 +682,14 @@ Cluster setup reads `kindCluster`, `k3sCluster` or `rke2Cluster` from `ansible/i
 | Distribution | Supported options | In development (not read by the playbooks yet) |
 |--------------|-------------------|-----------------------------------------------|
 | Kind (`kind setup`) | `numberOfNodes`, `image`, `networking` (CNI: calico / flannel / cilium; kubeProxyMode), `loadbalancer` (cloud-provider-kind / metallb / cilium-ipam-lb), `ingress` (traefik: ports, allowCrossNamespace, dashboard), `apigateway` (traefik), `networkForwarding` | archived: ingress nginx / kong / cilium, Gateway API kong / cilium (see the archive note) |
-| K3s (`k3s setup`, `k3s ha-setup`) | `version`, `highAvailability.dataStorage` (etcd / postgres), `tlsSANs`, `nodeLabels`, `nodeTaints`, `cni` (flannel / calico / cilium), `loadBalancer` (servicelb / metallb), `ingress` (traefik: dashboard, gateway) | `multus`, `ccm`, `highAvailability.enable` / `replicas` / `clusterLB` (informational), ingress classes other than traefik |
-| RKE2 (`rke2 setup`, `rke2 ha-setup`) | `version`, `highAvailability.dataStorage` (etcd / postgres), `tlsSANs`, `nodeLabels`, `nodeTaints`, `cni` (canal / calico / cilium / flannel), `loadBalancer` (servicelb / metallb), `ingress` (traefik, HelmChartConfig values) | archived: `ingress-nginx`; `multus`, `ccm`, `highAvailability.enable` / `replicas` / `clusterLB` (informational) |
+| K3s (`k3s setup`, `k3s ha-setup`) | `version`, `highAvailability.dataStorage` (etcd / postgres), `tlsSANs`, `nodeLabels`, `nodeTaints`, `cni` (flannel / calico / cilium), `loadBalancer` (servicelb / metallb), `ingress` (traefik: dashboard, gateway) | `multus`, `ccm`, `highAvailability.clusterLB` (informational: bring your own HAProxy / Kube-VIP), ingress classes other than traefik |
+| RKE2 (`rke2 setup`, `rke2 ha-setup`) | `version`, `highAvailability.dataStorage` (etcd / postgres), `tlsSANs`, `nodeLabels`, `nodeTaints`, `cni` (canal / calico / cilium / flannel), `loadBalancer` (servicelb / metallb), `ingress` (traefik, HelmChartConfig values) | archived: `ingress-nginx`; `multus`, `ccm`, `highAvailability.clusterLB` (informational: bring your own HAProxy / Kube-VIP) |
 
 > [!NOTE]
 >
 > **Archived (2026-11-20): ingress / Gateway API controllers other than Traefik.** NGINX, Kong and Cilium ingress, Kong and Cilium Gateway API, and RKE2 `ingress-nginx` changed too often to keep working, so Kubewekend supports **Traefik only**. They are archived, not deleted: the Kind tasks stay commented out in `ansible/kind-playbook.yaml`, the test templates moved to `ansible/templates/archives/`, and the version pins are commented-out `VERSION_REGISTRY` entries. Cilium is still supported as CNI and as the Kind `cilium-ipam-lb` load balancer. `kind setup` / `rke2 setup` warn when `master.yaml` selects an archived class. Details: the archive note above `SETUP_REGISTRY_KIND` in `setup.sh`.
 
-The tables live in `SETUP_REGISTRY_KIND` / `SETUP_REGISTRY_K3S` / `SETUP_REGISTRY_RKE2` in `setup.sh`; cluster keys without an entry are shown as in development automatically. Keep them in sync with the setup playbooks.
+The tables live in `SETUP_REGISTRY_KIND` / `SETUP_REGISTRY_K3S` / `SETUP_REGISTRY_RKE2` in `scripts/lib/options.sh`; cluster keys without an entry are shown as in development automatically. Keep them in sync with the setup playbooks.
 
 ---
 
@@ -608,7 +703,7 @@ List every tag with its `master.yaml` key, supported options, options still in d
 ./scripts/setup.sh kind utils --list   # also: `utils list` or `utils -l`, same output for k3s / rke2
 ```
 
-The tag list lives in one registry (`UTILITY_REGISTRY` in `setup.sh`); keep it in sync with the tags in `k8s-utilities-playbook.yaml`.
+The tag list lives in one registry (`UTILITY_REGISTRY` in `scripts/lib/utilities.sh`); keep it in sync with the tags in `k8s-utilities-playbook.yaml`.
 
 | Tag | Description | Playbook |
 |-----|-------------|----------|
@@ -643,8 +738,12 @@ Multiple tags can be combined:
 
 ```
 scripts/
-├── setup.sh              # Kubewekend CLI (this script)
+├── setup.sh              # Entry point: paths, the `source` lines for lib/, show_help and main
+├── lib/                  # One file per concern, functions and tables only (see "Code layout")
 ├── README.md             # This documentation
+├── checks/               # Pre-commit checks for setup.sh (see "Checks before you commit")
+│   ├── check_setup.py    # The checks
+│   └── stale-phrases.txt # Wording that was corrected once and must not come back
 └── legacy/               # Legacy v1 scripts (Kind only)
     ├── operate-kind-cluster.sh   # Auto-generate inventory from Vagrant
     ├── hook-up-ip.sh             # VirtualBox NAT network setup
@@ -670,7 +769,6 @@ ansible/
     ├── rke2-config.yaml.j2
     ├── rke2-flannel-config.yaml.j2
     ├── rke2-traefik-config.yaml.j2
-    ├── rke2-ingress-nginx-config.yaml.j2
     ├── kind-config.yaml.j2
     ├── kube-prometheus-stack-values.yaml.j2
     ├── alloy-values.yaml.j2
@@ -680,7 +778,9 @@ ansible/
     ├── longhorn-iscsi-installation.yaml.j2
     ├── longhorn-nfs-installation.yaml.j2
     ├── ingress-test-deployment.yaml.j2
-    └── apigateway-test-deployment.yaml.j2
+    ├── apigateway-test-deployment.yaml.j2
+    ├── pod-with-pvc.yaml.j2
+    └── archives/                 # archived templates (RKE2 ingress-nginx, NGINX / Kong / Cilium test deployments)
 
 examples/
 └── lgtm-testing/                 # Full-stack LGTM observability demo app
@@ -758,8 +858,8 @@ utilities.serviceMesh.type: "istio"
 
 When adding new features to the CLI:
 
-1. **Add a new command function** following the pattern: `cmd_<name>()` for dispatch + `cmd_<name>_help()` for documentation
-2. **Register** in the `main()` case statement
+1. **Add a new command in its own file**, `scripts/lib/<name>.sh`, following the pattern: `cmd_<name>()` for dispatch + `cmd_<name>_help()` for documentation, and `<name>_<subcommand>()` for the work
+2. **Register** it: add its `source` line to `scripts/setup.sh` (the `libs` check fails if you forget) and its case to `main()`
 3. **Use** `parse_ansible_opts` and `run_ansible_playbook` for any ansible-based operations
 4. **Add confirmation** via `confirm()` for destructive operations
 5. **Update this README** with the new command, subcommands, and examples
@@ -775,5 +875,87 @@ cmd_monitoring() {
         *)       cmd_monitoring_help ;;
     esac
 }
-# Add to main(): monitoring) cmd_monitoring "$@" ;;
+# Add to main(): monitoring) cmd_monitoring "$@" ;;   and to setup.sh: source "$SCRIPT_DIR/lib/monitoring.sh"
 ```
+
+### Code layout
+
+`setup.sh` is only the entry point (paths, the `source` lines, `show_help` and `main`). Everything else lives in
+`scripts/lib/`, one concern per file, so a problem in `kind setup` is in `lib/kind.sh`, not somewhere in 2,700 lines.
+The files hold functions and tables only: nothing runs until `main` calls it.
+
+| File | What is in it |
+|------|---------------|
+| `lib/core.sh` | Colours, `info` / `warn` / `error` / `header` / `confirm`, `require_cmd`, `load_env`, the table helpers (`_row`, `_sec`, `_badge`) |
+| `lib/debug.sh` | The `--debug` mode (see [Debugging](#debugging)) |
+| `lib/yaml.sh` | Pure-bash YAML readers for `master.yaml` / `worker.yaml` (`_yaml_get`, `_yaml_has`, ...) |
+| `lib/ansible.sh` | `parse_ansible_opts`, `run_ansible_playbook` and `run_utils`, shared by `kind`, `k3s` and `rke2` |
+| `lib/utilities.sh` | `UTILITY_REGISTRY` (one entry per utility tag) and `utils --list` |
+| `lib/options.sh` | `SETUP_REGISTRY_*` (options per distribution), archived ingress classes, `REMOVED_KEYS` and their warnings |
+| `lib/config.sh`, `lib/config_show.sh` | The `config` command: `--list`, `validate`, and the `show` summary tables |
+| `lib/kind.sh`, `lib/k3s.sh`, `lib/rke2.sh` | The distribution commands (`setup`, `ha-setup`, `destroy`, `utils`) |
+| `lib/env.sh`, `vagrant.sh`, `inventory.sh`, `network.sh`, `status.sh`, `quickstart.sh` | One command each |
+| `lib/doctor.sh`, `lib/plan.sh`, `lib/completion.sh` | `doctor` (is this machine and config ready), `plan` (what the next setup would build) and the generated shell completion |
+| `lib/versions_registry.sh`, `lib/versions.sh` | The pinned-versions table (`VERSION_REGISTRY`), and `versions list` / `bump` / `sync` |
+
+A command `foo` lives in `lib/foo.sh` as `cmd_foo`, `cmd_foo_help` and `foo_<subcommand>`. Functions are found by name
+(`grep -rn '^kind_setup' scripts/`), and the `libs` check fails when a lib is not sourced or a function name is defined
+twice.
+
+### Debugging
+
+```bash
+./scripts/setup.sh --debug kind setup --dry-run        # --debug must be the first argument
+KUBEWEKEND_DEBUG=1 ./scripts/setup.sh config validate   # the same, from the environment
+KUBEWEKEND_DEBUG_LOG=/tmp/kw.log ./scripts/setup.sh --debug k3s setup --host k8s-master-machine
+```
+
+Debug mode traces every command as `+ file.sh:LINE function(): command`, so you can see which lib and line is running.
+When something fails unexpectedly it prints the failing source line and the call stack **once**, for the innermost
+failure (the same failure then travels up through every caller):
+
+```text
+[DEBUG] command failed (exit 1) at scripts/lib/kind.sh:83
+         run_ansible_playbook "kind-playbook.yaml" "install_common,setup_kind"
+         call stack, innermost first:
+           kind_setup()  called from scripts/lib/kind.sh:72
+           cmd_kind()  called from scripts/setup.sh:151
+           main()  called from scripts/setup.sh:176
+```
+
+(The line numbers are from the time of writing.) `KUBEWEKEND_DEBUG_LOG=<file>` writes the trace to a file instead of the
+terminal: a single `config validate` traces about 17,000 lines, so use a file for anything longer. The debug output goes to
+stderr and nothing else changes: stdout and the exit code are identical with and without `--debug`.
+
+Other useful tools when something looks wrong: `--dry-run` shows the ansible command without running it,
+`./scripts/setup.sh config validate` finds settings in `master.yaml` that no playbook reads, and
+`python3 scripts/checks/check_setup.py --only registry` checks the registries against the playbooks.
+
+### Checks before you commit
+
+`scripts/checks/check_setup.py` runs as a pre-commit hook (`kubewekend-setup-checks`) whenever you touch `setup.sh`, the
+playbooks, `master.yaml`, the docs or the hook configuration. It needs only `python3`, takes a few seconds and uses no
+cluster. Every problem is printed as `file:line: message`.
+
+| Check | What it catches |
+|-------|-----------------|
+| `syntax` | `bash -n` errors in `setup.sh` and every `scripts/lib/*.sh` |
+| `shellcheck` | Findings at `warning` level or above. The libs are linted as one script (each `lib/*.sh` spliced into `setup.sh` at its `source` line) because shellcheck does not report problems inside sourced files; findings point at the real file and line. Skipped with a notice when `shellcheck` is not installed (`apt install shellcheck` or `pip install shellcheck-py`). Change the level with `SHELLCHECK_SEVERITY` (`error`, `warning` or `style`) |
+| `libs` | A `lib/*.sh` that `setup.sh` never sources, a `source` line that points at a missing file, or a function defined in two files (the later one would silently win) |
+| `registry` | A tag in `k8s-utilities-playbook.yaml` with no `UTILITY_REGISTRY` entry (and the reverse), a registry entry whose `master.yaml` key does not exist, or a `SETUP_REGISTRY_*` option that is not a key of its cluster block |
+| `yaml-layout` | A column-0 comment or stray line inside a `master.yaml` / `worker.yaml` block. The shell YAML helpers stop reading a block there, so `config` and `status` silently lose everything below it. Indent such comments by two spaces |
+| `stale-phrases` | Wording listed in `stale-phrases.txt` (for example the old instruction to switch HA on in `master.yaml`), anywhere in the tracked docs, scripts and playbooks |
+| `cli` | Every help screen and listing exits 0 with output, `config validate`, `plan` and `completion` run, and `--dry-run` works for each distribution when `ansible-playbook` is installed |
+| `completion` | The generated completion script is valid bash and lists every command of `main()`, every `UTILITY_REGISTRY` tag and every flag of `parse_ansible_opts` |
+
+```bash
+python3 scripts/checks/check_setup.py                     # everything
+python3 scripts/checks/check_setup.py --only registry     # one check
+python3 scripts/checks/check_setup.py --skip shellcheck   # all but one
+pre-commit run kubewekend-setup-checks --all-files        # the same, through pre-commit
+```
+
+**Adding a utility** (the case these checks exist for): add the tag in `k8s-utilities-playbook.yaml`, a block under
+`utilities:` in `master.yaml`, and one `UTILITY_REGISTRY` entry in `scripts/lib/utilities.sh`. The `registry` check names whichever of
+the three you forgot. **Fixing a stale sentence in more than one place?** Add one line to `stale-phrases.txt` so the next
+copy is caught at commit time.

@@ -144,8 +144,12 @@ Size the VM / VPS before provisioning, a node with too little memory fails durin
 # Show all available commands
 ./scripts/setup.sh help
 
-# Check prerequisites
+# Check prerequisites, then the configuration and inventory
 ./scripts/setup.sh env check
+./scripts/setup.sh doctor
+
+# See what a setup would do before running it
+./scripts/setup.sh plan kind
 
 # Show subcommand help
 ./scripts/setup.sh <command> help
@@ -163,6 +167,9 @@ Size the VM / VPS before provisioning, a node with too little memory fails durin
 | `config` | View / edit `master.yaml` and `worker.yaml` |
 | `status` | Project-wide status dashboard |
 | `quickstart` | Guided end-to-end workflows |
+| `doctor` | Check this machine, `master.yaml` and the inventory before a setup (read-only) |
+| `plan` | Show what the next setup would build and the commands to run (read-only) |
+| `completion` | Print a bash or zsh completion script, generated from the CLI |
 
 See [scripts/README.md](./scripts/README.md) for the full CLI reference.
 
@@ -260,7 +267,7 @@ Generate the inventory automatically from running Vagrant VMs:
 |             Setup RKE2 High Availability (HA) Cluster              | Bootstrap init server, join additional control-plane nodes (embedded etcd or external PostgreSQL), and attach agents | setup_rke2                | ✅     |
 |                Configure CNI (Canal / Flannel / Calico / Cilium)   | Set `cni` in RKE2 config (+ `HelmChartConfig` for Flannel) based on `rke2Cluster.cni.type`                         | setup_rke2                   | ✅     |
 |             Setup Load Balancer (ServiceLB / MetalLB)              | Enable the built-in ServiceLB, or deploy MetalLB with the IP pool from `rke2Cluster.loadBalancer`                 | setup_rke2                   | ✅     |
-|              Setup Ingress (Traefik / Ingress-Nginx)               | Pick bundled ingress controller and customize it via `HelmChartConfig` from `rke2Cluster.ingress.config`          | setup_rke2                   | ✅     |
+|              Setup Ingress (Traefik)                               | Customize the bundled Traefik ingress controller via `HelmChartConfig` from `rke2Cluster.ingress.config`          | setup_rke2                   | ✅     |
 |                       Remove RKE2 node                             | Uninstall RKE2 from all inventory nodes (server or agent) with `rke2-uninstall.sh`                                | remove_rke2                  | ✅     |
 
 **Utilities** (`k8s-utilities-playbook.yaml`)
@@ -355,7 +362,7 @@ Generate the inventory automatically from running Vagrant VMs:
 **RKE2 HA cluster** (HA section in `hosts` must be populated):
 
 ```bash
-# Review rke2Cluster.highAvailability in master.yaml first
+# Review rke2Cluster.highAvailability.dataStorage in master.yaml first (etcd | postgres)
 ./scripts/setup.sh config edit
 
 # Bootstrap all HA nodes at once
@@ -365,7 +372,7 @@ Generate the inventory automatically from running Vagrant VMs:
 > [!NOTE]
 >
 > RKE2 serves its kubeconfig at `/etc/rancher/rke2/rke2.yaml` (copied to `~/.kube/config` of the SSH user on the master).
-> Replace `127.0.0.1` with the master IP when using it from outside. Traefik/Ingress-Nginx hostPorts are moved to `8000/8443`
+> Replace `127.0.0.1` with the master IP when using it from outside. Traefik hostPorts are moved to `8000/8443`
 > by default to avoid clashing with ServiceLB.
 
 > [!TIP]
@@ -457,7 +464,7 @@ helm repo add kubewekend https://kubewekend.xeusnguyen.xyz
 
 ### Versions
 
-Pinned versions of the tools, charts and images used by Kubewekend, and where to change them. The tables between the `versions:begin` / `versions:end` markers are **generated** from `VERSION_REGISTRY` in `scripts/setup.sh` by `./scripts/setup.sh versions sync`, which also runs as a pre-commit hook: do not edit them by hand. The **Notes** column shows the essential configuration Kubewekend applies to a component (set with the optional `note` field of the registry), so you do not need to read the playbooks. List and bump pins with the CLI, which finds every location for you:
+Pinned versions of the tools, charts and images used by Kubewekend, and where to change them. The tables between the `versions:begin` / `versions:end` markers are **generated** from `VERSION_REGISTRY` in `scripts/lib/versions_registry.sh` by `./scripts/setup.sh versions sync`, which also runs as a pre-commit hook: do not edit them by hand. The **Notes** column shows the essential configuration Kubewekend applies to a component (set with the optional `note` field of the registry), so you do not need to read the playbooks. List and bump pins with the CLI, which finds every location for you:
 
 ```bash
 ./scripts/setup.sh versions list                       # current pins and their file:line locations
@@ -479,10 +486,10 @@ Pinned versions of the tools, charts and images used by Kubewekend, and where to
 
 | Component | Version | Where to update | Notes |
 | --------- | ------- | --------------- | ----- |
-| `kind-node` | `v1.36.4` | `ansible/inventories/host_vars/master.yaml:21` |  |
-| `k3s` | `v1.36.5+k3s1` | `ansible/inventories/host_vars/master.yaml:78`, `ansible/inventories/host_vars/worker.yaml:11` |  |
-| `rke2` | `v1.36.5+rke2r1` | `ansible/inventories/host_vars/master.yaml:182`, `ansible/inventories/host_vars/worker.yaml:32` |  |
-| `gateway-api-crd` | `v1.6.3` | `ansible/inventories/host_vars/master.yaml:51,163` | Standard channel CRDs applied before the Traefik Gateway API provider: Kind `apigateway.crd`, K3s `ingress.traefik.gateway.crd` (when `install: true`); keep both on the same version |
+| `kind-node` | `v1.36.4` | `ansible/inventories/host_vars/master.yaml:29` |  |
+| `k3s` | `v1.36.5+k3s1` | `ansible/inventories/host_vars/master.yaml:86`, `ansible/inventories/host_vars/worker.yaml:11` |  |
+| `rke2` | `v1.36.5+rke2r1` | `ansible/inventories/host_vars/master.yaml:191`, `ansible/inventories/host_vars/worker.yaml:32` |  |
+| `gateway-api-crd` | `v1.6.3` | `ansible/inventories/host_vars/master.yaml:59,172` | Standard channel CRDs applied before the Traefik Gateway API provider: Kind `apigateway.crd`, K3s `ingress.traefik.gateway.crd` (when `install: true`); keep both on the same version |
 
 #### Host tools
 

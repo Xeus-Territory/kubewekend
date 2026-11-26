@@ -54,6 +54,13 @@ permalink: /
 From a fresh clone, with VirtualBox, Vagrant, Ansible, kubectl and Helm installed:
 
 ```bash
+# 0. Download fresh source code (or git clone)
+wget -qO kubewekend-main.zip https://github.com/Xeus-Territory/kubewekend/archive/refs/heads/main.zip
+unzip -q kubewekend-main.zip && mv kubewekend-main kubewekend
+rm -rf kubewekend-main.zip
+```
+
+```bash
 # 1. Create .env (SSH user / key) and check the tools
 ./scripts/setup.sh env init && ./scripts/setup.sh env check
 # 2. One VM, and the Ansible inventory from the running VMs
