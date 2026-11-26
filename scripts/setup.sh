@@ -60,6 +60,12 @@ source "$SCRIPT_DIR/lib/rke2.sh"
 source "$SCRIPT_DIR/lib/quickstart.sh"
 # shellcheck source=lib/status.sh
 source "$SCRIPT_DIR/lib/status.sh"
+# shellcheck source=lib/doctor.sh
+source "$SCRIPT_DIR/lib/doctor.sh"
+# shellcheck source=lib/plan.sh
+source "$SCRIPT_DIR/lib/plan.sh"
+# shellcheck source=lib/completion.sh
+source "$SCRIPT_DIR/lib/completion.sh"
 # shellcheck source=lib/versions_registry.sh
 source "$SCRIPT_DIR/lib/versions_registry.sh"
 # shellcheck source=lib/versions.sh
@@ -86,12 +92,17 @@ ${BOLD}COMMANDS${NC}
   ${CYAN}quickstart${NC}     Guided quick-start workflows with examples
   ${CYAN}config${NC}         View/edit cluster configuration, list supported options (config --list)
   ${CYAN}versions${NC}       List and bump pinned versions of charts, tools and manifests
+  ${CYAN}doctor${NC}         Check this machine, the configuration and the inventory before a setup
+  ${CYAN}plan${NC}           Show what the next setup would build, without running anything
+  ${CYAN}completion${NC}     Print a bash or zsh completion script
   ${CYAN}status${NC}         Show overall project status
   ${CYAN}help${NC}           Show this help message
 
 ${BOLD}QUICK REFERENCE${NC}
-  # Check prerequisites
+  # Check prerequisites, then see what a setup would do before running it
   ./scripts/setup.sh env check
+  ./scripts/setup.sh doctor
+  ./scripts/setup.sh plan kind
 
   # --- Kind on Vagrant ---
   ./scripts/setup.sh vagrant up k8s-master-machine
@@ -155,6 +166,9 @@ main() {
         quickstart) cmd_quickstart "$@" ;;
         config)     cmd_config "$@" ;;
         versions)   cmd_versions "$@" ;;
+        doctor)     cmd_doctor "$@" ;;
+        plan)       cmd_plan "$@" ;;
+        completion) cmd_completion "$@" ;;
         status)     cmd_status ;;
         help|--help|-h) show_help ;;
         *)

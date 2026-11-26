@@ -144,8 +144,12 @@ Size the VM / VPS before provisioning, a node with too little memory fails durin
 # Show all available commands
 ./scripts/setup.sh help
 
-# Check prerequisites
+# Check prerequisites, then the configuration and inventory
 ./scripts/setup.sh env check
+./scripts/setup.sh doctor
+
+# See what a setup would do before running it
+./scripts/setup.sh plan kind
 
 # Show subcommand help
 ./scripts/setup.sh <command> help
@@ -163,6 +167,9 @@ Size the VM / VPS before provisioning, a node with too little memory fails durin
 | `config` | View / edit `master.yaml` and `worker.yaml` |
 | `status` | Project-wide status dashboard |
 | `quickstart` | Guided end-to-end workflows |
+| `doctor` | Check this machine, `master.yaml` and the inventory before a setup (read-only) |
+| `plan` | Show what the next setup would build and the commands to run (read-only) |
+| `completion` | Print a bash or zsh completion script, generated from the CLI |
 
 See [scripts/README.md](./scripts/README.md) for the full CLI reference.
 

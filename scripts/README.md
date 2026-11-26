@@ -22,6 +22,9 @@
     - [versions — Pinned Versions](#versions--pinned-versions)
     - [status — Project Dashboard](#status--project-dashboard)
     - [quickstart — Guided Workflows](#quickstart--guided-workflows)
+    - [doctor — Check Before You Set Up](#doctor--check-before-you-set-up)
+    - [plan — See What a Setup Would Do](#plan--see-what-a-setup-would-do)
+    - [completion — Shell Completion](#completion--shell-completion)
   - [Global Options (kind / k3s / rke2)](#global-options-kind--k3s--rke2)
   - [Workflow Examples](#workflow-examples)
     - [1. Kind on Vagrant (VirtualBox)](#1-kind-on-vagrant-virtualbox)
@@ -76,8 +79,10 @@ chmod +x ./scripts/setup.sh
 ./scripts/setup.sh env init
 # Edit .env with your SSH_USER and SSH_KEY
 
-# 3. Check tools
+# 3. Check the tools, the configuration and the inventory, then see what a setup would do
 ./scripts/setup.sh env check
+./scripts/setup.sh doctor
+./scripts/setup.sh plan kind
 
 # 4. Follow a quickstart guide
 ./scripts/setup.sh quickstart kind-vagrant
@@ -327,6 +332,88 @@ Shows Vagrant VMs, inventory groups, kubectl contexts, and Docker Kind container
 ```
 
 ---
+
+### doctor — Check Before You Set Up
+
+Checks this machine, `.env`, `master.yaml` / `worker.yaml` and the inventory **before** you run a setup, and says what to
+fix. It is read-only and never contacts a cluster; `--ping` additionally runs `ansible all -m ping`. The exit code is 1
+when anything fails.
+
+| Section | What it checks |
+|---------|----------------|
+| Tools | `ansible-playbook` and `ssh` are **required**; `ansible`, `vagrant`, `VBoxManage`, `kubectl`, `helm`, `docker`, `jq` and `yq` are only reported. The installed `ansible-core` is compared with the version pinned in `requirements.txt` |
+| Environment | `.env`, and the SSH key `vagrant up` needs (only when `vagrant` is installed) |
+| Configuration | `master.yaml` / `worker.yaml` exist, contain no tab, and no column-0 comment inside a block; everything `config validate` reports (keys no playbook reads, archived controllers, utilities enabled without a tag) |
+| Inventory | A master exists; a standalone cluster has exactly one; for HA, `[ha_master_init]` has exactly one host and the control-plane count is odd with embedded etcd; the SSH key named in `[all:vars]` exists |
+| This machine | The ports Kind forwarding would use (only when `networkForwarding` is on), whether the Docker daemon answers, and the current `kubectl` context |
+
+Each line is `[ OK ]`, `[ -- ]` (optional, nothing to do), `[WARN]` or `[FAIL]`. Abridged output on a machine without Ansible:
+
+```text
+  ▸ TOOLS ON THIS MACHINE
+  [FAIL] ansible-playbook is not installed (needed for: every setup, ha-setup, destroy and utils command). Install the pinned Ansible with: pip install -r requirements.txt
+  [ OK ] ssh  /usr/bin/ssh
+  [ -- ] ansible not installed (optional: inventory ping)
+  ▸ CONFIGURATION (ansible/inventories/host_vars)
+  [ OK ] master.yaml found
+  [ OK ] master.yaml passes config validate
+  ▸ INVENTORY
+  [WARN] no inventory yet: ./scripts/setup.sh inventory generate (Vagrant VMs) or inventory set-remote (a VPS)
+
+[ERROR] 1 failure(s), 2 warning(s), 12 ok: fix the [FAIL] lines first
+```
+
+```bash
+./scripts/setup.sh doctor
+./scripts/setup.sh doctor --ping
+```
+
+### plan — See What a Setup Would Do
+
+Prints what the next `kind`, `k3s` or `rke2` setup would build, read from `master.yaml` and the inventory, followed by the
+utilities you enabled and the exact commands to run, in order. Read-only: nothing is installed or contacted. It is the
+"what will happen" view that goes with [`config --list`](#config--cluster-configuration) (what is supported) and
+[`doctor`](#doctor--check-before-you-set-up) (is this machine ready). Warnings from `config validate` that apply to the
+cluster are shown too.
+
+```bash
+./scripts/setup.sh plan kind
+./scripts/setup.sh plan k3s        # also lists the inventory groups and one setup command per host
+./scripts/setup.sh plan utils      # only the enabled utilities and the tags to install
+```
+
+```text
+  ▸ KIND CLUSTER
+  Node image                kindest/node:v1.36.4
+  Nodes                     1 control-plane, 0 worker
+  Load balancer             ON  cloud-provider-kind
+  Ingress                   ON  traefik
+  ...
+  ▸ UTILITIES
+  certmanager          ON   Install cert-manager
+  ...
+  OFF: monitoring, service_mesh
+
+  ▸ COMMANDS, IN ORDER
+  1. ./scripts/setup.sh doctor
+  2. ./scripts/setup.sh kind setup
+  3. ./scripts/setup.sh kind utils ingress_test apigateway_test certmanager dashboard storage ...
+```
+
+### completion — Shell Completion
+
+Prints a completion script for bash or zsh. Nothing in it is hand-maintained: commands, subcommands, utility tags,
+version names and ansible flags are read from the CLI itself, and `--host` completes the hosts of your inventory when you
+press TAB. Because it is generated, it cannot go stale: adding a command or a utility is enough.
+
+```bash
+source <(./scripts/setup.sh completion bash)     # add to ~/.bashrc
+source <(./scripts/setup.sh completion zsh)      # add to ~/.zshrc
+```
+
+For example `./scripts/setup.sh kind utils cert<TAB>` completes `certmanager`, and `versions bump cil<TAB>` completes
+`cilium`. The zsh script loads the same function through zsh's `bashcompinit`. The pre-commit `completion` check fails
+when the generated script misses a command, a utility tag or a flag.
 
 ## Global Options (kind / k3s / rke2)
 
@@ -808,6 +895,7 @@ The files hold functions and tables only: nothing runs until `main` calls it.
 | `lib/config.sh`, `lib/config_show.sh` | The `config` command: `--list`, `validate`, and the `show` summary tables |
 | `lib/kind.sh`, `lib/k3s.sh`, `lib/rke2.sh` | The distribution commands (`setup`, `ha-setup`, `destroy`, `utils`) |
 | `lib/env.sh`, `vagrant.sh`, `inventory.sh`, `network.sh`, `status.sh`, `quickstart.sh` | One command each |
+| `lib/doctor.sh`, `lib/plan.sh`, `lib/completion.sh` | `doctor` (is this machine and config ready), `plan` (what the next setup would build) and the generated shell completion |
 | `lib/versions_registry.sh`, `lib/versions.sh` | The pinned-versions table (`VERSION_REGISTRY`), and `versions list` / `bump` / `sync` |
 
 A command `foo` lives in `lib/foo.sh` as `cmd_foo`, `cmd_foo_help` and `foo_<subcommand>`. Functions are found by name
@@ -857,7 +945,8 @@ cluster. Every problem is printed as `file:line: message`.
 | `registry` | A tag in `k8s-utilities-playbook.yaml` with no `UTILITY_REGISTRY` entry (and the reverse), a registry entry whose `master.yaml` key does not exist, or a `SETUP_REGISTRY_*` option that is not a key of its cluster block |
 | `yaml-layout` | A column-0 comment or stray line inside a `master.yaml` / `worker.yaml` block. The shell YAML helpers stop reading a block there, so `config` and `status` silently lose everything below it. Indent such comments by two spaces |
 | `stale-phrases` | Wording listed in `stale-phrases.txt` (for example the old instruction to switch HA on in `master.yaml`), anywhere in the tracked docs, scripts and playbooks |
-| `cli` | Every help screen and listing exits 0 with output, `config validate` passes, and `--dry-run` works for each distribution when `ansible-playbook` is installed |
+| `cli` | Every help screen and listing exits 0 with output, `config validate`, `plan` and `completion` run, and `--dry-run` works for each distribution when `ansible-playbook` is installed |
+| `completion` | The generated completion script is valid bash and lists every command of `main()`, every `UTILITY_REGISTRY` tag and every flag of `parse_ansible_opts` |
 
 ```bash
 python3 scripts/checks/check_setup.py                     # everything

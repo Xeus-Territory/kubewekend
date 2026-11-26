@@ -13,7 +13,10 @@ Every check prints `file:line: message` for each problem, so a failure points at
   yaml-layout     no column-0 comment or stray line inside a master.yaml / worker.yaml block: the shell YAML
                   helpers stop reading a block there, so everything below it silently disappears from `config`
   stale-phrases   wording that was corrected once and must not come back (scripts/checks/stale-phrases.txt)
-  cli             help screens and listings exit 0 with output; `config validate`; --dry-run when ansible is installed
+  cli             help screens and listings exit 0 with output; `config validate`, `plan` and `completion`;
+                  --dry-run when ansible is installed
+  completion      the generated completion script is valid bash and lists every command of main(), every utility
+                  tag of UTILITY_REGISTRY and every flag of parse_ansible_opts
 
 Usage: python3 scripts/checks/check_setup.py [--root DIR] [--only a,b] [--skip a,b]
 Exit code 1 when a check fails. Needs only python3 (already required by ansible).
@@ -27,7 +30,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-CHECKS = ["syntax", "shellcheck", "libs", "registry", "yaml-layout", "stale-phrases", "cli"]
+CHECKS = ["syntax", "shellcheck", "libs", "registry", "yaml-layout", "stale-phrases", "cli", "completion"]
 IGNORED_TAGS = {"always", "never", "all", "tagged", "untagged"}  # reserved Ansible tags, not utilities
 TEXT_SUFFIXES = {".md", ".yaml", ".yml", ".sh", ".j2", ".py", ".txt", ".cfg", ".env"}
 SKIP_DIRS = ("_site/", "vendor/", ".claude/", ".git/", "archives/", "examples/argocd-apps/archives/")
@@ -285,7 +288,9 @@ def check_cli(root):
     problems = []
     setup = "./scripts/setup.sh"
     plain = [["help"], ["kind", "help"], ["k3s", "help"], ["rke2", "help"], ["config", "help"], ["versions", "help"],
-             ["config", "--list"], ["config", "--list", "utils"], ["config", "validate"]]
+             ["config", "--list"], ["config", "--list", "utils"], ["config", "validate"],
+             ["doctor", "help"], ["plan", "help"], ["plan", "kind"], ["plan", "k3s"], ["plan", "rke2"], ["plan", "utils"],
+             ["completion", "help"], ["completion", "bash"], ["completion", "zsh"]]
     dry = [["kind", "setup", "--dry-run"], ["k3s", "setup", "--dry-run"], ["rke2", "setup", "--dry-run"],
            ["kind", "utils", "certmanager", "--dry-run"]]
     cases = plain + (dry if shutil.which("ansible-playbook") else [])
@@ -303,8 +308,54 @@ def check_cli(root):
     return problems
 
 
+def check_completion(root):
+    """The generated completion must know every command, utility tag and ansible flag the CLI has."""
+    r = run(["./scripts/setup.sh", "completion", "bash"], root, 90)
+    if r.returncode != 0 or not r.stdout.strip():
+        return [f"scripts/lib/completion.sh: `completion bash` exited {r.returncode} with " + ("no output" if not r.stdout.strip() else "output")]
+    script = r.stdout
+    problems = []
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "completion.bash"
+        out.write_text(script)
+        n = run(["bash", "-n", str(out)], root)
+        if n.returncode != 0:
+            problems += [f"generated completion script: {l}" for l in n.stderr.strip().splitlines()]
+
+    # commands: every `name) cmd_x` case of main() (help excluded: it takes no arguments)
+    main_cmds = set()
+    for no, line in enumerate((root / "scripts/setup.sh").read_text().splitlines(), 1):
+        m = re.match(r"^\s+([a-z0-9][a-z0-9-]*)\)\s+cmd_[a-z0-9_]+", line)
+        if m:
+            main_cmds.add(m.group(1))
+    m = re.search(r'words="([^"]*) --debug"', script)
+    offered = set(m.group(1).split()) if m else set()
+    for c in sorted(main_cmds - offered):
+        problems.append(f"scripts/setup.sh: command '{c}' is in main() but not offered by the completion (is it listed in show_help COMMANDS?)")
+    for c in sorted(offered - main_cmds - {"help"}):
+        problems.append(f"scripts/setup.sh: the completion offers '{c}', which main() does not handle")
+
+    # utility tags
+    for fields, path, no in registry_entries(root, "UTILITY_REGISTRY"):
+        if not re.search(rf"(?<![A-Za-z0-9_-]){re.escape(fields[0])}(?![A-Za-z0-9_-])", script):
+            problems.append(f"{rel(root, path)}:{no}: utility tag '{fields[0]}' is missing from the completion")
+
+    # ansible flags of parse_ansible_opts
+    flags = set()
+    for f in shell_files(root):
+        text = f.read_text()
+        a = text.find("parse_ansible_opts() {")
+        if a >= 0:
+            flags |= set(re.findall(r"--[a-z][a-z-]*", text[a: text.find("\n}\n", a)]))
+    for fl in sorted(flags):
+        if fl not in script:
+            problems.append(f"scripts/lib/ansible.sh: flag {fl} of parse_ansible_opts is missing from the completion")
+    return problems
+
+
 FUNCS = {"syntax": check_syntax, "shellcheck": check_shellcheck, "libs": check_libs, "registry": check_registry,
-         "yaml-layout": check_yaml_layout, "stale-phrases": check_stale_phrases, "cli": check_cli}
+         "yaml-layout": check_yaml_layout, "stale-phrases": check_stale_phrases, "cli": check_cli,
+         "completion": check_completion}
 
 
 def main():

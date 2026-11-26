@@ -184,3 +184,10 @@ INVENTORY
     echo ""
     info "Test connectivity: ./scripts/setup.sh inventory ping"
 }
+
+# Host names of one group of the Ansible inventory, one per line (nothing when the file or the group is missing).
+# Usage: _inv_hosts standalone-masters
+_inv_hosts() {
+    [[ -f "$HOSTS_FILE" ]] || return 0
+    awk -v g="[$1]" '{ sub(/[ \t\r]+$/, "") } /^\[/ { in_g = ($0 == g); next } in_g && NF && $1 !~ /^#/ { print $1 }' "$HOSTS_FILE"
+}
