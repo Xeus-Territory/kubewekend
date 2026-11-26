@@ -37,8 +37,8 @@ The tables between the `versions:begin` / `versions:end` markers are **generated
 | --------- | ------- | --------------- | ----- |
 | `kind-node` | `v1.36.4` | `ansible/inventories/host_vars/master.yaml:21` |  |
 | `k3s` | `v1.36.5+k3s1` | `ansible/inventories/host_vars/master.yaml:78`, `ansible/inventories/host_vars/worker.yaml:11` |  |
-| `rke2` | `v1.36.5+rke2r1` | `ansible/inventories/host_vars/master.yaml:182`, `ansible/inventories/host_vars/worker.yaml:32` |  |
-| `gateway-api-crd` | `v1.6.3` | `ansible/inventories/host_vars/master.yaml:51,163` | Standard channel CRDs applied before the Traefik Gateway API provider: Kind `apigateway.crd`, K3s `ingress.traefik.gateway.crd` (when `install: true`); keep both on the same version |
+| `rke2` | `v1.36.5+rke2r1` | `ansible/inventories/host_vars/master.yaml:183`, `ansible/inventories/host_vars/worker.yaml:32` |  |
+| `gateway-api-crd` | `v1.6.3` | `ansible/inventories/host_vars/master.yaml:51,164` | Standard channel CRDs applied before the Traefik Gateway API provider: Kind `apigateway.crd`, K3s `ingress.traefik.gateway.crd` (when `install: true`); keep both on the same version |
 
 #### Host tools
 

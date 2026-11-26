@@ -76,7 +76,8 @@ k3sCluster:
   # Kubernetes version for k3s, find more at https://github.com/k3s-io/k3s/releases
   # Stable Version (Recommended): v1.34.5+k3s1, v1.34.11+k3s1, v1.35.8+k3s1, v1.36.4+k3s1, v1.37.0+k3s1 (latest)
   version: "v1.36.5+k3s1"
-  # Number of control-plane nodes, default is 1, and set to 3 for HA Cluster
+  # The number of control-plane nodes comes from the inventory (ha_master_init + ha_master_join), not from this file:
+  # use 3 for an HA cluster. There is no `enable` or `replicas` key here
   # NOTE: For HA Cluster, you need to setup an external database like etcd or postgres, and use external load balancer for control-plane nodes
   # By default, K3s will use etcd when you setup HA cluster with 3 control-plane nodes, and with stanalone embedded SQLite when you setup single control-plane node cluster
   # Read more at: https://docs.k3s.io/architecture#high-availability-k3s
@@ -180,7 +181,8 @@ rke2Cluster:
   # Kubernetes version for rke2, find more at https://github.com/rancher/rke2/releases
   # Stable Version (Recommended): v1.34.5+rke2r1, v1.34.11+rke2r1, v1.35.8+rke2r1, v1.36.4+rke2r1, v1.37.0+rke2r1 (latest)
   version: "v1.36.5+rke2r1"
-  # Number of control-plane nodes, default is 1, and set to 3 for HA Cluster
+  # The number of control-plane nodes comes from the inventory (ha_master_init + ha_master_join), not from this file:
+  # use 3 for an HA cluster. There is no `enable` or `replicas` key here
   # NOTE: By default, RKE2 will use etcd in cluster for DataStore, and it allows you to choose SQLite (experimental) for instead of etcd.
   # Read more at: https://docs.rke2.io/datastore/embedded
   # Other options for DataStorage: etcd, postgresql, mysql, mariadb

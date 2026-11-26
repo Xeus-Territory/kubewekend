@@ -342,10 +342,13 @@ These options are available on `kind setup/destroy/utils` `k3s setup/ha-setup/de
 ./scripts/setup.sh k3s setup --host my-vps-node
 
 # Skip specific tasks
-./scripts/setup.sh kind setup --skip-tags setup_cni
+./scripts/setup.sh kind setup --skip-tags install_common
 
-# Pass extra variables
-./scripts/setup.sh kind setup --extra-vars "kindCluster_image=kindest/node:v1.30.13"
+# Use another Kubernetes version for the Kind nodes: change kindCluster.image in master.yaml
+# (no extra-var reads it; `versions bump` edits the pinned value for you)
+./scripts/setup.sh versions bump kind-node v1.35.8 --dry-run
+./scripts/setup.sh versions bump kind-node v1.35.8
+./scripts/setup.sh kind setup
 ```
 
 ---
@@ -438,10 +441,10 @@ ssh root@<vps-ip> 'sudo cat /etc/rancher/k3s/k3s.yaml' > ~/.kube/config
 #    [ha_master_join]    — additional control-plane nodes
 #    [ha_worker]         — agent nodes
 
-# 2. Enable HA in config
+# 2. Review the HA datastore in config (there is no enable switch or replica count:
+#    the inventory groups decide how many control-plane nodes you get)
 ./scripts/setup.sh config edit
-# Set: k3sCluster.highAvailability.enable: true
-# Set: k3sCluster.highAvailability.replicas: 3
+# Set: k3sCluster.highAvailability.dataStorage.type: etcd   # etcd | postgres
 
 # 3. Run HA setup
 ./scripts/setup.sh k3s ha-setup
@@ -564,9 +567,9 @@ sed -i "s/127.0.0.1/192.168.56.99/g" ~/.kube/config
 
 ```bash
 # 1. Edit inventory with HA groups (ha_master_init / ha_master_join / ha_worker)
-# 2. Review HA settings in master.yaml
+# 2. Review the HA datastore in master.yaml (there is no enable switch or replica count:
+#    the inventory groups decide how many control-plane nodes you get)
 ./scripts/setup.sh config edit
-# Set: rke2Cluster.highAvailability.enable: true
 # Set: rke2Cluster.highAvailability.dataStorage.type: etcd   # etcd | postgres
 
 # 3. Run HA setup, then teardown when done
@@ -587,8 +590,8 @@ Cluster setup reads `kindCluster`, `k3sCluster` or `rke2Cluster` from `ansible/i
 | Distribution | Supported options | In development (not read by the playbooks yet) |
 |--------------|-------------------|-----------------------------------------------|
 | Kind (`kind setup`) | `numberOfNodes`, `image`, `networking` (CNI: calico / flannel / cilium; kubeProxyMode), `loadbalancer` (cloud-provider-kind / metallb / cilium-ipam-lb), `ingress` (traefik: ports, allowCrossNamespace, dashboard), `apigateway` (traefik), `networkForwarding` | archived: ingress nginx / kong / cilium, Gateway API kong / cilium (see the archive note) |
-| K3s (`k3s setup`, `k3s ha-setup`) | `version`, `highAvailability.dataStorage` (etcd / postgres), `tlsSANs`, `nodeLabels`, `nodeTaints`, `cni` (flannel / calico / cilium), `loadBalancer` (servicelb / metallb), `ingress` (traefik: dashboard, gateway) | `multus`, `ccm`, `highAvailability.enable` / `replicas` / `clusterLB` (informational), ingress classes other than traefik |
-| RKE2 (`rke2 setup`, `rke2 ha-setup`) | `version`, `highAvailability.dataStorage` (etcd / postgres), `tlsSANs`, `nodeLabels`, `nodeTaints`, `cni` (canal / calico / cilium / flannel), `loadBalancer` (servicelb / metallb), `ingress` (traefik, HelmChartConfig values) | archived: `ingress-nginx`; `multus`, `ccm`, `highAvailability.enable` / `replicas` / `clusterLB` (informational) |
+| K3s (`k3s setup`, `k3s ha-setup`) | `version`, `highAvailability.dataStorage` (etcd / postgres), `tlsSANs`, `nodeLabels`, `nodeTaints`, `cni` (flannel / calico / cilium), `loadBalancer` (servicelb / metallb), `ingress` (traefik: dashboard, gateway) | `multus`, `ccm`, `highAvailability.clusterLB` (informational: bring your own HAProxy / Kube-VIP), ingress classes other than traefik |
+| RKE2 (`rke2 setup`, `rke2 ha-setup`) | `version`, `highAvailability.dataStorage` (etcd / postgres), `tlsSANs`, `nodeLabels`, `nodeTaints`, `cni` (canal / calico / cilium / flannel), `loadBalancer` (servicelb / metallb), `ingress` (traefik, HelmChartConfig values) | archived: `ingress-nginx`; `multus`, `ccm`, `highAvailability.clusterLB` (informational: bring your own HAProxy / Kube-VIP) |
 
 > [!NOTE]
 >
@@ -670,7 +673,6 @@ ansible/
     ├── rke2-config.yaml.j2
     ├── rke2-flannel-config.yaml.j2
     ├── rke2-traefik-config.yaml.j2
-    ├── rke2-ingress-nginx-config.yaml.j2
     ├── kind-config.yaml.j2
     ├── kube-prometheus-stack-values.yaml.j2
     ├── alloy-values.yaml.j2
@@ -680,7 +682,9 @@ ansible/
     ├── longhorn-iscsi-installation.yaml.j2
     ├── longhorn-nfs-installation.yaml.j2
     ├── ingress-test-deployment.yaml.j2
-    └── apigateway-test-deployment.yaml.j2
+    ├── apigateway-test-deployment.yaml.j2
+    ├── pod-with-pvc.yaml.j2
+    └── archives/                 # archived templates (RKE2 ingress-nginx, NGINX / Kong / Cilium test deployments)
 
 examples/
 └── lgtm-testing/                 # Full-stack LGTM observability demo app

@@ -260,7 +260,7 @@ Generate the inventory automatically from running Vagrant VMs:
 |             Setup RKE2 High Availability (HA) Cluster              | Bootstrap init server, join additional control-plane nodes (embedded etcd or external PostgreSQL), and attach agents | setup_rke2                | ✅     |
 |                Configure CNI (Canal / Flannel / Calico / Cilium)   | Set `cni` in RKE2 config (+ `HelmChartConfig` for Flannel) based on `rke2Cluster.cni.type`                         | setup_rke2                   | ✅     |
 |             Setup Load Balancer (ServiceLB / MetalLB)              | Enable the built-in ServiceLB, or deploy MetalLB with the IP pool from `rke2Cluster.loadBalancer`                 | setup_rke2                   | ✅     |
-|              Setup Ingress (Traefik / Ingress-Nginx)               | Pick bundled ingress controller and customize it via `HelmChartConfig` from `rke2Cluster.ingress.config`          | setup_rke2                   | ✅     |
+|              Setup Ingress (Traefik)                               | Customize the bundled Traefik ingress controller via `HelmChartConfig` from `rke2Cluster.ingress.config`          | setup_rke2                   | ✅     |
 |                       Remove RKE2 node                             | Uninstall RKE2 from all inventory nodes (server or agent) with `rke2-uninstall.sh`                                | remove_rke2                  | ✅     |
 
 **Utilities** (`k8s-utilities-playbook.yaml`)
@@ -355,7 +355,7 @@ Generate the inventory automatically from running Vagrant VMs:
 **RKE2 HA cluster** (HA section in `hosts` must be populated):
 
 ```bash
-# Review rke2Cluster.highAvailability in master.yaml first
+# Review rke2Cluster.highAvailability.dataStorage in master.yaml first (etcd | postgres)
 ./scripts/setup.sh config edit
 
 # Bootstrap all HA nodes at once
@@ -365,7 +365,7 @@ Generate the inventory automatically from running Vagrant VMs:
 > [!NOTE]
 >
 > RKE2 serves its kubeconfig at `/etc/rancher/rke2/rke2.yaml` (copied to `~/.kube/config` of the SSH user on the master).
-> Replace `127.0.0.1` with the master IP when using it from outside. Traefik/Ingress-Nginx hostPorts are moved to `8000/8443`
+> Replace `127.0.0.1` with the master IP when using it from outside. Traefik hostPorts are moved to `8000/8443`
 > by default to avoid clashing with ServiceLB.
 
 > [!TIP]
@@ -481,8 +481,8 @@ Pinned versions of the tools, charts and images used by Kubewekend, and where to
 | --------- | ------- | --------------- | ----- |
 | `kind-node` | `v1.36.4` | `ansible/inventories/host_vars/master.yaml:21` |  |
 | `k3s` | `v1.36.5+k3s1` | `ansible/inventories/host_vars/master.yaml:78`, `ansible/inventories/host_vars/worker.yaml:11` |  |
-| `rke2` | `v1.36.5+rke2r1` | `ansible/inventories/host_vars/master.yaml:182`, `ansible/inventories/host_vars/worker.yaml:32` |  |
-| `gateway-api-crd` | `v1.6.3` | `ansible/inventories/host_vars/master.yaml:51,163` | Standard channel CRDs applied before the Traefik Gateway API provider: Kind `apigateway.crd`, K3s `ingress.traefik.gateway.crd` (when `install: true`); keep both on the same version |
+| `rke2` | `v1.36.5+rke2r1` | `ansible/inventories/host_vars/master.yaml:183`, `ansible/inventories/host_vars/worker.yaml:32` |  |
+| `gateway-api-crd` | `v1.6.3` | `ansible/inventories/host_vars/master.yaml:51,164` | Standard channel CRDs applied before the Traefik Gateway API provider: Kind `apigateway.crd`, K3s `ingress.traefik.gateway.crd` (when `install: true`); keep both on the same version |
 
 #### Host tools
 

@@ -685,8 +685,8 @@ run_utils() {
 #   NGINX, Kong and Cilium ingress, and Kong and Cilium Gateway API, changed too often to keep working, so
 #   Kubewekend now supports Traefik only, for Kind, K3s and RKE2. They are archived, not deleted:
 #   - Kind tasks: commented out in ansible/kind-playbook.yaml ("(Archive - Stop supporting)" blocks)
-#   - RKE2 ingress-nginx (`rke2Cluster.ingress.class: ingress-nginx`): being archived; its tasks are still in
-#     ansible/rke2-playbook.yaml and rke2-ha-playbook.yaml until they are commented out
+#   - RKE2 ingress-nginx (`rke2Cluster.ingress.class: ingress-nginx`): no longer in rke2-playbook.yaml or
+#     rke2-ha-playbook.yaml; its HelmChartConfig template is ansible/templates/archives/rke2-ingress-nginx-config.yaml.j2
 #   - test-deployment templates: ansible/templates/archives/
 #   - version pins: commented-out entries in VERSION_REGISTRY (kong, traefik-gateway-rbac)
 #   Cilium stays supported as CNI (`cni: cilium`) and as the Kind load balancer (`loadbalancer.type: cilium-ipam-lb`).
@@ -889,8 +889,10 @@ EXAMPLES
   # Dry run to see what ansible would execute
   ./scripts/setup.sh kind setup --dry-run
 
-  # Setup with custom extra-vars
-  ./scripts/setup.sh kind setup --extra-vars "kindCluster_image=kindest/node:v1.30.13"
+  # Use another Kubernetes version: kindCluster.image in master.yaml is the only place (no extra-var reads it)
+  ./scripts/setup.sh versions bump kind-node v1.35.8 --dry-run
+  ./scripts/setup.sh versions bump kind-node v1.35.8
+  ./scripts/setup.sh kind setup
 EOF
 }
 
@@ -1061,8 +1063,10 @@ EXAMPLES
 
   # --- HA K3s (3 masters + worker) ---
 
-  # 1. Edit ansible/inventories/hosts with HA groups (ha_master_init, ha_master_join, ha_worker)
-  # 2. Edit ansible/inventories/host_vars/master.yaml and enable highAvailability
+  # 1. Edit ansible/inventories/hosts with HA groups (ha_master_init, ha_master_join, ha_worker).
+  #    The groups decide how many control-plane nodes you get: there is no enable switch or replica count
+  # 2. Review k3sCluster.highAvailability.dataStorage in ansible/inventories/host_vars/master.yaml
+  #    (type: etcd | postgres; externalDatabase is only read for postgres)
   ./scripts/setup.sh k3s ha-setup
 
   # --- Re-run without reinstalling tools ---
@@ -1112,7 +1116,7 @@ k3s_ha_setup() {
 
     info "Ensure you have configured:"
     echo "  - ansible/inventories/hosts (ha_master_init, ha_master_join, ha_worker groups)"
-    echo "  - ansible/inventories/host_vars/master.yaml (highAvailability.enable: true)"
+    echo "  - ansible/inventories/host_vars/master.yaml (k3sCluster.highAvailability.dataStorage: etcd | postgres)"
     echo ""
     confirm "Proceed with HA K3s setup?" || return 0
 
@@ -1188,8 +1192,10 @@ EXAMPLES
 
   # --- HA RKE2 (3 masters + worker) ---
 
-  # 1. Edit ansible/inventories/hosts with HA groups (ha_master_init, ha_master_join, ha_worker)
-  # 2. Edit ansible/inventories/host_vars/master.yaml and enable highAvailability
+  # 1. Edit ansible/inventories/hosts with HA groups (ha_master_init, ha_master_join, ha_worker).
+  #    The groups decide how many control-plane nodes you get: there is no enable switch or replica count
+  # 2. Review rke2Cluster.highAvailability.dataStorage in ansible/inventories/host_vars/master.yaml
+  #    (type: etcd | postgres; externalDatabase is only read for postgres)
   ./scripts/setup.sh rke2 ha-setup
 
   # --- Re-run without reinstalling tools ---
@@ -1241,7 +1247,7 @@ rke2_ha_setup() {
 
     info "Ensure you have configured:"
     echo "  - ansible/inventories/hosts (ha_master_init, ha_master_join, ha_worker groups)"
-    echo "  - ansible/inventories/host_vars/master.yaml (highAvailability.enable: true)"
+    echo "  - ansible/inventories/host_vars/master.yaml (rke2Cluster.highAvailability.dataStorage: etcd | postgres)"
     echo ""
     confirm "Proceed with HA RKE2 setup?" || return 0
 
@@ -1522,8 +1528,8 @@ Step-by-step:
 
   --- HA Variant (3 masters + 1 worker) ---
 
-  a. Edit ansible/inventories/hosts with HA groups
-  b. Enable highAvailability in master.yaml
+  a. Edit ansible/inventories/hosts with HA groups (ha_master_init, ha_master_join, ha_worker)
+  b. Review k3sCluster.highAvailability.dataStorage in master.yaml (etcd | postgres; there is no enable switch)
   c. Run: ./scripts/setup.sh k3s ha-setup
 
 GUIDE
@@ -1545,7 +1551,7 @@ Step-by-step:
   3. Configure cluster settings:
      # Edit ansible/inventories/host_vars/master.yaml
      # Important: set k3sCluster.tlsSANs to include your VPS IP/domain
-     # Important: set loadBalancer.ippool.cidr to your VPS network range
+     # Important: with loadBalancer.type: metallb, set k3sCluster.loadBalancer.ippool.cidr to a free range of your VPS network
 
   4. Setup K3s:
      ./scripts/setup.sh k3s setup
@@ -1606,8 +1612,8 @@ Step-by-step:
 
   --- HA Variant (3 masters + 1 worker) ---
 
-  a. Edit ansible/inventories/hosts with HA groups
-  b. Enable highAvailability in master.yaml
+  a. Edit ansible/inventories/hosts with HA groups (ha_master_init, ha_master_join, ha_worker)
+  b. Review rke2Cluster.highAvailability.dataStorage in master.yaml (etcd | postgres; there is no enable switch)
   c. Run: ./scripts/setup.sh rke2 ha-setup
 
 GUIDE
@@ -1629,7 +1635,7 @@ Step-by-step:
   3. Configure cluster settings:
      # Edit ansible/inventories/host_vars/master.yaml
      # Important: set rke2Cluster.tlsSANs to include your VPS IP/domain
-     # Important: set loadBalancer.ippool.cidr to your VPS network range
+     # Important: with loadBalancer.type: metallb, set rke2Cluster.loadBalancer.ippool.cidr to a free range of your VPS network
 
   4. Setup RKE2 (master first, then each worker):
      ./scripts/setup.sh rke2 setup --host k8s-master-machine
@@ -1839,7 +1845,7 @@ config_show_master() {
     crd_install=$(echo "$k3_gw_crd" | _yval "install")
     crd_ver=$(    echo "$k3_gw_crd" | _yval "version")
 
-    local version ha_en ha_rep ha_db_type cni_type lb_en lb_type lb_cidr
+    local version ha_db_type cni_type lb_en lb_type lb_cidr
     local ing_en ing_cls dash_en dash_host labels tlssans
     version=$(    echo "$k3s"         | _yval "version")
     ha_db_type=$( echo "$k3_ds"       | _yval "type")
@@ -1879,7 +1885,7 @@ config_show_master() {
     rk_lb_pool=$( echo "$rk_lb"  | _ysub "ippool"           4)
     rk_ing=$(     echo "$rke2"    | _ysub "ingress"          2)
 
-    local version ha_en ha_rep ha_db_type cni_type lb_en lb_type lb_cidr
+    local version ha_db_type cni_type lb_en lb_type lb_cidr
     local ing_en ing_cls labels tlssans
     version=$(    echo "$rke2"         | _yval "version")
     ha_db_type=$( echo "$rk_ds"       | _yval "type")
@@ -2166,9 +2172,7 @@ VERSION_REGISTRY=(
 #     'example-argo-rollouts|examples|examples/argocd-apps/manifests/infrastructure/argo-rollouts/Chart.yaml|- name: argo-rollouts *$|version: "?([0-9][^" ]*)'
 #     'example-argo-workflows|examples|examples/argocd-apps/manifests/infrastructure/argo-workflow/Chart.yaml|- name: argo-workflows *$|version: "?([0-9][^" ]*)'
 #     'example-argo-cd|examples|examples/argocd-apps/manifests/infrastructure/argocd/Chart.yaml|- name: argo-cd *$|version: "?([0-9][^" ]*)'
-#     'example-argocd-apps|examples|examples/argocd-apps/manifests/infrastructure/argocd/Chart.yaml|- name: argocd-apps *$|version: "?([0-9][^" ]*)'
 #     'example-argocd-image-updater|examples|examples/argocd-apps/manifests/infrastructure/argocd/Chart.yaml|- name: argocd-image-updater *$|version: "?([0-9][^" ]*)'
-#     'example-todo-list-common|examples|examples/argocd-apps/manifests/apps/todo-list/Chart.yaml|- name: common *$|version: "?([0-9][^" ]*)'
 #     'lgtm-postgres|examples|examples/lgtm-testing/docker-compose.yaml examples/lgtm-testing/k8s/postgres.yaml|image: postgres:|postgres:([^" ]+)'
 #     'lgtm-python|examples|examples/lgtm-testing/backend/Dockerfile|^FROM python:|python:([^ ]+)'
 #     'lgtm-nginx|examples|examples/lgtm-testing/frontend/Dockerfile|^FROM nginx:|nginx:([^ ]+)'
@@ -2581,7 +2585,7 @@ ${BOLD}QUICK REFERENCE${NC}
   ./scripts/setup.sh k3s setup
 
   # --- K3s HA Cluster ---
-  # (edit hosts + master.yaml first)
+  # (fill the HA groups in hosts and review k3sCluster.highAvailability.dataStorage in master.yaml first)
   ./scripts/setup.sh k3s ha-setup
 
   # --- RKE2 on Vagrant (standalone) ---
@@ -2592,7 +2596,7 @@ ${BOLD}QUICK REFERENCE${NC}
   ./scripts/setup.sh rke2 utils certmanager gitops
 
   # --- RKE2 HA Cluster ---
-  # (edit hosts + master.yaml first)
+  # (fill the HA groups in hosts and review rke2Cluster.highAvailability.dataStorage in master.yaml first)
   ./scripts/setup.sh rke2 ha-setup
 
 ${BOLD}SUBCOMMAND HELP${NC}
