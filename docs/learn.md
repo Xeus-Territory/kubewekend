@@ -33,6 +33,8 @@ Kubewekend grew out of a weekend learning series. Each session explains the *why
 | Extra 3 | RKE2 and the nightmare with network and CoreDNS | [Extra 3](https://wiki.xeusnguyen.xyz/Tech-Second-Brain/Personal/Kubewekend/Kubewekend-Session-Extra-3) |
 | Extra 4 | Kind as a sandbox environment for GitLab CI | [Extra 4](https://wiki.xeusnguyen.xyz/Tech-Second-Brain/Personal/Kubewekend/Kubewekend-Session-Extra-4) |
 | Extra 5 | The security model in Kubernetes | [Extra 5](https://wiki.xeusnguyen.xyz/Tech-Second-Brain/Personal/Kubewekend/Kubewekend-Session-Extra-5) |
+| Extra 6 | The Kubernetes Scalable in Network, Istio in action | [Extra 6](https://wiki.xeusnguyen.xyz/Tech-Second-Brain/Personal/Kubewekend/Kubewekend-Session-Extra-6) |
+| Extra 7 | GitOps from Day 1, ArgoCD in Action | [Extra 7](https://wiki.xeusnguyen.xyz/Tech-Second-Brain/Personal/Kubewekend/Kubewekend-Session-Extra-7) |
 
 > [!NOTE]
 >
