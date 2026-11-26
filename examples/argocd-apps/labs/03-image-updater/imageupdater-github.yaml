@@ -1,0 +1,79 @@
+# Lab 3: the same resource as imageupdater-gitea.yaml, but it OPENS A PULL REQUEST on GitHub instead of pushing to the branch.
+# Use it when the branch Argo CD tracks is protected (pull requests required, no direct pushes).
+# Needs Image Updater v1.2.0 or newer. Apply ONE of the two files, not both: they manage the same Applications.
+#
+# What is different from imageupdater-gitea.yaml:
+#   - `pullRequest` sits INSIDE `gitConfig`, once, in the global writeBackConfig. (Next to `gitConfig` instead of inside it,
+#     the API server rejects the whole resource with `unknown field "spec.writeBackConfig.pullRequest"`.)
+#   - the credentials in the `git-creds` Secret must be a token (a PAT or a GitHub App) that can push a branch and open a
+#     pull request on YOUR throwaway fork. SSH keys do not work in pull request mode.
+#
+# For Gitea or Forgejo use the `gitea` provider instead of `github`; see the lab page. Check this file before applying it:
+#   kubectl apply --dry-run=server -f imageupdater-github.yaml
+#
+# What it does, every few minutes:
+#   1. looks up the tags of xeusnguyen/kubewekend-todo in the registry
+#   2. picks the newest semver tag (v1.0.0 -> v1.1.0)
+#   3. commits the new tag to Git (the `git` write-back method), so Git stays the source of truth
+#   4. Argo CD sees the new commit and rolls the Deployment out
+#
+# Two applications are tracked, one per tool; `hello-kustomize-prod` is deliberately NOT tracked:
+#   hello-helm            -> writes common.image.tag in workloads/hello-helm/values.yaml
+#   hello-kustomize-dev   -> writes the `images:` block of overlays/dev/kustomization.yaml
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: hello
+  namespace: argocd # The namespace of the Argo CD Applications. There is no spec.namespace since Image Updater 1.5
+spec:
+  # `git:secret:<namespace>/<name>` reads `username` and `password` (the token) from that Secret
+  writeBackConfig:
+    method: git:secret:argocd/git-creds
+    gitConfig:
+      branch: main # the BASE branch the pull request is merged into. No "base:target" form in pull request mode
+      # Use the URL of YOUR throwaway fork
+      repository: https://github.com/Xeus-Territory/kubewekend
+      pullRequest:
+        github: {}
+        # On GitHub the labels are applied in a follow-up call; if that fails the pull request is still created
+        labels:
+          - image-update
+          - automated
+  commonUpdateSettings:
+    updateStrategy: semver
+    ignoreTags:
+      - latest
+  applicationRefs:
+    - namePattern: hello-helm
+      writeBackConfig:
+        method: git:secret:argocd/git-creds
+        gitConfig:
+          branch: main
+          repository: https://github.com/Xeus-Territory/kubewekend
+          # # NOTE: use the default write with newfile `.argocd-source-<appName>.yaml`
+          # # Helm: write the tag into the chart's values file (path relative to the Application's source path)
+          # writeBackTarget: helmvalues:values.yaml
+      images:
+        - alias: todo
+          imageName: xeusnguyen/kubewekend-todo
+          manifestTargets:
+            helm:
+              # Value paths in values.yaml. The `common` chart is a dependency, hence the `common.` prefix
+              name: common.image.repository
+              tag: common.image.tag
+    - namePattern: hello-kustomize-dev
+      writeBackConfig:
+        method: git:secret:argocd/git-creds
+        gitConfig:
+          branch: main
+          repository: https://github.com/Xeus-Territory/kubewekend
+          # # NOTE: use the default write with newfile `.argocd-source-<appName>.yaml`
+          # # Kustomize: edit the `images:` block of the kustomization.yaml in the Application's source path
+          # writeBackTarget: kustomization
+      images:
+        - alias: todo
+          imageName: xeusnguyen/kubewekend-todo
+          manifestTargets:
+            kustomize:
+              # The image name exactly as written in `images:` (overlays/dev/kustomization.yaml)
+              name: xeusnguyen/kubewekend-todo

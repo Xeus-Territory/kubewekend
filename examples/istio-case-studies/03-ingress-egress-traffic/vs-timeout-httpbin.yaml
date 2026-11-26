@@ -1,0 +1,14 @@
+# A 2 second timeout for calls to httpbin. httpbin's /delay/3 answers after 3 seconds, so the caller's sidecar
+# gives up after 2 s and returns 504 ("upstream request timeout") instead of making the client wait.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: httpbin
+  namespace: lab-traffic
+spec:
+  hosts: ["httpbin"]
+  http:
+    - timeout: 2s
+      route:
+        - destination:
+            host: httpbin

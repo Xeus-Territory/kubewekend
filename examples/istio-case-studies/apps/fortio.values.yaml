@@ -1,0 +1,31 @@
+# fortio: a load generator. Used in lab 03 to push traffic until circuit breaking trips.
+# Run a test:  kubectl -n <namespace> exec deploy/fortio -- fortio load -c 8 -qps 0 -n 200 http://helloworld:5000/hello
+# Install:  ./deploy.sh <namespace> fortio
+fullnameOverride: fortio
+
+image:
+  repository: fortio/fortio
+  tag: "1.77.0"
+
+command: ["fortio"]
+runtimeArgs: ["server"]
+
+containerPorts:
+  - name: http
+    containerPort: 8080
+    protocol: TCP
+
+service:
+  port: 8080
+  targetPort: http
+
+probes:
+  path: /fortio/
+
+podLabels:
+  app: fortio
+
+resources:
+  requests:
+    cpu: 20m
+    memory: 32Mi

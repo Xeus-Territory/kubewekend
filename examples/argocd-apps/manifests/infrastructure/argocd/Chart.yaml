@@ -6,14 +6,9 @@ dependencies:
     repository: https://argoproj.github.io/argo-helm
     condition: argocd.enabled
     alias: argocd
-    version: 9.1.3
-  - name: argocd-apps
-    repository: https://argoproj.github.io/argo-helm
-    condition: apps.enabled
-    alias: apps
-    version: 2.0.2
+    version: 10.16.0
   - name: argocd-image-updater
     repository: https://argoproj.github.io/argo-helm
     condition: image-updater.enabled
     alias: image-updater
-    version: 1.0.1
+    version: 1.5.0

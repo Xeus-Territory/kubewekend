@@ -1,0 +1,8 @@
+helm:
+  parameters:
+  - name: common.image.repository
+    value: xeusnguyen/kubewekend-todo
+    forcestring: true
+  - name: common.image.tag
+    value: v1.1.0
+    forcestring: true

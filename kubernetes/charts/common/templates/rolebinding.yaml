@@ -1,5 +1,5 @@
-{{- $createRoleBinding := default .Values.rbac.create .Values.rbac.roleBinding.create -}}
-{{- if $createRoleBinding -}}
+{{- $createRoleBinding := include "common.rbac.shouldCreate" (dict "override" .Values.rbac.roleBinding.create "global" .Values.rbac.create) -}}
+{{- if eq $createRoleBinding "true" -}}
 {{- $roleKind := default "Role" .Values.rbac.role.kind -}}
 {{- $bindingKind := default (ternary "ClusterRoleBinding" "RoleBinding" (eq $roleKind "ClusterRole")) .Values.rbac.roleBinding.kind -}}
 {{- $roleRef := get .Values.rbac.roleBinding "roleRef" | default dict -}}

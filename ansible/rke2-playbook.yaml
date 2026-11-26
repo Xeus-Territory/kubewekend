@@ -112,15 +112,6 @@
           become: true
           when: rke2Cluster.ingress.class | default('traefik') == 'traefik'
 
-        - name: Copy template configuration for RKE2 Ingress Controller Ingress-Nginx for Master Node
-          ansible.builtin.template:
-            src: "./templates/rke2-ingress-nginx-config.yaml.j2"
-            dest: "/var/lib/rancher/rke2/server/manifests/rke2-ingress-nginx-config.yaml"
-            owner: root
-            mode: "0644"
-          become: true
-          when: rke2Cluster.ingress.class | default('traefik') == 'ingress-nginx'
-
         - name: Copy template configuration for RKE2 Flannel CNI
           ansible.builtin.template:
             src: "./templates/rke2-flannel-config.yaml.j2"

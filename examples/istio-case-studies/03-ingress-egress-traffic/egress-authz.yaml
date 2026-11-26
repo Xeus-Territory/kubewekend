@@ -1,0 +1,19 @@
+# Who may use the egress door: only the `curl` ServiceAccount of lab-egress, only for example.com.
+# Enforced by the egress gateway, so it is a central place to audit and restrict outbound access.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: egress-allow-curl
+  namespace: istio-system
+spec:
+  selector:
+    matchLabels:
+      istio: egressgateway
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["cluster.local/ns/lab-egress/sa/curl"]
+      to:
+        - operation:
+            hosts: ["example.com"]

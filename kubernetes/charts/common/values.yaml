@@ -2,14 +2,27 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
-# -- This will define Chart enabled or not
+# -- This will define Chart enabled or not.
+# The chart always renders a `Deployment`; StatefulSet and DaemonSet workloads are out of scope (use a dedicated chart).
 enabled: true
-
-# -- Workload type for this chart. Accepted values: `deployment`. `statefulset` and `daemonset` are not implemented in this chart yet.
-deploymentType: deployment
 
 # -- This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
 replicaCount: 1
+
+# -- Number of old ReplicaSets kept for `kubectl rollout undo`. Leave `null` to use the Kubernetes default (`10`).
+revisionHistoryLimit: null
+
+# -- Seconds a new pod must stay Ready (without crashing) before it counts as available during a rollout.
+# Leave `null` to use the Kubernetes default (`0`).
+minReadySeconds: null
+
+# -- Deployment update strategy, more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#strategy
+# Accepted `type` values: `RollingUpdate` (Kubernetes default) or `Recreate`. `rollingUpdate` must be empty when `type` is `Recreate`.
+strategy: {}
+  # type: RollingUpdate
+  # rollingUpdate:
+  #   maxSurge: 25%
+  #   maxUnavailable: 25%
 
 # -- This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
 image:
@@ -83,8 +96,17 @@ serviceAccount:
   # -- If not set and create is true, a name is generated using the fullname template
   name: ""
 
+# -- Annotations on the Deployment object itself (not the pods, use `podAnnotations` for those). Templates are allowed.
+# For tools that read Deployment metadata, e.g.:
+# - Reloader, restart on ConfigMap/Secret change: `reloader.stakater.com/auto: "true"`,
+#   or targeted `configmap.reloader.stakater.com/reload: "my-config"` / `secret.reloader.stakater.com/reload: "my-secret"`
+# - Argo CD ordering: `argocd.argoproj.io/sync-wave: "1"`
+# - Image updaters, policy exceptions, ownership / contact metadata
+deploymentAnnotations: {}
+  # reloader.stakater.com/auto: "true"
+
 # -- This is for setting Kubernetes Annotations to a Pod.
-# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/ 
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
 podAnnotations: {}
 # -- This is for setting Kubernetes Labels to a Pod.
 # For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
@@ -147,10 +169,12 @@ service:
 # -- This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
 ingress:
   enabled: false
+  # -- IngressClass name. Use `traefik` for the Traefik ingress controller (bundled with K3s, or installed via its Helm chart).
   className: ""
   annotations: {}
-    # kubernetes.io/ingress.class: nginx
-    # kubernetes.io/tls-acme: "true"
+    # traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    # traefik.ingress.kubernetes.io/router.tls: "true"
+    # cert-manager.io/cluster-issuer: letsencrypt
   hosts:
     - host: chart-example.local
       paths:
@@ -160,6 +184,39 @@ ingress:
   #  - secretName: chart-example-tls
   #    hosts:
   #      - chart-example.local
+
+# -- Expose the Service through the Gateway API with an `HTTPRoute`, more information can be found here: https://gateway-api.sigs.k8s.io/api-types/httproute/
+# Requires the Gateway API CRDs and a Gateway controller (e.g. Traefik with `providers.kubernetesGateway.enabled=true`).
+# Each rule routes to the primary Service port (`service.primaryPortName`) unless it sets its own `backendRefs`.
+httpRoute:
+  # -- Enable HTTPRoute creation. Requires `service.enabled=true`.
+  enabled: false
+  # -- Annotations to add to the HTTPRoute
+  annotations: {}
+  # -- Gateways this route attaches to. Defaults follow the Traefik Helm chart Gateway (`traefik-gateway`, listener `web`).
+  parentRefs:
+    - name: traefik-gateway
+      sectionName: web
+      # namespace: traefik
+  # -- Hostnames matched by this route
+  hostnames:
+    - chart-example.local
+  # -- Routing rules. Leave empty to route every request to the Service.
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      # filters:
+      #   - type: RequestHeaderModifier
+      #     requestHeaderModifier:
+      #       set:
+      #         - name: X-Kubewekend
+      #           value: "true"
+      # backendRefs: # Optional override, e.g. for canary/weighted routing
+      #   - name: my-service
+      #     port: 80
+      #     weight: 100
 
 # -- This define resource for your application **(BE CAREFUL TO SET THIS VALUE)**
 # Best practice: Not set **cpu limit** for preventing CPU Throttle, 
@@ -231,6 +288,17 @@ probesOverride: {}
   # startupProbe:
   #   ...
 
+# -- Lifecycle hooks for the main container, more information can be found here: https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/
+# A `preStop` sleep gives Service endpoints and ingress/gateway time to stop sending traffic before the container receives SIGTERM,
+# which avoids failed requests during rollouts. Keep `terminationGracePeriodSeconds` larger than the preStop duration.
+lifecycle: {}
+  # preStop:
+  #   sleep:
+  #     seconds: 10 # native sleep action (Kubernetes >= 1.30); use `exec: {command: ["sleep", "10"]}` on older clusters
+  # postStart:
+  #   exec:
+  #     command: ["/bin/sh", "-c", "echo started"]
+
 # -- This section is for setting up autoscaling more information can be found here: https://kubernetes.io/docs/concepts/workloads/autoscaling/
 autoscaling:
   enabled: false
@@ -238,6 +306,67 @@ autoscaling:
   maxReplicas: 100
   targetCPUUtilizationPercentage: 80
   # targetMemoryUtilizationPercentage: 80
+
+# -- Prometheus Operator `ServiceMonitor` that scrapes the Service, more information: https://prometheus-operator.dev/docs/developer/getting-started/
+# Requires the Prometheus Operator CRDs (e.g. kube-prometheus-stack) and `service.enabled=true`.
+# Enable `serviceMonitor` or `podMonitor` for the same metrics port, not both, otherwise every target is scraped twice.
+serviceMonitor:
+  # -- Enable ServiceMonitor creation
+  enabled: false
+  # -- Namespace for the ServiceMonitor. Empty means the release namespace; when set, `namespaceSelector` targets the release namespace.
+  namespace: ""
+  # -- Extra labels, e.g. `release: kube-prometheus-stack` so that Prometheus' `serviceMonitorSelector` picks it up
+  labels: {}
+  # -- Annotations to add to the ServiceMonitor
+  annotations: {}
+  # -- Service port **name** to scrape. Must exist in `service.ports` (or be `http` for the legacy single `service.port`).
+  port: metrics
+  # -- HTTP path of the metrics endpoint
+  path: /metrics
+  # -- Scrape interval. Empty uses the Prometheus default.
+  interval: 30s
+  # -- Scrape timeout, must be lower than `interval`. Empty uses the Prometheus default.
+  scrapeTimeout: ""
+  # -- Scrape scheme (`http` or `https`). Empty uses `http`.
+  scheme: ""
+  # -- TLS settings for `https` scraping
+  tlsConfig: {}
+  # -- Keep the labels exposed by the target when they conflict with Prometheus target labels
+  honorLabels: false
+  # -- Relabelings applied before scraping
+  relabelings: []
+  # -- Relabelings applied to scraped samples before ingestion
+  metricRelabelings: []
+
+# -- Prometheus Operator `PodMonitor` that scrapes the pods directly (no Service needed), more information: https://prometheus-operator.dev/docs/developer/getting-started/
+# Requires the Prometheus Operator CRDs (e.g. kube-prometheus-stack).
+podMonitor:
+  # -- Enable PodMonitor creation
+  enabled: false
+  # -- Namespace for the PodMonitor. Empty means the release namespace; when set, `namespaceSelector` targets the release namespace.
+  namespace: ""
+  # -- Extra labels, e.g. `release: kube-prometheus-stack` so that Prometheus' `podMonitorSelector` picks it up
+  labels: {}
+  # -- Annotations to add to the PodMonitor
+  annotations: {}
+  # -- Container port **name** of the main container to scrape. Must exist in `containerPorts` (or be `http` for the implicit Service-derived port).
+  port: metrics
+  # -- HTTP path of the metrics endpoint
+  path: /metrics
+  # -- Scrape interval. Empty uses the Prometheus default.
+  interval: 30s
+  # -- Scrape timeout, must be lower than `interval`. Empty uses the Prometheus default.
+  scrapeTimeout: ""
+  # -- Scrape scheme (`http` or `https`). Empty uses `http`.
+  scheme: ""
+  # -- TLS settings for `https` scraping
+  tlsConfig: {}
+  # -- Keep the labels exposed by the target when they conflict with Prometheus target labels
+  honorLabels: false
+  # -- Relabelings applied before scraping
+  relabelings: []
+  # -- Relabelings applied to scraped samples before ingestion
+  metricRelabelings: []
 
 # -- Additional volumes on the output Deployment definition.
 volumes: []
@@ -252,6 +381,55 @@ volumeMounts: []
 #   mountPath: "/etc/foo"
 #   readOnly: true
 
+# -- Mount an existing PersistentVolumeClaim into the main container, more information: https://kubernetes.io/docs/concepts/storage/persistent-volumes/
+# The chart does not create PVCs: create the claim first (or let another chart own it), then reference it here.
+# For one volume per pod (databases, stateful middleware) use a StatefulSet-based chart instead.
+# Other containers (`initContainers` / `extraContainers`) can mount the same volume by `persistence.volumeName`.
+persistence:
+  # -- Enable mounting the existing claim
+  enabled: false
+  # -- Name of the existing PVC (supports templates, e.g. `"{{ .Release.Name }}-data"`). Required when enabled.
+  existingClaim: ""
+  # -- Access mode of the existing claim, used for safety checks only. Accepted values: `ReadWriteOnce`, `ReadWriteOncePod`, `ReadWriteMany`, `ReadOnlyMany`.
+  # `ReadWriteOncePod` fails rendering unless the pod count is 1 and `strategy.type=Recreate`;
+  # `ReadWriteOnce` prints a NOTES warning when more than one pod may run or the strategy is RollingUpdate.
+  accessMode: ReadWriteOnce
+  # -- Pod volume name; must not clash with entries in `volumes`
+  volumeName: data
+  # -- Path where the claim is mounted in the main container
+  mountPath: /data
+  # -- Optional sub-path inside the volume to mount
+  subPath: ""
+  # -- Mount the claim read-only
+  readOnly: false
+
+# -- Init containers that run to completion before the main container starts, more information: https://kubernetes.io/docs/concepts/workloads/pods/init-containers/
+# Use for database migrations, waiting for dependencies, or preparing files in a shared volume.
+# Native sidecars (Kubernetes >= 1.29): an init container with `restartPolicy: Always` keeps running alongside the main container
+# and is started before / stopped after it, more information: https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/
+# Rendered as-is (templates allowed); ports, probes and NOTES of the chart keep targeting the main container.
+initContainers: []
+  # - name: migrate
+  #   image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+  #   command: ["/bin/sh", "-c", "yarn run migrate"]
+  # - name: log-shipper # native sidecar
+  #   image: fluent/fluent-bit:3.2
+  #   restartPolicy: Always
+  #   volumeMounts:
+  #     - name: logs
+  #       mountPath: /var/log/app
+
+# -- Additional containers that run next to the main container for the whole pod lifetime (classic sidecars).
+# Prefer a native sidecar in `initContainers` (with `restartPolicy: Always`) when it must start before the app.
+# Rendered as-is (templates allowed); each extra container defines its own ports, probes and resources.
+extraContainers: []
+  # - name: oauth2-proxy
+  #   image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+  #   args: ["--upstream=http://127.0.0.1:3000", "--http-address=0.0.0.0:4180"]
+  #   ports:
+  #     - name: proxy
+  #       containerPort: 4180
+
 # -- Choose your node to deloy application depend on `label`, for more information: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector
 nodeSelector: {}
 
@@ -260,6 +438,49 @@ tolerations: []
 
 # -- Functions like the nodeSelector field but is more expressive and allows you to specify soft rules, for more information: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#affinity-and-anti-affinity
 affinity: {}
+
+# -- Shortcut that spreads the replicas of this release apart with pod anti-affinity against its own pods.
+# `soft`: preferred, the scheduler still co-locates replicas when it has no other choice.
+# `hard`: required, a replica stays `Pending` when no domain is free, so keep `replicaCount` (plus RollingUpdate `maxSurge`)
+# at or below the number of eligible nodes / zones, or use `strategy.rollingUpdate.maxSurge: 0`.
+# Merged into `affinity` (works together with `affinity.nodeAffinity`); cannot be combined with `affinity.podAntiAffinity`.
+podAntiAffinityPreset:
+  # -- Accepted values: `""` (disabled), `soft`, `hard`
+  type: ""
+  # -- Topology domain to spread across, e.g. `kubernetes.io/hostname` (nodes) or `topology.kubernetes.io/zone` (zones)
+  topologyKey: kubernetes.io/hostname
+  # -- Weight of the `soft` preference (1-100)
+  weight: 1
+
+# -- Spread pods across nodes or zones, for more information: https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/
+# When a constraint omits `labelSelector`, the chart's selector labels are used, so pods of this release spread against each other.
+topologySpreadConstraints: []
+  # - maxSkew: 1
+  #   topologyKey: kubernetes.io/hostname
+  #   whenUnsatisfiable: ScheduleAnyway
+  # - maxSkew: 1
+  #   topologyKey: topology.kubernetes.io/zone
+  #   whenUnsatisfiable: DoNotSchedule
+
+# -- Scheduler that places the pods. Leave empty to use the cluster default (`default-scheduler`).
+schedulerName: ""
+
+# -- PriorityClass for the pods; the PriorityClass must already exist in the cluster, for more information: https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/
+priorityClassName: ""
+
+# -- RuntimeClass for the pods, for more information: https://kubernetes.io/docs/concepts/containers/runtime-class/
+# Leave empty to use the node's default container runtime handler (the right choice for most workloads).
+# Set it when the workload needs a specific runtime handler, and the RuntimeClass must already exist in the cluster:
+# 1. GPU via device plugin: use the `nvidia` RuntimeClass (created by the NVIDIA GPU Operator; on K3s/RKE2 the bundled containerd
+#    registers an `nvidia` handler when nvidia-container-runtime is installed, check with `kubectl get runtimeclass`).
+#    Pair it with `resources.limits` (e.g. `nvidia.com/gpu: 1`) and GPU `tolerations` / `nodeSelector`.
+# 2. Sandboxed runtimes such as `gvisor` or `kata`.
+# A RuntimeClass with `scheduling.nodeSelector` / `tolerations` also steers pods onto nodes that have that runtime.
+runtimeClassName: ""
+
+# -- Seconds the pod gets to shut down after SIGTERM (the `lifecycle.preStop` hook counts against it) before it is killed.
+# Leave `null` to use the Kubernetes default (`30`).
+terminationGracePeriodSeconds: null
 
 # -- To add your extra manifest into your applications
 extraManifests: {}

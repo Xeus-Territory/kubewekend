@@ -1,0 +1,84 @@
+# Send traffic for example.com through the egress gateway, with mutual TLS inside the mesh and TLS origination
+# at the exit:
+#
+#   app --HTTP--> sidecar --mTLS (port 80)--> egress gateway --HTTPS (port 443)--> example.com
+#
+#   Gateway         the egress gateway accepts example.com on port 80 and requires mutual TLS from the sidecars
+#                   (tls.mode ISTIO_MUTUAL), so it knows who is calling: AuthorizationPolicy needs that identity
+#   DestinationRule (gateway)  tells sidecars to use mutual TLS towards the gateway
+#   VirtualService  two hops: from the mesh to the gateway, then from the gateway to the real host on port 443
+#   DestinationRule (host)     makes the gateway originate TLS when it connects to example.com:443
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: istio-egressgateway
+  namespace: lab-egress
+spec:
+  selector:
+    istio: egressgateway
+  servers:
+    - port:
+        number: 80
+        name: https-port-for-tls-origination
+        protocol: HTTPS
+      hosts: ["example.com"]
+      tls:
+        mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: egressgateway-for-example
+  namespace: lab-egress
+spec:
+  host: istio-egressgateway.istio-system.svc.cluster.local
+  subsets:
+    - name: example
+      trafficPolicy:
+        portLevelSettings:
+          - port:
+              number: 80
+            tls:
+              mode: ISTIO_MUTUAL
+              sni: example.com
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: example-through-egress
+  namespace: lab-egress
+spec:
+  hosts: ["example.com"]
+  gateways: ["istio-egressgateway", "mesh"]
+  http:
+    - match:
+        - gateways: ["mesh"]
+          port: 80
+      route:
+        - destination:
+            host: istio-egressgateway.istio-system.svc.cluster.local
+            subset: example
+            port:
+              number: 80
+    - match:
+        - gateways: ["istio-egressgateway"]
+          port: 80
+      route:
+        - destination:
+            host: example.com
+            port:
+              number: 443
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: originate-tls-for-example
+  namespace: lab-egress
+spec:
+  host: example.com
+  trafficPolicy:
+    portLevelSettings:
+      - port:
+          number: 443
+        tls:
+          mode: SIMPLE

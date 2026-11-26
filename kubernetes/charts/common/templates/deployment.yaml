@@ -1,4 +1,8 @@
-{{- if and .Values.enabled (eq .Values.deploymentType "deployment") }}
+{{- if and .Values.deploymentType (ne (toString .Values.deploymentType) "deployment") }}
+{{- fail "deploymentType was removed: this chart only renders a Deployment. Use a dedicated chart for StatefulSet or DaemonSet workloads." }}
+{{- end }}
+{{- if .Values.enabled }}
+{{- include "common.persistence.validate" . }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -6,9 +10,26 @@ metadata:
   name: {{ include "common.fullname" . }}
   labels:
     {{- include "common.labels" . | nindent 4 }}
+  {{- with .Values.deploymentAnnotations }}
+  annotations:
+    {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 4 }}
+  {{- end }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  {{- if not (kindIs "invalid" .Values.revisionHistoryLimit) }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit | int }}
+  {{- end }}
+  {{- if not (kindIs "invalid" .Values.minReadySeconds) }}
+  minReadySeconds: {{ .Values.minReadySeconds | int }}
+  {{- end }}
+  {{- with .Values.strategy }}
+  {{- if and (eq (.type | default "") "Recreate") .rollingUpdate }}
+  {{- fail "strategy.rollingUpdate must be empty when strategy.type is Recreate" }}
+  {{- end }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
   {{- end }}
   selector:
     matchLabels:
@@ -36,13 +57,29 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "common.serviceAccountName" . }}
+      {{- with .Values.schedulerName }}
+      schedulerName: {{ . }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.runtimeClassName }}
+      runtimeClassName: {{ . }}
+      {{- end }}
+      {{- if not (kindIs "invalid" .Values.terminationGracePeriodSeconds) }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds | int }}
+      {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.initContainers }}
+      initContainers:
+        {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 8 }}
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "common.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- if .Values.command }}
           command: {{- include "common.tplvalues.render" (dict "value" .Values.command "context" $) | nindent 12 }}
@@ -71,26 +108,65 @@ spec:
           {{- else -}}
           {{- include "common.probes" . | nindent 10 }}
           {{- end }}
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-          {{- with .Values.volumeMounts }}
-          volumeMounts:
+          {{- with .Values.lifecycle }}
+          lifecycle:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- with .Values.volumes }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if or .Values.volumeMounts .Values.persistence.enabled }}
+          volumeMounts:
+            {{- with .Values.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- if .Values.persistence.enabled }}
+            - name: {{ .Values.persistence.volumeName }}
+              mountPath: {{ .Values.persistence.mountPath }}
+              {{- with .Values.persistence.subPath }}
+              subPath: {{ . }}
+              {{- end }}
+              {{- if .Values.persistence.readOnly }}
+              readOnly: true
+              {{- end }}
+            {{- end }}
+          {{- end }}
+        {{- with .Values.extraContainers }}
+        {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 8 }}
+        {{- end }}
+      {{- if or .Values.volumes .Values.persistence.enabled }}
       volumes:
+        {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if .Values.persistence.enabled }}
+        - name: {{ .Values.persistence.volumeName }}
+          persistentVolumeClaim:
+            claimName: {{ tpl .Values.persistence.existingClaim $ }}
+            {{- if .Values.persistence.readOnly }}
+            readOnly: true
+            {{- end }}
+        {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.affinity }}
+      {{- with include "common.affinity" . }}
       affinity:
-        {{- toYaml . | nindent 8 }}
+        {{- . | nindent 8 }}
       {{- end }}
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- range . }}
+        {{- $constraint := deepCopy . }}
+        {{- if not (hasKey $constraint "labelSelector") }}
+        {{- $_ := set $constraint "labelSelector" (dict "matchLabels" (include "common.selectorLabels" $ | fromYaml)) }}
+        {{- end }}
+        - {{ toYaml $constraint | nindent 10 | trim }}
+        {{- end }}
       {{- end }}
 {{- end }}

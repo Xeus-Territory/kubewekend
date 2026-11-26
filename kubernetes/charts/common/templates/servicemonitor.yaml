@@ -1,0 +1,44 @@
+{{- if .Values.serviceMonitor.enabled }}
+{{- $monitor := .Values.serviceMonitor }}
+{{- if not .Values.service.enabled }}
+{{- fail "serviceMonitor.enabled requires service.enabled=true (use podMonitor to scrape pods without a Service)" }}
+{{- end }}
+{{- if eq .Values.service.type "ExternalName" }}
+{{- fail "serviceMonitor cannot scrape an ExternalName Service; use podMonitor instead" }}
+{{- end }}
+{{- $portNames := list }}
+{{- range (include "common.servicePorts.render" . | fromYamlArray) }}
+{{- $portNames = append $portNames .name }}
+{{- end }}
+{{- if not (has $monitor.port $portNames) }}
+{{- fail (printf "serviceMonitor.port %q is not a Service port name (available: %s)" $monitor.port (join ", " $portNames | default "none")) }}
+{{- end }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "common.fullname" . }}
+  {{- with $monitor.namespace }}
+  namespace: {{ . }}
+  {{- end }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    {{- with $monitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $monitor.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "common.selectorLabels" . | nindent 6 }}
+  {{- if and $monitor.namespace (ne $monitor.namespace .Release.Namespace) }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  {{- end }}
+  endpoints:
+    - {{ include "common.monitor.endpoint" $monitor | nindent 6 | trim }}
+{{- end }}

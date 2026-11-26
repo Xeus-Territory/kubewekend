@@ -1,9 +1,9 @@
 apiVersion: v2
 name: common
-description: A Helm chart for Kubewekend's application
+description: A Helm chart for standard application, rendered as a Deployment powered by Kubewekend
 type: application
-version: 0.3.2
-home: https://github.com/xeusnguyen/kubewekend
+version: 0.4.0
+home: https://github.com/Xeus-Territory/kubewekend
 keywords:
   - kubewekend
   - application

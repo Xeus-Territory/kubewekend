@@ -1,0 +1,24 @@
+# Lab 4: an Application created on the HUB that runs on the SPOKE.
+# `destination.name` is the name of the agent (the cluster Argo CD knows it by), not a Kubernetes API address.
+# The spoke's Argo CD receives this Application with `destination.name` rewritten to `in-cluster`.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: guestbook
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/argoproj/argocd-example-apps
+    targetRevision: HEAD
+    path: guestbook
+  destination:
+    name: spoke-1
+    namespace: guestbook
+  syncPolicy:
+    # prune + selfHeal: anything that drifts on the spoke is put back or removed
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,12 @@
+# Istio for cluster "west": sidecar mode, its own control plane (multi-primary), on network2.
+#   istioctl install --context kind-west -f west-istio.yaml --skip-confirmation
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+spec:
+  profile: minimal
+  values:
+    global:
+      meshID: mesh1
+      multiCluster:
+        clusterName: west
+      network: network2

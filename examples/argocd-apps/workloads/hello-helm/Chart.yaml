@@ -1,0 +1,10 @@
+apiVersion: v2
+name: hello-helm
+description: Hello world todo app deployed with the Kubewekend common chart (Argo CD lab, Helm workload)
+type: application
+version: 1.0.0
+dependencies:
+  - name: common
+    version: 0.4.0
+    repository: "https://kubewekend.xeusnguyen.xyz"
+    condition: common.enabled

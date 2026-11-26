@@ -1,0 +1,28 @@
+{{- if and .Values.httpRoute.enabled .Values.service.enabled -}}
+{{- $fullName := include "common.fullname" . -}}
+{{- $svcPort := include "common.service.primaryPort" . | int -}}
+{{- $rules := .Values.httpRoute.rules | default (list dict) -}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+  {{- with .Values.httpRoute.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs:
+    {{- toYaml (required "httpRoute.parentRefs is required when httpRoute.enabled is true" .Values.httpRoute.parentRefs) | nindent 4 }}
+  {{- with .Values.httpRoute.hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range $rules }}
+    {{- $rule := omit . "backendRefs" }}
+    {{- $_ := set $rule "backendRefs" (default (list (dict "name" $fullName "port" $svcPort "weight" 1)) .backendRefs) }}
+    - {{ toYaml $rule | nindent 6 | trim }}
+    {{- end }}
+{{- end }}

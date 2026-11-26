@@ -1,0 +1,42 @@
+# Lab 2, case study 2: an `ApplicationSet`.
+# One template + one generator = many Applications. The Git directory generator creates one Application for
+# every folder under workloads/hello-kustomize/overlays/ (dev, prod today).
+# Add a folder `overlays/staging` in Git and an Application `hello-kustomize-staging` appears; delete it and it goes away.
+# Use it when the same thing is deployed many times (environments, clusters, teams, pull requests).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: hello-kustomize
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: "https://github.com/Xeus-Territory/kubewekend"
+        revision: HEAD
+        directories:
+          - path: "examples/argocd-apps/workloads/hello-kustomize/overlays/*"
+  template:
+    metadata:
+      # dev -> hello-kustomize-dev, prod -> hello-kustomize-prod
+      name: "hello-kustomize-{{ .path.basename }}"
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: apps
+      source:
+        repoURL: "https://github.com/Xeus-Territory/kubewekend"
+        targetRevision: HEAD
+        path: "{{ .path.path }}"
+      destination:
+        server: "https://kubernetes.default.svc"
+        namespace: "hello-{{ .path.basename }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

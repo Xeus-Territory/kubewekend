@@ -1,0 +1,22 @@
+# Locality-aware load balancing: prefer endpoints in the caller's own region and fail over to the other cluster
+# only when local endpoints are unhealthy or gone. outlierDetection is required: it is how Istio decides an
+# endpoint is unhealthy. Apply it in both clusters.
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: helloworld
+  namespace: sample
+spec:
+  host: helloworld.sample.svc.cluster.local
+  trafficPolicy:
+    connectionPool:
+      http:
+        maxRequestsPerConnection: 1
+    loadBalancer:
+      simple: ROUND_ROBIN
+      localityLbSetting:
+        enabled: true
+    outlierDetection:
+      consecutive5xxErrors: 1
+      interval: 1s
+      baseEjectionTime: 1m

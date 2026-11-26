@@ -1,0 +1,3 @@
+kustomize:
+  images:
+  - xeusnguyen/kubewekend-todo=xeusnguyen/kubewekend-todo:v1.1.0

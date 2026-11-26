@@ -1,0 +1,13 @@
+# Istio for cluster "east": sidecar mode, its own control plane (multi-primary), on network1.
+# Same meshID in both clusters (one mesh), a different clusterName and network in each.
+#   istioctl install --context kind-east -f east-istio.yaml --skip-confirmation
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+spec:
+  profile: minimal
+  values:
+    global:
+      meshID: mesh1
+      multiCluster:
+        clusterName: east
+      network: network1

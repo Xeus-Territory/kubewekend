@@ -9,3 +9,4 @@ k3s_token.txt
 rke2_token.txt
 hosts
 kubewekend-ca.crt
+.claude

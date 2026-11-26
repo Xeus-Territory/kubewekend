@@ -1,0 +1,29 @@
+# helloworld v2: the second version of Istio's sample app, answers "Hello version: v2, instance: <pod>" on /hello.
+# See helloworld-v1.values.yaml for how the two releases fit together.
+# Install:  ./deploy.sh <namespace> helloworld-v1 helloworld-v2
+fullnameOverride: helloworld-v2
+
+image:
+  repository: istio/examples-helloworld-v2
+  tag: "1.0"
+
+containerPorts:
+  - name: http
+    containerPort: 5000
+    protocol: TCP
+
+service:
+  port: 5000
+  targetPort: http
+
+probes:
+  path: /hello
+
+podLabels:
+  app: helloworld
+  version: v2
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi

@@ -1,0 +1,30 @@
+# helloworld v1: Istio's sample app, answers "Hello version: v1, instance: <pod>" on /hello.
+# Two releases (v1 and v2) give two Deployments and two Services (helloworld-v1, helloworld-v2). Their pods share
+# the label app=helloworld, so a Service that selects app=helloworld reaches both versions (lab 03).
+# Install:  ./deploy.sh <namespace> helloworld-v1 helloworld-v2
+fullnameOverride: helloworld-v1
+
+image:
+  repository: istio/examples-helloworld-v1
+  tag: "1.0"
+
+containerPorts:
+  - name: http
+    containerPort: 5000
+    protocol: TCP
+
+service:
+  port: 5000
+  targetPort: http
+
+probes:
+  path: /hello
+
+podLabels:
+  app: helloworld
+  version: v1
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi

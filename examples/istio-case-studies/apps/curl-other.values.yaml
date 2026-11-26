@@ -1,0 +1,23 @@
+# curl-other: a second client with its own identity (ServiceAccount "curl-other"). Lab 02 uses it to show that
+# authorization policies decide by who is calling, not just by what is called.
+# Install:  ./deploy.sh <namespace> curl-other
+fullnameOverride: curl-other
+
+image:
+  repository: curlimages/curl
+  tag: "8.23.0"
+
+command: ["/bin/sleep", "3650d"]
+
+service:
+  enabled: false
+probes:
+  disableProbes: ["all"]
+
+podLabels:
+  app: curl-other
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 16Mi

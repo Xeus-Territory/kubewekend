@@ -8,3 +8,16 @@ repos:
           # Make the tool search for charts only under the `charts` directory
           - --chart-search-root=kubernetes/charts
           - --template-files=README.md.gotmpl
+
+  # Validate pinned versions (every registry entry found, one version each) and regenerate the
+  # "Versions" tables in README.md and docs/reference/versions.md from VERSION_REGISTRY in scripts/setup.sh.
+  # When the tables change the hook rewrites the files and pre-commit fails once, like helm-docs: review,
+  # stage and commit again.
+  - repo: local
+    hooks:
+      - id: kubewekend-versions-sync
+        name: Sync README.md / docs Versions tables
+        entry: ./scripts/setup.sh versions sync
+        language: system
+        pass_filenames: false
+        files: ^(ansible/|kubernetes/charts/[^/]+/Chart\.yaml$|examples/|\.github/workflows/|\.pre-commit-config\.yaml$|_config\.yml$|requirements\.txt$|README\.md$|docs/reference/versions\.md$|scripts/setup\.sh$)

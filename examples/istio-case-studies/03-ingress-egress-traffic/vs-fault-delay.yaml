@@ -1,0 +1,21 @@
+# Fault injection: the caller's sidecar delays half of the requests by 3 seconds before forwarding them. Use it to
+# see how a client behaves when a dependency is slow, without touching the dependency.
+# (The delay is injected before the route's timeout starts counting, so it is not cut short by a `timeout`: test
+# timeouts against a genuinely slow upstream, see vs-timeout-httpbin.yaml.)
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: helloworld
+  namespace: lab-traffic
+spec:
+  hosts: ["helloworld"]
+  http:
+    - fault:
+        delay:
+          percentage:
+            value: 50
+          fixedDelay: 3s
+      route:
+        - destination:
+            host: helloworld
+            subset: v1

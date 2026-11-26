@@ -1,0 +1,15 @@
+# "Break it": a pod that opts out of the mesh (no sidecar). It is not subject to REGISTRY_ONLY, the ServiceEntry,
+# the egress gateway or its AuthorizationPolicy: all of those are enforced by the sidecar, which this pod does not
+# have. The egress gateway is a routing and audit point, not a wall.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bypass
+  namespace: lab-egress
+  annotations:
+    sidecar.istio.io/inject: "false"
+spec:
+  containers:
+    - name: curl
+      image: curlimages/curl:8.23.0
+      command: ["/bin/sleep", "3650d"]

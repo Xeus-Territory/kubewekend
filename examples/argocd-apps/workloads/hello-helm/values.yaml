@@ -1,0 +1,66 @@
+# Values for the `common` chart (a dependency, so everything sits under the `common:` key).
+# Argo CD Image Updater (lab 3) rewrites `common.image.tag` in this file and commits the change to Git.
+common:
+  enabled: true
+  fullnameOverride: hello-helm
+  replicaCount: 1
+
+  image:
+    repository: xeusnguyen/kubewekend-todo
+    pullPolicy: IfNotPresent
+    tag: "v1.0.0"
+
+  containerPorts:
+    - name: http
+      containerPort: 3000
+      protocol: TCP
+
+  service:
+    enabled: true
+    type: ClusterIP
+    port: 80
+    targetPort: http
+
+  ingress:
+    enabled: true
+    className: traefik
+    hosts:
+      - host: hello-helm.kubewekend.local
+        paths:
+          - path: /
+            pathType: Prefix
+
+  # The app writes its SQLite file to /data (an emptyDir: data lives as long as the Pod)
+  volumes:
+    - name: data
+      emptyDir: {}
+  volumeMounts:
+    - name: data
+      mountPath: /data
+
+  podSecurityContext:
+    fsGroup: 1000
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+
+  probes:
+    path: /version
+    port: http
+    initialDelaySeconds: 5
+    readinessProbe:
+      initialDelaySeconds: 5
+      periodSeconds: 10
+    livenessProbe:
+      initialDelaySeconds: 10
+      periodSeconds: 20
+    startupProbe:
+      initialDelaySeconds: 2
+      periodSeconds: 3
+
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      memory: 128Mi

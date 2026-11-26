@@ -1,0 +1,12 @@
+# Add an egress gateway (a dedicated Envoy for outbound traffic) to the ambient installation from lab 00.
+# Re-applying the same profile keeps istiod, the CNI and ztunnel and adds the gateway:
+#   istioctl install -f egress-gateway-install.yaml --skip-confirmation
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+spec:
+  profile: ambient
+  components:
+    egressGateways:
+      - name: istio-egressgateway
+        namespace: istio-system
+        enabled: true

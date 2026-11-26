@@ -447,7 +447,7 @@
           ansible.builtin.shell: |
             helm repo add cilium https://helm.cilium.io/
             helm repo update
-            helm upgrade --install cilium cilium/cilium --version 1.18.5 --wait \
+            helm upgrade --install cilium cilium/cilium --version 1.20.5 --wait \
               --namespace kube-system \
               --set operator.replicas=1 \
               --set hubble.enabled=true \
@@ -463,6 +463,7 @@
           when: k3sCluster.cni.type == "cilium"
 
     - name: Setup Traefik on HA Cluster
+      when: k3sCluster.ingress.enable | default(true)
       block:
         - name: Install Traefik Ingress Controller
           tags: setup_k3s
@@ -470,10 +471,14 @@
           ansible.builtin.shell: |-
             helm repo add traefik https://helm.traefik.io/traefik
             helm repo update
-            helm upgrade --install traefik traefik/traefik --namespace kube-system --version 38.0.0 --wait \
+            helm upgrade --install traefik traefik/traefik --namespace kube-system --version 42.0.0 --wait \
               --reuse-values \
               --set providers.kubernetesGateway.enabled=false \
-              --set gateway.enabled=false
+              --set gateway.enabled=false \
+              --set ingressRoute.dashboard.enabled=false \
+              --set ports.web.port={{ k3sCluster.ingress.traefik.ports.web }} \
+              --set ports.websecure.port={{ k3sCluster.ingress.traefik.ports.websecure }} \
+              --set providers.kubernetesCRD.allowCrossNamespace={{ k3sCluster.ingress.traefik.allowCrossNamespace | ternary('true', 'false') }}
           register: traefik_log
           changed_when: false
 
@@ -485,15 +490,15 @@
 
         - name: Setup Traefik Dashboard
           tags: setup_k3s
-          when: k3sCluster.ingress.dashboard.enable | default(false) and k3sCluster.ingress.class | default('traefik') == 'traefik'
+          when: k3sCluster.ingress.traefik.dashboard.enable | default(false) and k3sCluster.ingress.class | default('traefik') == 'traefik'
           vars:
-            dashboard_host: "{{ k3sCluster.ingress.dashboard.host | default('dashboard.traefik.local') }}"
+            dashboard_host: "{{ k3sCluster.ingress.traefik.dashboard.host | default('dashboard.traefik.local') }}"
           ansible.builtin.shell: |-
-            helm upgrade --install traefik traefik/traefik --namespace kube-system --version 38.0.0 --wait \
+            helm upgrade --install traefik traefik/traefik --namespace kube-system --version 42.0.0 --wait \
               --reuse-values \
               --set ingressRoute.dashboard.enabled=true \
               --set ingressRoute.dashboard.matchRule='Host(`{{ dashboard_host }}`)' \
-              --set ingressRoute.dashboard.entryPoints={web} \
+              --set ingressRoute.dashboard.entryPoints={web}
           register: traefik_dashboard_log
           changed_when: false
 
@@ -501,16 +506,31 @@
           tags: setup_k3s
           ansible.builtin.debug:
             msg: "{{ traefik_dashboard_log.stdout_lines }}"
-          when: k3sCluster.ingress.dashboard.enable | default(false) and k3sCluster.ingress.class | default('traefik') == 'traefik'
+          when: k3sCluster.ingress.traefik.dashboard.enable | default(false) and k3sCluster.ingress.class | default('traefik') == 'traefik'
+
+        - name: Setup Gateway API CRDs for K3s Cluster
+          tags: setup_k3s
+          when: k3sCluster.ingress.traefik.gateway.enable | default(false) and k3sCluster.ingress.traefik.gateway.crd.install | default(false)
+          ansible.builtin.shell: |-
+              kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-sigs/gateway-api/releases/download/{{ k3sCluster.ingress.traefik.gateway.crd.version }}/standard-install.yaml
+          register: gatewayapi_log
+          changed_when: false
+
+        - name: Log the results of Install GatewayAPI CRDs for K3s Cluster
+          tags: setup_kind
+          ansible.builtin.debug:
+            msg: "{{ gatewayapi_log.stdout_lines }}"
+          when: k3sCluster.ingress.traefik.gateway.enable | default(false) and k3sCluster.ingress.traefik.gateway.crd.install | default(false)           
 
         - name: Setup Traefik Gateway
           tags: setup_k3s
-          when: k3sCluster.ingress.gateway.enable | default(false) and k3sCluster.ingress.class | default('traefik') == 'traefik'
+          when: k3sCluster.ingress.traefik.gateway.enable | default(false) and k3sCluster.ingress.class | default('traefik') == 'traefik'
           ansible.builtin.shell: |-
-            helm upgrade --install traefik traefik/traefik --namespace kube-system --version 38.0.0 --wait \
+            helm upgrade --install traefik traefik/traefik --namespace kube-system --version 42.0.0 --wait \
               --reuse-values \
               --set providers.kubernetesGateway.enabled=true \
-              --set gateway.enabled=true
+              --set gateway.enabled=true \
+              --set gateway.listeners.web.namespacePolicy.from=All
           register: traefik_gateway_log
           changed_when: false
 
@@ -518,4 +538,4 @@
           tags: setup_k3s
           ansible.builtin.debug:
             msg: "{{ traefik_gateway_log.stdout_lines }}"
-          when: k3sCluster.ingress.gateway.enable | default(false) and k3sCluster.ingress.class | default('traefik') == 'traefik'
+          when: k3sCluster.ingress.traefik.gateway.enable | default(false) and k3sCluster.ingress.class | default('traefik') == 'traefik'

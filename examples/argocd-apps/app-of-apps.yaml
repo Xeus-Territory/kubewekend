@@ -1,0 +1,30 @@
+# The ONE manifest you apply by hand. Everything else is created from Git by this Application (App of Apps pattern):
+#   app-of-apps/projects/        AppProjects             (sync wave -1)
+#   app-of-apps/infrastructure/  Argo CD manages itself  (sync wave 0)
+#   app-of-apps/platform/        cert-manager            (sync wave 1)
+#   app-of-apps/apps/            hello-helm, hello-kustomize (sync wave 2)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app-of-apps
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  # `default` exists from the first minute; the AppProjects below are created by this Application itself
+  project: default
+  source:
+    repoURL: "https://github.com/Xeus-Territory/kubewekend"
+    targetRevision: HEAD
+    path: "examples/argocd-apps/app-of-apps"
+    directory:
+      recurse: true
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

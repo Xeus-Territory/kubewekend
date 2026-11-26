@@ -1,7 +1,297 @@
-remote_theme: pages-themes/primer@v0.6.0
+# Kubewekend documentation site (GitHub Pages, built by .github/workflows/gh-page.yaml from the gh-pages branch).
+# Theme: Just the Docs (https://just-the-docs.com), loaded as a remote theme, so no extra build tooling is needed.
+# Local preview: bundle exec jekyll serve, then open http://127.0.0.1:4000
+remote_theme: just-the-docs/just-the-docs@v0.10.1
 plugins:
   - jemoji
   - jekyll-remote-theme
+  - jekyll-seo-tag     # <title>, description, canonical URL, Open Graph / Twitter tags, JSON-LD
+  - jekyll-sitemap     # /sitemap.xml and /robots.txt
 
-title: Kubewekend - The K8s Playground On The Weekend
-description: A simple Kubernetes cluster deployment for learning and testing purposes
+title: Kubewekend
+tagline: The Kubernetes playground on the weekend
+description: >-
+  The Kubernetes playground on the weekend: Kind, K3s and RKE2 clusters with Vagrant, Ansible and one CLI,
+  plus ready-to-test utilities for ingress, storage, secrets, GitOps, security, monitoring and service mesh.
+url: https://kubewekend.xeusnguyen.xyz
+repo_url: https://github.com/Xeus-Territory/kubewekend
+logo: /assets/images/kubewekend-logo.png
+lang: en
+
+# ---- SEO (jekyll-seo-tag) ----------------------------------------------------------------------------
+# Share image for every page (Open Graph / Twitter): the 1200x630 social card, set in `defaults` below.
+# It is a cropped (1200x630), compressed export of the Kubewekend artwork; replace the file when the artwork
+# changes. Each page sets its own `description:` in front matter.
+twitter:
+  card: summary_large_image
+social:
+  name: Kubewekend
+  links:
+    - https://github.com/Xeus-Territory/kubewekend
+# Google Search Console: paste the verification code, or verify the domain with a DNS TXT record instead
+# webmaster_verifications:
+#   google: <verification-code>
+
+# Look and feel (palette from the Kubewekend icon: navy badge, yellow helmet, Kubernetes blue)
+color_scheme: kubewekend
+heading_anchors: true
+back_to_top: true
+back_to_top_text: Back to top
+search_enabled: true
+search:
+  heading_level: 3
+  previews: 2
+  button: false
+
+# Render ```mermaid code blocks as diagrams (the same blocks render natively on github.com)
+mermaid:
+  version: "10.9.1"
+
+aux_links:
+  GitHub:
+    - https://github.com/Xeus-Territory/kubewekend
+aux_links_new_tab: true
+
+# "Edit this page on GitHub" at the bottom of every page
+gh_edit_link: true
+gh_edit_link_text: Edit this page on GitHub
+gh_edit_repository: https://github.com/Xeus-Territory/kubewekend
+gh_edit_branch: main
+gh_edit_view_mode: edit
+footer_content: >-
+  Kubewekend is a learning and lab project: it is not hardened for production.
+  Charts are served from this site: <code>helm repo add kubewekend https://kubewekend.xeusnguyen.xyz</code>
+
+# Only the documentation pages are rendered as pages. Everything else stays a static file, which keeps
+# index.yaml (the Helm chart repository index, added to gh-pages by chart-releaser) served as-is.
+# Playbooks, chart templates and manifests are excluded: they start with `---`, so Jekyll would run Liquid over
+# their {{ }} expressions. Jekyll 3 (GitHub Pages) cannot turn Liquid off per page, so READMEs that show Helm /
+# Argo CD templates (common chart, argocd-apps) are linked on GitHub instead of rendered here.
+exclude:
+  - README.md          # the GitHub landing page; the site home is index.md
+  - .github/
+  - .vagrant/
+  - .claude/
+  - _site/
+  - vendor/
+  - Gemfile
+  - Gemfile.lock
+  - template.env
+  - Vagrantfile
+  - ansible.cfg
+  - requirements.txt
+  - ansible/
+  - scripts/legacy/
+  - scripts/setup.sh
+  - kubernetes/charts/common/
+  - kubernetes/charts/pinniped/templates/
+  - kubernetes/charts/pinniped/*.yaml
+  - examples/argocd-apps/README.md
+  - examples/argocd-apps/app-of-apps.yaml
+  - examples/argocd-apps/app-of-apps/
+  - examples/argocd-apps/manifests/
+  - examples/argocd-apps/workloads/
+  - examples/argocd-apps/app/
+  - examples/argocd-apps/archives/
+  - examples/lgtm-testing/backend/
+  - examples/lgtm-testing/frontend/
+  - examples/lgtm-testing/k8s/
+  - examples/lgtm-testing/*.yaml
+
+defaults:
+  # Hidden from the sidebar and search unless a more specific scope below opts the page in
+  - scope:
+      path: ""
+    values:
+      nav_exclude: true
+      search_exclude: true
+      image:
+        path: /assets/images/kubewekend-social-card.jpg
+        width: 1200
+        height: 630
+  - scope:
+      path: "docs"
+    values:
+      nav_exclude: false
+      search_exclude: false
+  # Existing READMEs are rendered in place (single source of truth, they keep working on GitHub)
+  - scope:
+      path: "scripts/README.md"
+    values:
+      title: setup.sh CLI
+      description: "Every Kubewekend setup.sh command: env, vagrant, inventory, kind, k3s, rke2, network, config, versions and quickstart, with workflow examples."
+      parent: Reference
+      nav_order: 1
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/lgtm-testing/README.md"
+    values:
+      title: LGTM observability app
+      description: "A FastAPI and PostgreSQL demo app that sends traces, logs and profiles to Grafana Tempo, Loki and Pyroscope through Alloy on Kubernetes."
+      parent: Examples
+      nav_order: 1
+      nav_exclude: false
+      search_exclude: false
+  # Istio case studies: the overview is a parent page, every lab and note is a child of it
+  - scope:
+      path: "examples/istio-case-studies/README.md"
+    values:
+      title: Istio case studies
+      description: "Hands-on Istio labs on Kind: sidecar vs ambient, mTLS and authorization, ingress and egress gateways, and a two-cluster multi-network mesh."
+      parent: Examples
+      has_children: true
+      nav_order: 2
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/istio-case-studies/00-platform/README.md"
+    values:
+      title: 00 Platform
+      description: "Prepare Kind, load balancer addresses and Istio in the ambient profile for the Istio labs."
+      parent: Istio case studies
+      grand_parent: Examples
+      nav_order: 1
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/istio-case-studies/01-sidecar-vs-ambient/README.md"
+    values:
+      title: 01 Sidecar vs Ambient
+      description: "Compare Istio's sidecar and ambient data planes: pods, metrics, memory, waypoints and migration."
+      parent: Istio case studies
+      grand_parent: Examples
+      nav_order: 2
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/istio-case-studies/02-mtls-and-policies/README.md"
+    values:
+      title: 02 mTLS and Policies
+      description: "Strict mTLS, workload identity and authorization in Istio, and where each rule is enforced: sidecar, ztunnel or waypoint."
+      parent: Istio case studies
+      grand_parent: Examples
+      nav_order: 3
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/istio-case-studies/03-ingress-egress-traffic/README.md"
+    values:
+      title: 03 Ingress and Egress
+      description: "Istio traffic management: Gateway API ingress, canaries, TLS, timeouts, retries, circuit breaking, mirroring and egress control."
+      parent: Istio case studies
+      grand_parent: Examples
+      nav_order: 4
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/istio-case-studies/04-multicluster-multinetwork/README.md"
+    values:
+      title: 04 Multi-cluster
+      description: "Build one Istio mesh across two Kind clusters on separate networks, with east-west gateways, locality failover and remote secrets."
+      parent: Istio case studies
+      grand_parent: Examples
+      nav_order: 5
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/istio-case-studies/05-observability-debug.md"
+    values:
+      title: 05 Observability and debugging
+      description: "Istio metrics, access logs, traces and the debug toolkit, with ideas to extend on a Prometheus, Grafana, Loki and Tempo stack."
+      parent: Istio case studies
+      grand_parent: Examples
+      nav_order: 6
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/istio-case-studies/06-operations.md"
+    values:
+      title: 06 Operations
+      description: "Istio day-two topics to explore: revision upgrades, scoping proxy configuration, pod lifecycle and extending Envoy."
+      parent: Istio case studies
+      grand_parent: Examples
+      nav_order: 7
+      nav_exclude: false
+      search_exclude: false
+  # Argo CD labs: the overview is a parent page, every lab is a child of it
+  - scope:
+      path: "examples/argocd-apps/labs/README.md"
+    values:
+      title: Argo CD labs
+      description: "Hands-on Argo CD labs on Kind: App of Apps and AppProjects, Application vs ApplicationSet, Image Updater, argocd-agent, and PKI and mTLS with OpenSSL."
+      parent: Examples
+      has_children: true
+      nav_order: 3
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/argocd-apps/labs/00-platform/README.md"
+    values:
+      title: 00 Platform
+      description: "Prepare a one-node Kind cluster with Traefik for the Argo CD labs, and optionally point the manifests at your fork."
+      parent: Argo CD labs
+      grand_parent: Examples
+      nav_order: 1
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/argocd-apps/labs/01-bootstrap-multi-tenancy/README.md"
+    values:
+      title: 01 Bootstrap and multi-tenancy
+      description: "Build a cluster from one manifest with Argo CD's App of Apps pattern and sync waves, and fence applications into AppProjects."
+      parent: Argo CD labs
+      grand_parent: Examples
+      nav_order: 2
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/argocd-apps/labs/02-application-vs-applicationset/README.md"
+    values:
+      title: 02 Application vs ApplicationSet
+      description: "Deploy the same app with a hand-written Application and with an ApplicationSet that generates one Application per Kustomize overlay."
+      parent: Argo CD labs
+      grand_parent: Examples
+      nav_order: 3
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/argocd-apps/labs/03-image-updater/README.md"
+    values:
+      title: 03 Image Updater
+      description: "Argo CD Image Updater 1.x commits new image tags to Git for a Helm app and a Kustomize app, so a new image rolls out with no human step."
+      parent: Argo CD labs
+      grand_parent: Examples
+      nav_order: 4
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/argocd-apps/labs/04-argocd-agent/README.md"
+    values:
+      title: 04 argocd-agent
+      description: "Manage a second Kind cluster from a hub over an outbound-only connection with argocd-agent: managed mode, live data and outage behaviour."
+      parent: Argo CD labs
+      grand_parent: Examples
+      nav_order: 5
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "examples/argocd-apps/labs/05-pki-mtls/README.md"
+    values:
+      title: 05 PKI and mTLS
+      description: "Build a certificate authority, a server certificate and a client certificate with OpenSSL, connect with mTLS, and break each piece on purpose."
+      parent: Argo CD labs
+      grand_parent: Examples
+      nav_order: 6
+      nav_exclude: false
+      search_exclude: false
+  - scope:
+      path: "kubernetes/charts/pinniped/README.md"
+    values:
+      title: pinniped
+      description: "Helm chart for Pinniped Supervisor and Concierge: Kubernetes authentication through an impersonation proxy."
+      parent: Helm charts
+      grand_parent: Reference
+      nav_order: 2
+      nav_exclude: false
+      search_exclude: false

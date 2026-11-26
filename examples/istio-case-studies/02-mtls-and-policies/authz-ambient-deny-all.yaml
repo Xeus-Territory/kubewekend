@@ -1,0 +1,7 @@
+# Deny everything in lab-ambient by default (same idea as in lab-sidecar).
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-all
+  namespace: lab-ambient
+spec: {}

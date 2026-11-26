@@ -1,0 +1,205 @@
+// Kubewekend site styles on top of Just the Docs (loaded after the theme, once per colour scheme).
+// Colours come from the scheme files (_sass/color_schemes/kubewekend*.scss); the defaults below only apply
+// when the theme compiles its own light / dark stylesheets.
+$kw-heading: #1e3a6e !default;
+$kw-muted: $grey-dk-100 !default;
+$kw-card-bg: $body-background-color !default;
+$kw-card-accent: #1e3a6e !default;
+$kw-card-hover: #f4c430 !default;
+$kw-step-bg: #1e3a6e !default;
+$kw-step-fg: #f4c430 !default;
+
+// ---- Reading size ----------------------------------------------------------
+// The theme reads small (16px body, code at 0.75em ≈ 12px, 14px tables). Sizes below are relative to the
+// root font size, which the theme sets to 14px on phones and 16px from 500px wide, so both scale together.
+.main-content {
+  font-size: 1.125rem;          // 18px desktop, ~15.75px phone
+  line-height: 1.65;
+
+  code {
+    font-size: 0.85em;          // inline code ~15px
+  }
+
+  pre code,
+  pre.highlight code {
+    font-size: 0.8em;           // code blocks ~14.4px
+    line-height: 1.55;
+  }
+
+  th,
+  td {
+    font-size: 1rem !important; // tables 16px (theme: 14px)
+    line-height: 1.5;
+  }
+
+  // Keep small headings at least as large as the body text
+  h4 {
+    font-size: 1.15rem !important;
+  }
+
+  h5,
+  h6 {
+    font-size: 1.05rem !important;
+  }
+}
+
+// ---- Home page hero -------------------------------------------------------
+.kw-hero {
+  display: flex;
+  gap: 2rem;
+  align-items: center;
+  padding: 1.5rem 0 1rem;
+
+  img {
+    width: 140px;
+    height: 140px;
+    flex-shrink: 0;
+  }
+
+  h1 {
+    margin-top: 0;
+    color: $kw-heading;
+  }
+
+  .kw-tagline {
+    font-size: 1.3rem;
+    color: $kw-muted;
+    margin-bottom: 1rem;
+  }
+
+  @media (max-width: 640px) {
+    flex-direction: column;
+    text-align: center;
+
+    img {
+      width: 110px;
+      height: 110px;
+    }
+  }
+}
+
+// ---- Cards (home page "what you get" / "pick your path") -------------------
+.kw-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0 1.5rem;
+}
+
+.kw-card {
+  display: block;
+  padding: 1rem 1.1rem;
+  border: 1px solid $border-color;
+  border-top: 3px solid $kw-card-accent;
+  border-radius: 6px;
+  background: $kw-card-bg;
+  color: inherit;
+  text-decoration: none;
+
+  &:hover {
+    border-top-color: $kw-card-hover;
+    text-decoration: none;
+    box-shadow: 0 2px 8px rgba(30, 58, 110, 0.12);
+  }
+
+  strong {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: $kw-heading;
+  }
+
+  span {
+    font-size: 1rem;
+    color: $kw-muted;
+  }
+}
+
+// ---- Numbered steps (getting started flow) ---------------------------------
+.kw-steps {
+  counter-reset: kw-step;
+  list-style: none;
+  padding-left: 0;
+
+  > li {
+    counter-increment: kw-step;
+    position: relative;
+    padding-left: 2.6rem;
+    margin-bottom: 0.9rem;
+
+    &::before {
+      content: counter(kw-step);
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1.8rem;
+      height: 1.8rem;
+      line-height: 1.8rem;
+      text-align: center;
+      border-radius: 50%;
+      background: $kw-step-bg;
+      color: $kw-step-fg;
+      font-weight: 600;
+    }
+  }
+}
+
+// Status labels used in tables (supported / in development / archived)
+.label-kw-dev {
+  background-color: #f4c430 !important;
+  color: #1e3a6e !important;
+}
+
+// ---- Light / dark switch (button in _includes/header_custom.html) ----------
+.kw-theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin-right: 0.5rem;
+  padding: 0;
+  border: 1px solid $border-color;
+  border-radius: 50%;
+  background: transparent;
+  color: $body-text-color;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    color: $link-color;
+    border-color: $link-color;
+  }
+
+  svg {
+    width: 1.1rem;
+    height: 1.1rem;
+    fill: currentColor;
+  }
+
+  // Show the mode you would switch to: a moon in light mode, a sun in dark mode
+  .kw-icon-sun {
+    display: none;
+  }
+}
+
+html[data-kw-theme="dark"] .kw-theme-toggle {
+  .kw-icon-sun {
+    display: block;
+  }
+
+  .kw-icon-moon {
+    display: none;
+  }
+}
+
+// Smooth colour change while switching light / dark (class added for ~0.4s by _includes/head_custom.html)
+@media (prefers-reduced-motion: no-preference) {
+  html.kw-theme-transition,
+  html.kw-theme-transition *,
+  html.kw-theme-transition *::before,
+  html.kw-theme-transition *::after {
+    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, fill 0.3s ease,
+      box-shadow 0.3s ease !important;
+    transition-delay: 0s !important;
+  }
+}
