@@ -20,11 +20,11 @@ ANSIBLE_DIR="$PROJECT_ROOT/ansible"
 INVENTORY_DIR="$ANSIBLE_DIR/inventories"
 HOSTS_FILE="$INVENTORY_DIR/hosts"
 HOST_VARS_DIR="$INVENTORY_DIR/host_vars"
-TEMPLATES_DIR="$ANSIBLE_DIR/templates"
 ENV_FILE="$PROJECT_ROOT/.env"
 TEMPLATE_ENV="$PROJECT_ROOT/template.env"
 
 # Colours (disabled when not a terminal)
+# shellcheck disable=SC2034  # BLUE is part of the palette even though no message uses it yet
 if [[ -t 1 ]]; then
     RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'
     BLUE=$'\033[0;34m'; CYAN=$'\033[0;36m'; BOLD=$'\033[1m'; NC=$'\033[0m'
@@ -335,11 +335,10 @@ inventory_generate() {
 
     local masters="" workers=""
     while IFS= read -r vm; do
-        local ssh_config host port user key_path node_ip
+        local ssh_config host port key_path node_ip
         ssh_config=$(vagrant ssh-config "$vm")
         host=$(echo "$ssh_config" | grep "HostName" | awk '{print $2}')
         port=$(echo "$ssh_config" | grep "Port" | head -1 | awk '{print $2}')
-        user=$(echo "$ssh_config" | grep "User" | head -1 | awk '{print $2}')
         key_path=$(echo "$ssh_config" | grep "IdentityFile" | awk '{print $2}')
 
         # Add SSH key to agent
@@ -694,6 +693,7 @@ run_utils() {
 KIND_ARCHIVED_INGRESS_CLASSES="nginx kong cilium"
 KIND_ARCHIVED_GATEWAY_CLASSES="kong cilium"
 RKE2_ARCHIVED_INGRESS_CLASSES="ingress-nginx"
+# shellcheck disable=SC2034  # read through a nameref in _setup_entries
 SETUP_REGISTRY_KIND=(
     "numberOfNodes|Node count (Kind always needs one control-plane)|controlPlane, worker||numberOfNodes.controlPlane,numberOfNodes.worker"
     "image|Node image, sets the Kubernetes version|kindest/node:<version>||image"
@@ -703,6 +703,7 @@ SETUP_REGISTRY_KIND=(
     "apigateway|Gateway API controller (Traefik only)|class: traefik; crd (install, version)|class: kong, cilium (archived, see NOTE above)|apigateway.enable,apigateway.class,apigateway.crd.install"
     "networkForwarding|Forward host ports 80/443 to the cluster (socat services)|enable||networkForwarding.enable"
 )
+# shellcheck disable=SC2034  # read through a nameref in _setup_entries
 SETUP_REGISTRY_K3S=(
     "version|K3s release, sets the Kubernetes version|vX.Y.Z+k3sN||version"
     "highAvailability|HA control plane, used by \`k3s ha-setup\`|dataStorage.type: etcd, postgres (externalDatabase)|clusterLB (bring your own HAProxy / Kube-VIP)|highAvailability.dataStorage.type"
@@ -713,6 +714,7 @@ SETUP_REGISTRY_K3S=(
     "loadBalancer|Service type LoadBalancer|type: servicelb, metallb||loadBalancer.enable,loadBalancer.type"
     "ingress|Traefik ingress controller (Helm; the bundled K3s Traefik is disabled)|class: traefik; traefik.ports (web, websecure); traefik.allowCrossNamespace; traefik.dashboard (enable, host); traefik.gateway (enable, crd.install, crd.version)||ingress.enable,ingress.class,ingress.traefik.dashboard.enable,ingress.traefik.gateway.enable"
 )
+# shellcheck disable=SC2034  # read through a nameref in _setup_entries
 SETUP_REGISTRY_RKE2=(
     "version|RKE2 release, sets the Kubernetes version|vX.Y.Z+rke2rN||version"
     "highAvailability|HA control plane, used by \`rke2 ha-setup\`|dataStorage.type: etcd, postgres (externalDatabase)|clusterLB (bring your own HAProxy / Kube-VIP)|highAvailability.dataStorage.type"
@@ -835,6 +837,64 @@ config_list() {
     done
     echo ""
     info "Utility options: ./scripts/setup.sh config --list utils  (same as: <kind|k3s|rke2> utils --list)"
+}
+
+# `config validate [--strict]`: check master.yaml against what the playbooks read.
+#   error:   a key no playbook reads (REMOVED_KEYS) or an archived ingress / Gateway API class
+#   warning: a utility enabled in master.yaml that no tag installs yet
+#   info:    cluster keys that are documented but not read yet ("in development")
+# Exit 1 on errors; with --strict also on warnings. The pre-commit hook runs it, so a stale setting cannot be committed.
+config_validate() {
+    local strict=false arg
+    for arg in "$@"; do
+        case "$arg" in
+            --strict) strict=true ;;
+            *) error "Unknown option: $arg (expected: --strict)"; return 1 ;;
+        esac
+    done
+    local file="$HOST_VARS_DIR/master.yaml" errors=0 warnings=0 msg distro block entry known keys
+    [[ -f "$file" ]] || { error "File not found: $file"; return 1; }
+    header "Validating $file"
+
+    while IFS= read -r msg; do
+        [[ -z "$msg" ]] && continue
+        error "$msg"; errors=$((errors + 1))
+    done < <(_removed_key_msgs all)
+
+    for distro in kind rke2; do
+        while IFS= read -r msg; do
+            [[ -z "$msg" ]] && continue
+            error "$msg"; errors=$((errors + 1))
+        done < <(_archived_class_msgs "$distro")
+    done
+
+    for block in $(_util_master_blocks); do
+        known=false
+        for entry in "${UTILITY_REGISTRY[@]}"; do
+            [[ "$(_util_field "$entry" 1)" == "$block" ]] && { known=true; break; }
+        done
+        [[ "$known" == true ]] && continue
+        if [[ "$(_util_value "$block" "enable")" == "true" ]]; then
+            warn "utilities.$block.enable is true, but no tag installs it yet (in development)"
+            warnings=$((warnings + 1))
+        fi
+    done
+
+    for distro in kind k3s rke2; do
+        keys=$(_setup_in_development "$distro" | cut -d'|' -f1 | paste -sd, - | sed 's/,/, /g')
+        [[ -n "$keys" ]] && info "$(_setup_top "$distro"): documented but not read by the playbooks yet: $keys"
+    done
+
+    echo ""
+    if [[ $errors -gt 0 ]]; then
+        error "$errors error(s), $warnings warning(s)"
+        return 1
+    fi
+    if [[ "$strict" == true && $warnings -gt 0 ]]; then
+        error "$warnings warning(s) (--strict)"
+        return 1
+    fi
+    info "master.yaml is valid ($warnings warning(s))"
 }
 
 # ---------------------------------------------------------------------------
@@ -960,31 +1020,88 @@ run_ansible_playbook() {
     "${cmd[@]}"
 }
 
-# Warn when master.yaml selects an ingress / Gateway API class whose tasks are archived (see the archive NOTE
+# Messages (one per line) for archived ingress / Gateway API classes that master.yaml selects (see the archive NOTE
 # above SETUP_REGISTRY_KIND): the playbook would not install that controller, or not the way you expect.
-# Usage: _check_archived_classes <kind|rke2>
-_check_archived_classes() {
+# Usage: _archived_class_msgs <kind|rke2>
+_archived_class_msgs() {
     local file="$HOST_VARS_DIR/master.yaml" top enabled class
     case "$1" in
         kind)
             top="kindCluster"
             enabled=$(_yaml_get "$file" "$top" ingress.enable); class=$(_yaml_get "$file" "$top" ingress.class)
             if [[ "$enabled" == "true" && " $KIND_ARCHIVED_INGRESS_CLASSES " == *" $class "* ]]; then
-                warn "$top.ingress.class: $class is archived, so no ingress controller will be installed (supported: traefik)"
+                echo "$top.ingress.class: $class is archived, so no ingress controller will be installed (supported: traefik)"
             fi
             enabled=$(_yaml_get "$file" "$top" apigateway.enable); class=$(_yaml_get "$file" "$top" apigateway.class)
             if [[ "$enabled" == "true" && " $KIND_ARCHIVED_GATEWAY_CLASSES " == *" $class "* ]]; then
-                warn "$top.apigateway.class: $class is archived, so no Gateway API controller will be installed (supported: traefik)"
+                echo "$top.apigateway.class: $class is archived, so no Gateway API controller will be installed (supported: traefik)"
             fi
             ;;
         rke2)
             top="rke2Cluster"
             enabled=$(_yaml_get "$file" "$top" ingress.enable); class=$(_yaml_get "$file" "$top" ingress.class)
             if [[ "$enabled" == "true" && " $RKE2_ARCHIVED_INGRESS_CLASSES " == *" $class "* ]]; then
-                warn "$top.ingress.class: $class is archived and no longer supported (supported: traefik)"
+                echo "$top.ingress.class: $class is archived and no longer supported (supported: traefik)"
             fi
             ;;
     esac
+    return 0
+}
+
+# Warn (never fail) before a setup run. Usage: _check_archived_classes <kind|rke2>
+_check_archived_classes() {
+    local msg
+    while IFS= read -r msg; do
+        [[ -n "$msg" ]] && warn "$msg"
+    done < <(_archived_class_msgs "$1")
+    return 0
+}
+
+# master.yaml keys that no playbook reads (they were documented once, or never implemented). `config validate`
+# fails on them and the setup commands warn about them, so a stale setting never looks like it does something.
+#   top-level key | dotted path under it | why it is ignored
+REMOVED_KEYS=(
+    "k3sCluster|highAvailability.enable|HA is decided by the inventory groups (ha_master_init, ha_master_join, ha_worker), not by a master.yaml switch"
+    "k3sCluster|highAvailability.replicas|the control-plane count is the number of hosts in ha_master_init and ha_master_join"
+    "rke2Cluster|highAvailability.enable|HA is decided by the inventory groups (ha_master_init, ha_master_join, ha_worker), not by a master.yaml switch"
+    "rke2Cluster|highAvailability.replicas|the control-plane count is the number of hosts in ha_master_init and ha_master_join"
+)
+
+# True when `<top>.<dotted.path>` exists as a key in a host_vars YAML file (same indentation rules as _yaml_get)
+_yaml_has() {
+    local file="$1" top="$2" path="$3" data indent=2 part last
+    [[ -f "$file" ]] || return 1
+    data=$(_yblock "$top" "$file")
+    local -a parts
+    IFS='.' read -r -a parts <<< "$path"
+    last="${parts[${#parts[@]}-1]}"
+    for part in "${parts[@]:0:${#parts[@]}-1}"; do
+        data=$(printf '%s\n' "$data" | _ysub "$part" "$indent")
+        indent=$((indent + 2))
+    done
+    grep -q -E "^ {${indent}}${last}:" <<< "$data"
+}
+
+# Messages (one per line) for removed keys that a cluster block of master.yaml still sets. Usage: _removed_key_msgs <k3s|rke2|all>
+_removed_key_msgs() {
+    local file="$HOST_VARS_DIR/master.yaml" entry top path why
+    for entry in "${REMOVED_KEYS[@]}"; do
+        IFS='|' read -r top path why <<< "$entry"
+        [[ "$1" == "all" || "$top" == "$(_setup_top "$1")" ]] || continue
+        if _yaml_has "$file" "$top" "$path"; then
+            echo "$top.$path is ignored: $why"
+        fi
+    done
+    return 0
+}
+
+# Warn (never fail) before a setup run. Usage: _check_removed_keys <k3s|rke2>
+_check_removed_keys() {
+    local msg
+    while IFS= read -r msg; do
+        [[ -n "$msg" ]] && warn "$msg"
+    done < <(_removed_key_msgs "$1")
+    return 0
 }
 
 kind_setup() {
@@ -1094,6 +1211,7 @@ cmd_k3s() {
 
 k3s_setup() {
     parse_ansible_opts "$@"
+    [[ "$HOST_NAME" == *master* ]] && _check_removed_keys k3s
     header "Setting up K3s node: $HOST_NAME"
     # The playbook detects master vs worker via hostname pattern:
     #   *master* → loads master.yaml → installs K3s server
@@ -1112,6 +1230,7 @@ k3s_setup() {
 
 k3s_ha_setup() {
     parse_ansible_opts "$@"
+    _check_removed_keys k3s
     header "Setting up HA K3s cluster"
 
     info "Ensure you have configured:"
@@ -1224,6 +1343,7 @@ cmd_rke2() {
 rke2_setup() {
     parse_ansible_opts "$@"
     [[ "$HOST_NAME" == *master* ]] && _check_archived_classes rke2
+    [[ "$HOST_NAME" == *master* ]] && _check_removed_keys rke2
     header "Setting up RKE2 node: $HOST_NAME"
     # The playbook detects master vs worker via hostname pattern:
     #   *master* → loads master.yaml → installs RKE2 server
@@ -1243,6 +1363,7 @@ rke2_setup() {
 rke2_ha_setup() {
     parse_ansible_opts "$@"
     _check_archived_classes rke2
+    _check_removed_keys rke2
     header "Setting up HA RKE2 cluster"
 
     info "Ensure you have configured:"
@@ -1321,9 +1442,7 @@ network_hookup() {
     all_machines=$(vagrant status | grep -E "running|poweroff" | awk '{print $1}')
 
     for vm in $all_machines; do
-        local is_running=false
         if vagrant status "$vm" 2>/dev/null | grep -q "running"; then
-            is_running=true
             VBoxManage startvm "$vm" --type emergencystop 2>/dev/null || true
         fi
 
@@ -1827,10 +1946,9 @@ config_show_master() {
     # ---- K3S CLUSTER --------------------------------------------------------
     _sec "K3S CLUSTER"
 
-    local k3_ha k3_ds k3_db k3_cni k3_lb k3_lb_pool k3_ing k3_ing_dash
+    local k3_ha k3_ds k3_cni k3_lb k3_lb_pool k3_ing k3_ing_dash
     k3_ha=$(      echo "$k3s"    | _ysub "highAvailability" 2)
     k3_ds=$(      echo "$k3_ha"  | _ysub "dataStorage"      4)
-    k3_db=$(      echo "$k3_ds"  | _ysub "externalDatabase" 6)
     k3_cni=$(     echo "$k3s"    | _ysub "cni"              2)
     k3_lb=$(      echo "$k3s"    | _ysub "loadBalancer"     2)
     k3_lb_pool=$( echo "$k3_lb"  | _ysub "ippool"           4)
@@ -1876,10 +1994,9 @@ config_show_master() {
     # ---- RKE2 CLUSTER --------------------------------------------------------
     _sec "RKE2 CLUSTER"
 
-    local rk_ha rk_ds rk_db rk_cni rk_lb rk_lb_pool rk_ing
+    local rk_ha rk_ds rk_cni rk_lb rk_lb_pool rk_ing
     rk_ha=$(      echo "$rke2"    | _ysub "highAvailability" 2)
     rk_ds=$(      echo "$rk_ha"  | _ysub "dataStorage"      4)
-    rk_db=$(      echo "$rk_ds"  | _ysub "externalDatabase" 6)
     rk_cni=$(     echo "$rke2"    | _ysub "cni"              2)
     rk_lb=$(      echo "$rke2"    | _ysub "loadBalancer"     2)
     rk_lb_pool=$( echo "$rk_lb"  | _ysub "ippool"           4)
@@ -2045,6 +2162,8 @@ SUBCOMMANDS
                         target: kind | k3s | rke2 | utils (default: kind, k3s and rke2)
                         aliases: --list, -l
   show [--raw]          Summary table of master.yaml (--raw: full file)
+  validate [--strict]   Check master.yaml for keys no playbook reads, archived controllers and utilities with
+                        no tag (exit 1 on errors; --strict also fails on warnings)
   edit                  Open master.yaml in $EDITOR
   worker-show [--raw]   Summary table of worker.yaml (--raw: full file)
   worker-edit           Open worker.yaml in $EDITOR
@@ -2055,6 +2174,7 @@ EXAMPLES
   ./scripts/setup.sh config --list utils
   ./scripts/setup.sh config show
   ./scripts/setup.sh config show --raw
+  ./scripts/setup.sh config validate
   ./scripts/setup.sh config edit
   ./scripts/setup.sh config worker-show
 EOF
@@ -2070,6 +2190,7 @@ cmd_config() {
             else
                 config_show_master
             fi ;;
+        validate)    config_validate "$@" ;;
         edit)        ${EDITOR:-vi} "$HOST_VARS_DIR/master.yaml" ;;
         worker-show)
             if [[ "${1:-}" == "--raw" ]]; then
@@ -2235,6 +2356,7 @@ _ver_locate() {
 
 # Replace every literal occurrence of <old> with <new> on one line of a file.
 # Keeps the file permissions and a missing trailing newline, so only the version line changes.
+# shellcheck disable=SC2178,SC2128  # false positive: `tmp` is a plain local string here
 _ver_replace_line() {
     local file="$1" line="$2" old="$3" new="$4" tmp
     tmp=$(mktemp)
@@ -2608,6 +2730,7 @@ EOF
 # ---------------------------------------------------------------------------
 # Entrypoint
 # ---------------------------------------------------------------------------
+# shellcheck disable=SC2178,SC2128  # false positive: `cmd` is a local array in run_ansible_playbook, a plain string here
 main() {
     local cmd="${1:-help}"; shift || true
     case "$cmd" in

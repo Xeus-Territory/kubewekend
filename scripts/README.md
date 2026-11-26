@@ -37,6 +37,7 @@
   - [Project Structure](#project-structure)
   - [Configuration Files](#configuration-files)
   - [Contributing](#contributing)
+    - [Checks before you commit](#checks-before-you-commit)
 
 ---
 
@@ -256,6 +257,7 @@ chmod +x ./scripts/setup.sh
 |------------|-------------|
 | `config --list [target]` | List [setup options](#available-setup-options) (supported, in development, current values); `target`: `kind` \| `k3s` \| `rke2` \| `utils` (aliases: `list`, `-l`) |
 | `config show` | Print `ansible/inventories/host_vars/master.yaml` |
+| `config validate [--strict]` | Check `master.yaml` for keys no playbook reads (such as an `enable` switch under `highAvailability`), archived ingress / Gateway API classes and utilities enabled without a tag. Exit 1 on errors; `--strict` also fails on warnings. The setup commands print the same findings as warnings |
 | `config edit` | Open `master.yaml` in `$EDITOR` |
 | `config worker-show` | Print `worker.yaml` |
 | `config worker-edit` | Open `worker.yaml` in `$EDITOR` |
@@ -265,6 +267,7 @@ chmod +x ./scripts/setup.sh
 ./scripts/setup.sh config --list k3s    # one distribution
 ./scripts/setup.sh config --list utils  # utility tags (same as `kind utils --list`)
 ./scripts/setup.sh config show
+./scripts/setup.sh config validate      # is master.yaml saying something the playbooks ignore?
 ./scripts/setup.sh config edit
 ```
 
@@ -648,6 +651,9 @@ Multiple tags can be combined:
 scripts/
 ├── setup.sh              # Kubewekend CLI (this script)
 ├── README.md             # This documentation
+├── checks/               # Pre-commit checks for setup.sh (see "Checks before you commit")
+│   ├── check_setup.py    # The checks
+│   └── stale-phrases.txt # Wording that was corrected once and must not come back
 └── legacy/               # Legacy v1 scripts (Kind only)
     ├── operate-kind-cluster.sh   # Auto-generate inventory from Vagrant
     ├── hook-up-ip.sh             # VirtualBox NAT network setup
@@ -781,3 +787,30 @@ cmd_monitoring() {
 }
 # Add to main(): monitoring) cmd_monitoring "$@" ;;
 ```
+
+### Checks before you commit
+
+`scripts/checks/check_setup.py` runs as a pre-commit hook (`kubewekend-setup-checks`) whenever you touch `setup.sh`, the
+playbooks, `master.yaml`, the docs or the hook configuration. It needs only `python3`, takes a few seconds and uses no
+cluster. Every problem is printed as `file:line: message`.
+
+| Check | What it catches |
+|-------|-----------------|
+| `syntax` | `bash -n` errors in `setup.sh` (and `scripts/lib/*.sh` once it is split) |
+| `shellcheck` | Findings at `warning` level or above. Skipped with a notice when `shellcheck` is not installed (`apt install shellcheck` or `pip install shellcheck-py`). Raise or lower the level with `SHELLCHECK_SEVERITY=error|warning|style` |
+| `registry` | A tag in `k8s-utilities-playbook.yaml` with no `UTILITY_REGISTRY` entry (and the reverse), a registry entry whose `master.yaml` key does not exist, or a `SETUP_REGISTRY_*` option that is not a key of its cluster block |
+| `yaml-layout` | A column-0 comment or stray line inside a `master.yaml` / `worker.yaml` block. The shell YAML helpers stop reading a block there, so `config` and `status` silently lose everything below it. Indent such comments by two spaces |
+| `stale-phrases` | Wording listed in `stale-phrases.txt` (for example the old instruction to switch HA on in `master.yaml`), anywhere in the tracked docs, scripts and playbooks |
+| `cli` | Every help screen and listing exits 0 with output, `config validate` passes, and `--dry-run` works for each distribution when `ansible-playbook` is installed |
+
+```bash
+python3 scripts/checks/check_setup.py                     # everything
+python3 scripts/checks/check_setup.py --only registry     # one check
+python3 scripts/checks/check_setup.py --skip shellcheck   # all but one
+pre-commit run kubewekend-setup-checks --all-files        # the same, through pre-commit
+```
+
+**Adding a utility** (the case these checks exist for): add the tag in `k8s-utilities-playbook.yaml`, a block under
+`utilities:` in `master.yaml`, and one `UTILITY_REGISTRY` entry in `setup.sh`. The `registry` check names whichever of
+the three you forgot. **Fixing a stale sentence in more than one place?** Add one line to `stale-phrases.txt` so the next
+copy is caught at commit time.

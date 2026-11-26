@@ -1,0 +1,9 @@
+# Wording that was corrected once and must not come back. Checked by scripts/checks/check_setup.py (pre-commit).
+# One rule per line, TAB separated:  regex <TAB> message <TAB> optional comma-separated path prefixes to skip
+# Add a line whenever you fix a stale sentence in more than one place, so the next copy is caught at commit time.
+enable highAvailability	HA has no enable switch: the inventory groups (ha_master_init, ha_master_join, ha_worker) decide the nodes; only highAvailability.dataStorage is read
+highAvailability\.(enable|replicas)\b	HA has no enable or replicas key: see `setup.sh config validate`	scripts/setup.sh,scripts/lib/
+kindCluster_image	No playbook reads kindCluster_image: the Kind image is kindCluster.image in master.yaml (use `setup.sh versions bump kind-node`)
+ha_master\.yaml	There is no ha_master.yaml: HA settings are in host_vars/master.yaml (highAvailability.dataStorage)
+example-todo-list-common|example-argocd-apps\b	These example files were removed: the Argo CD example no longer has a todo-list app or the argocd-apps sub-chart
+Traefik ?/ ?Ingress-Nginx|Traefik/Ingress-Nginx	Kubewekend supports Traefik only (ingress-nginx is archived)

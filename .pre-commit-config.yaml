@@ -21,3 +21,17 @@ repos:
         language: system
         pass_filenames: false
         files: ^(ansible/|kubernetes/charts/[^/]+/Chart\.yaml$|examples/|\.github/workflows/|\.pre-commit-config\.yaml$|_config\.yml$|requirements\.txt$|README\.md$|docs/reference/versions\.md$|scripts/setup\.sh$)
+
+  # Check setup.sh whenever you add or change something (scripts/checks/check_setup.py, a few seconds, no cluster):
+  # syntax, shellcheck (when installed), UTILITY_REGISTRY / SETUP_REGISTRY_* vs the playbook tags and master.yaml,
+  # the master.yaml layout the shell parser relies on, stale wording (scripts/checks/stale-phrases.txt), the help
+  # screens, and `setup.sh config validate`. A failure prints `file:line: message`. Run one check alone with
+  # `python3 scripts/checks/check_setup.py --only registry`.
+  - repo: local
+    hooks:
+      - id: kubewekend-setup-checks
+        name: Check setup.sh against the playbooks and master.yaml
+        entry: python3 scripts/checks/check_setup.py
+        language: system
+        pass_filenames: false
+        files: ^(scripts/(setup\.sh|lib/|checks/)|ansible/|README\.md$|docs/|\.pre-commit-config\.yaml$)
