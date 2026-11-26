@@ -14,7 +14,7 @@ Pinned versions of the tools, charts and images Kubewekend installs, and the exa
 1. TOC
 {:toc}
 
-The tables between the `versions:begin` / `versions:end` markers are **generated** from `VERSION_REGISTRY` in `scripts/setup.sh` by `./scripts/setup.sh versions sync` (also a pre-commit hook), here and in the root README: do not edit them by hand. The **Notes** column shows the essential configuration Kubewekend applies, so you do not need to read the playbooks.
+The tables between the `versions:begin` / `versions:end` markers are **generated** from `VERSION_REGISTRY` in `scripts/lib/versions_registry.sh` by `./scripts/setup.sh versions sync` (also a pre-commit hook), here and in the root README: do not edit them by hand. The **Notes** column shows the essential configuration Kubewekend applies, so you do not need to read the playbooks.
 
 ```bash
 # current pins and their file:line locations
@@ -35,10 +35,10 @@ The tables between the `versions:begin` / `versions:end` markers are **generated
 
 | Component | Version | Where to update | Notes |
 | --------- | ------- | --------------- | ----- |
-| `kind-node` | `v1.36.4` | `ansible/inventories/host_vars/master.yaml:21` |  |
-| `k3s` | `v1.36.5+k3s1` | `ansible/inventories/host_vars/master.yaml:78`, `ansible/inventories/host_vars/worker.yaml:11` |  |
-| `rke2` | `v1.36.5+rke2r1` | `ansible/inventories/host_vars/master.yaml:183`, `ansible/inventories/host_vars/worker.yaml:32` |  |
-| `gateway-api-crd` | `v1.6.3` | `ansible/inventories/host_vars/master.yaml:51,164` | Standard channel CRDs applied before the Traefik Gateway API provider: Kind `apigateway.crd`, K3s `ingress.traefik.gateway.crd` (when `install: true`); keep both on the same version |
+| `kind-node` | `v1.36.4` | `ansible/inventories/host_vars/master.yaml:29` |  |
+| `k3s` | `v1.36.5+k3s1` | `ansible/inventories/host_vars/master.yaml:86`, `ansible/inventories/host_vars/worker.yaml:11` |  |
+| `rke2` | `v1.36.5+rke2r1` | `ansible/inventories/host_vars/master.yaml:191`, `ansible/inventories/host_vars/worker.yaml:32` |  |
+| `gateway-api-crd` | `v1.6.3` | `ansible/inventories/host_vars/master.yaml:59,172` | Standard channel CRDs applied before the Traefik Gateway API provider: Kind `apigateway.crd`, K3s `ingress.traefik.gateway.crd` (when `install: true`); keep both on the same version |
 
 #### Host tools
 

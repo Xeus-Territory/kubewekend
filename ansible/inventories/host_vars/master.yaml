@@ -1,3 +1,11 @@
+# Kubewekend master-node settings: read by the playbooks in ansible/ and described by the CLI in scripts/.
+#   ./scripts/setup.sh config --list       what each option does, which ones the playbooks read, and the current values
+#   ./scripts/setup.sh config validate     settings no playbook reads (stale keys) and archived ingress / Gateway classes
+# When you add an option, describe it for the CLI in the same commit (scripts/checks/check_setup.py fails on commit if not):
+#   kindCluster / k3sCluster / rke2Cluster keys      -> SETUP_REGISTRY_* in scripts/lib/options.sh
+#   utilities.<block> with a tag in the playbook      -> UTILITY_REGISTRY in scripts/lib/utilities.sh
+# Keep every comment below indented by two spaces: a comment in column 0 stops the CLI from reading the rest of its block.
+
 kindCluster:
   # Number nodes for the clusters
   # Default is 1 control-plane and 0 worker, you can change the number of nodes for control-plane and worker as you need, 
@@ -28,7 +36,7 @@ kindCluster:
       # IF you define another range for kind bridge network, please make sure the ippool is in the same range
       cidr: "172.18.255.2 - 172.18.255.254"
   # Archived: Kong and Cilium ingress / Gateway API are no longer supported, Kubewekend supports Traefik only.
-  # Their tasks stay commented out in kind-playbook.yaml for reference (see the archive NOTE in scripts/setup.sh).
+  # Their tasks stay commented out in kind-playbook.yaml for reference (see the archive NOTE in scripts/lib/options.sh).
   # Cilium is still supported as CNI (`networking.cni`) and load balancer (`loadbalancer.type: cilium-ipam-lb`).
   ingress:
     enable: true

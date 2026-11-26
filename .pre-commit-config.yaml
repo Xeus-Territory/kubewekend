@@ -10,7 +10,7 @@ repos:
           - --template-files=README.md.gotmpl
 
   # Validate pinned versions (every registry entry found, one version each) and regenerate the
-  # "Versions" tables in README.md and docs/reference/versions.md from VERSION_REGISTRY in scripts/setup.sh.
+  # "Versions" tables in README.md and docs/reference/versions.md from VERSION_REGISTRY in scripts/lib/versions_registry.sh.
   # When the tables change the hook rewrites the files and pre-commit fails once, like helm-docs: review,
   # stage and commit again.
   - repo: local
@@ -20,7 +20,7 @@ repos:
         entry: ./scripts/setup.sh versions sync
         language: system
         pass_filenames: false
-        files: ^(ansible/|kubernetes/charts/[^/]+/Chart\.yaml$|examples/|\.github/workflows/|\.pre-commit-config\.yaml$|_config\.yml$|requirements\.txt$|README\.md$|docs/reference/versions\.md$|scripts/setup\.sh$)
+        files: ^(ansible/|kubernetes/charts/[^/]+/Chart\.yaml$|examples/|\.github/workflows/|\.pre-commit-config\.yaml$|_config\.yml$|requirements\.txt$|README\.md$|docs/reference/versions\.md$|scripts/(setup\.sh|lib/))
 
   # Check setup.sh whenever you add or change something (scripts/checks/check_setup.py, a few seconds, no cluster):
   # syntax, shellcheck (when installed), UTILITY_REGISTRY / SETUP_REGISTRY_* vs the playbook tags and master.yaml,

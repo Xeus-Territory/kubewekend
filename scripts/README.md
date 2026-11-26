@@ -37,6 +37,8 @@
   - [Project Structure](#project-structure)
   - [Configuration Files](#configuration-files)
   - [Contributing](#contributing)
+    - [Code layout](#code-layout)
+    - [Debugging](#debugging)
     - [Checks before you commit](#checks-before-you-commit)
 
 ---
@@ -290,9 +292,9 @@ chmod +x ./scripts/setup.sh
 ./scripts/setup.sh versions bump k3s v1.35.8+k3s1          # updates master.yaml + worker.yaml
 ```
 
-Pins are found by pattern (registry `VERSION_REGISTRY` in `setup.sh`), not by line number. Adding a package = one registry line (`name|group|files|anchor|extract|note`, empty `extract` for Helm charts, no `|` inside patterns). The optional `note` describes the essential configuration Kubewekend applies (plain text or code spans, no `|` or single quote); it is shown by `versions list`, the `versions bump` preview and the Notes column of the README Versions table; check it with `versions list <name>`. Not tracked: unpinned tools (kubectl, Helm, Calico, Flux CLI), (listed by hand in the root README).
+Pins are found by pattern (registry `VERSION_REGISTRY` in `scripts/lib/versions_registry.sh`), not by line number. Adding a package = one registry line (`name|group|files|anchor|extract|note`, empty `extract` for Helm charts, no `|` inside patterns). The optional `note` describes the essential configuration Kubewekend applies (plain text or code spans, no `|` or single quote); it is shown by `versions list`, the `versions bump` preview and the Notes column of the README Versions table; check it with `versions list <name>`. Not tracked: unpinned tools (kubectl, Helm, Calico, Flux CLI), (listed by hand in the root README).
 
-**Pre-commit hook.** `.pre-commit-config.yaml` runs `versions sync` when pinned files, `README.md` or `setup.sh` change. If the Versions tables are stale, the hook rewrites `README.md` and the commit stops once (like `helm-docs`): review, `git add README.md`, commit again. If a pin is missing or pinned to different versions, the hook fails until it is fixed (e.g. with `versions bump`).
+**Pre-commit hook.** `.pre-commit-config.yaml` runs `versions sync` when pinned files, `README.md`, `setup.sh` or `scripts/lib/` change. If the Versions tables are stale, the hook rewrites `README.md` and the commit stops once (like `helm-docs`): review, `git add README.md`, commit again. If a pin is missing or pinned to different versions, the hook fails until it is fixed (e.g. with `versions bump`).
 
 ```bash
 pre-commit install                                   # once per clone
@@ -600,7 +602,7 @@ Cluster setup reads `kindCluster`, `k3sCluster` or `rke2Cluster` from `ansible/i
 >
 > **Archived (2026-11-20): ingress / Gateway API controllers other than Traefik.** NGINX, Kong and Cilium ingress, Kong and Cilium Gateway API, and RKE2 `ingress-nginx` changed too often to keep working, so Kubewekend supports **Traefik only**. They are archived, not deleted: the Kind tasks stay commented out in `ansible/kind-playbook.yaml`, the test templates moved to `ansible/templates/archives/`, and the version pins are commented-out `VERSION_REGISTRY` entries. Cilium is still supported as CNI and as the Kind `cilium-ipam-lb` load balancer. `kind setup` / `rke2 setup` warn when `master.yaml` selects an archived class. Details: the archive note above `SETUP_REGISTRY_KIND` in `setup.sh`.
 
-The tables live in `SETUP_REGISTRY_KIND` / `SETUP_REGISTRY_K3S` / `SETUP_REGISTRY_RKE2` in `setup.sh`; cluster keys without an entry are shown as in development automatically. Keep them in sync with the setup playbooks.
+The tables live in `SETUP_REGISTRY_KIND` / `SETUP_REGISTRY_K3S` / `SETUP_REGISTRY_RKE2` in `scripts/lib/options.sh`; cluster keys without an entry are shown as in development automatically. Keep them in sync with the setup playbooks.
 
 ---
 
@@ -614,7 +616,7 @@ List every tag with its `master.yaml` key, supported options, options still in d
 ./scripts/setup.sh kind utils --list   # also: `utils list` or `utils -l`, same output for k3s / rke2
 ```
 
-The tag list lives in one registry (`UTILITY_REGISTRY` in `setup.sh`); keep it in sync with the tags in `k8s-utilities-playbook.yaml`.
+The tag list lives in one registry (`UTILITY_REGISTRY` in `scripts/lib/utilities.sh`); keep it in sync with the tags in `k8s-utilities-playbook.yaml`.
 
 | Tag | Description | Playbook |
 |-----|-------------|----------|
@@ -649,7 +651,8 @@ Multiple tags can be combined:
 
 ```
 scripts/
-├── setup.sh              # Kubewekend CLI (this script)
+├── setup.sh              # Entry point: paths, the `source` lines for lib/, show_help and main
+├── lib/                  # One file per concern, functions and tables only (see "Code layout")
 ├── README.md             # This documentation
 ├── checks/               # Pre-commit checks for setup.sh (see "Checks before you commit")
 │   ├── check_setup.py    # The checks
@@ -768,8 +771,8 @@ utilities.serviceMesh.type: "istio"
 
 When adding new features to the CLI:
 
-1. **Add a new command function** following the pattern: `cmd_<name>()` for dispatch + `cmd_<name>_help()` for documentation
-2. **Register** in the `main()` case statement
+1. **Add a new command in its own file**, `scripts/lib/<name>.sh`, following the pattern: `cmd_<name>()` for dispatch + `cmd_<name>_help()` for documentation, and `<name>_<subcommand>()` for the work
+2. **Register** it: add its `source` line to `scripts/setup.sh` (the `libs` check fails if you forget) and its case to `main()`
 3. **Use** `parse_ansible_opts` and `run_ansible_playbook` for any ansible-based operations
 4. **Add confirmation** via `confirm()` for destructive operations
 5. **Update this README** with the new command, subcommands, and examples
@@ -785,8 +788,60 @@ cmd_monitoring() {
         *)       cmd_monitoring_help ;;
     esac
 }
-# Add to main(): monitoring) cmd_monitoring "$@" ;;
+# Add to main(): monitoring) cmd_monitoring "$@" ;;   and to setup.sh: source "$SCRIPT_DIR/lib/monitoring.sh"
 ```
+
+### Code layout
+
+`setup.sh` is only the entry point (paths, the `source` lines, `show_help` and `main`). Everything else lives in
+`scripts/lib/`, one concern per file, so a problem in `kind setup` is in `lib/kind.sh`, not somewhere in 2,700 lines.
+The files hold functions and tables only: nothing runs until `main` calls it.
+
+| File | What is in it |
+|------|---------------|
+| `lib/core.sh` | Colours, `info` / `warn` / `error` / `header` / `confirm`, `require_cmd`, `load_env`, the table helpers (`_row`, `_sec`, `_badge`) |
+| `lib/debug.sh` | The `--debug` mode (see [Debugging](#debugging)) |
+| `lib/yaml.sh` | Pure-bash YAML readers for `master.yaml` / `worker.yaml` (`_yaml_get`, `_yaml_has`, ...) |
+| `lib/ansible.sh` | `parse_ansible_opts`, `run_ansible_playbook` and `run_utils`, shared by `kind`, `k3s` and `rke2` |
+| `lib/utilities.sh` | `UTILITY_REGISTRY` (one entry per utility tag) and `utils --list` |
+| `lib/options.sh` | `SETUP_REGISTRY_*` (options per distribution), archived ingress classes, `REMOVED_KEYS` and their warnings |
+| `lib/config.sh`, `lib/config_show.sh` | The `config` command: `--list`, `validate`, and the `show` summary tables |
+| `lib/kind.sh`, `lib/k3s.sh`, `lib/rke2.sh` | The distribution commands (`setup`, `ha-setup`, `destroy`, `utils`) |
+| `lib/env.sh`, `vagrant.sh`, `inventory.sh`, `network.sh`, `status.sh`, `quickstart.sh` | One command each |
+| `lib/versions_registry.sh`, `lib/versions.sh` | The pinned-versions table (`VERSION_REGISTRY`), and `versions list` / `bump` / `sync` |
+
+A command `foo` lives in `lib/foo.sh` as `cmd_foo`, `cmd_foo_help` and `foo_<subcommand>`. Functions are found by name
+(`grep -rn '^kind_setup' scripts/`), and the `libs` check fails when a lib is not sourced or a function name is defined
+twice.
+
+### Debugging
+
+```bash
+./scripts/setup.sh --debug kind setup --dry-run        # --debug must be the first argument
+KUBEWEKEND_DEBUG=1 ./scripts/setup.sh config validate   # the same, from the environment
+KUBEWEKEND_DEBUG_LOG=/tmp/kw.log ./scripts/setup.sh --debug k3s setup --host k8s-master-machine
+```
+
+Debug mode traces every command as `+ file.sh:LINE function(): command`, so you can see which lib and line is running.
+When something fails unexpectedly it prints the failing source line and the call stack **once**, for the innermost
+failure (the same failure then travels up through every caller):
+
+```text
+[DEBUG] command failed (exit 1) at scripts/lib/kind.sh:83
+         run_ansible_playbook "kind-playbook.yaml" "install_common,setup_kind"
+         call stack, innermost first:
+           kind_setup()  called from scripts/lib/kind.sh:72
+           cmd_kind()  called from scripts/setup.sh:151
+           main()  called from scripts/setup.sh:176
+```
+
+(The line numbers are from the time of writing.) `KUBEWEKEND_DEBUG_LOG=<file>` writes the trace to a file instead of the
+terminal: a single `config validate` traces about 17,000 lines, so use a file for anything longer. The debug output goes to
+stderr and nothing else changes: stdout and the exit code are identical with and without `--debug`.
+
+Other useful tools when something looks wrong: `--dry-run` shows the ansible command without running it,
+`./scripts/setup.sh config validate` finds settings in `master.yaml` that no playbook reads, and
+`python3 scripts/checks/check_setup.py --only registry` checks the registries against the playbooks.
 
 ### Checks before you commit
 
@@ -796,8 +851,9 @@ cluster. Every problem is printed as `file:line: message`.
 
 | Check | What it catches |
 |-------|-----------------|
-| `syntax` | `bash -n` errors in `setup.sh` (and `scripts/lib/*.sh` once it is split) |
-| `shellcheck` | Findings at `warning` level or above. Skipped with a notice when `shellcheck` is not installed (`apt install shellcheck` or `pip install shellcheck-py`). Raise or lower the level with `SHELLCHECK_SEVERITY=error|warning|style` |
+| `syntax` | `bash -n` errors in `setup.sh` and every `scripts/lib/*.sh` |
+| `shellcheck` | Findings at `warning` level or above. The libs are linted as one script (each `lib/*.sh` spliced into `setup.sh` at its `source` line) because shellcheck does not report problems inside sourced files; findings point at the real file and line. Skipped with a notice when `shellcheck` is not installed (`apt install shellcheck` or `pip install shellcheck-py`). Change the level with `SHELLCHECK_SEVERITY` (`error`, `warning` or `style`) |
+| `libs` | A `lib/*.sh` that `setup.sh` never sources, a `source` line that points at a missing file, or a function defined in two files (the later one would silently win) |
 | `registry` | A tag in `k8s-utilities-playbook.yaml` with no `UTILITY_REGISTRY` entry (and the reverse), a registry entry whose `master.yaml` key does not exist, or a `SETUP_REGISTRY_*` option that is not a key of its cluster block |
 | `yaml-layout` | A column-0 comment or stray line inside a `master.yaml` / `worker.yaml` block. The shell YAML helpers stop reading a block there, so `config` and `status` silently lose everything below it. Indent such comments by two spaces |
 | `stale-phrases` | Wording listed in `stale-phrases.txt` (for example the old instruction to switch HA on in `master.yaml`), anywhere in the tracked docs, scripts and playbooks |
@@ -811,6 +867,6 @@ pre-commit run kubewekend-setup-checks --all-files        # the same, through pr
 ```
 
 **Adding a utility** (the case these checks exist for): add the tag in `k8s-utilities-playbook.yaml`, a block under
-`utilities:` in `master.yaml`, and one `UTILITY_REGISTRY` entry in `setup.sh`. The `registry` check names whichever of
+`utilities:` in `master.yaml`, and one `UTILITY_REGISTRY` entry in `scripts/lib/utilities.sh`. The `registry` check names whichever of
 the three you forgot. **Fixing a stale sentence in more than one place?** Add one line to `stale-phrases.txt` so the next
 copy is caught at commit time.

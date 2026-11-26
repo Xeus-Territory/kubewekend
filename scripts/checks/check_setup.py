@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Pre-commit checks for scripts/setup.sh (and scripts/lib/*.sh once it is split).
+"""Pre-commit checks for scripts/setup.sh and the libraries it sources from scripts/lib/*.sh.
 
 Every check prints `file:line: message` for each problem, so a failure points at the line to fix.
 
   syntax          bash -n on setup.sh and lib/*.sh
-  shellcheck      shellcheck at SHELLCHECK_SEVERITY (default: warning); skipped when it is not installed
+  shellcheck      shellcheck at SHELLCHECK_SEVERITY (default: warning) on setup.sh with every lib spliced in at its
+                  `source` line (shellcheck does not report problems inside sourced files, and misreads a lib on
+                  its own); findings are mapped back to the real file and line. Skipped when it is not installed
+  libs            every lib/*.sh is sourced by setup.sh, every `source` points at a file, no function is defined twice
   registry        UTILITY_REGISTRY tags vs the tags in ansible/k8s-utilities-playbook.yaml, and the registries'
                   master.yaml keys vs master.yaml (a new utility or option cannot be forgotten in setup.sh)
   yaml-layout     no column-0 comment or stray line inside a master.yaml / worker.yaml block: the shell YAML
@@ -21,9 +24,10 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
-CHECKS = ["syntax", "shellcheck", "registry", "yaml-layout", "stale-phrases", "cli"]
+CHECKS = ["syntax", "shellcheck", "libs", "registry", "yaml-layout", "stale-phrases", "cli"]
 IGNORED_TAGS = {"always", "never", "all", "tagged", "untagged"}  # reserved Ansible tags, not utilities
 TEXT_SUFFIXES = {".md", ".yaml", ".yml", ".sh", ".j2", ".py", ".txt", ".cfg", ".env"}
 SKIP_DIRS = ("_site/", "vendor/", ".claude/", ".git/", "archives/", "examples/argocd-apps/archives/")
@@ -92,15 +96,76 @@ def check_syntax(root):
     return problems
 
 
+def build_monolith(root):
+    """setup.sh with each `source "$SCRIPT_DIR/lib/x.sh"` line replaced by the lib's lines.
+    Returns (lines, origin) where origin[i] = (relative file, line number) of lines[i]."""
+    lines, origin = [], []
+    setup = root / "scripts/setup.sh"
+    for no, line in enumerate(setup.read_text().splitlines(), 1):
+        m = re.match(r'^\s*source\s+"\$SCRIPT_DIR/lib/([A-Za-z0-9_.-]+)"', line)
+        lib = root / "scripts/lib" / m.group(1) if m else None
+        if lib is not None and lib.exists():
+            for lno, l in enumerate(lib.read_text().splitlines(), 1):
+                lines.append(l)
+                origin.append((rel(root, lib), lno))
+        else:
+            lines.append(line)
+            origin.append((rel(root, setup), no))
+    return lines, origin
+
+
 def check_shellcheck(root):
     exe = shutil.which("shellcheck")
     if not exe:
         return None  # skipped
     severity = os.environ.get("SHELLCHECK_SEVERITY", "warning")
-    r = run([exe, "-x", "-s", "bash", "-S", severity, "-f", "gcc"] + [str(f) for f in shell_files(root)], root, 300)
+    lines, origin = build_monolith(root)
+    with tempfile.TemporaryDirectory() as tmp:
+        mono = Path(tmp) / "setup-with-libs.sh"
+        mono.write_text("\n".join(lines) + "\n")
+        r = run([exe, "-s", "bash", "-S", severity, "-f", "gcc", str(mono)], root, 300)
     if r.returncode == 0:
         return []
-    return [l.replace(str(root) + "/", "") for l in r.stdout.splitlines() if l.strip()]
+    problems = []
+    for l in r.stdout.splitlines():
+        m = re.match(r"^.*?setup-with-libs\.sh:(\d+):(\d+): (.*)$", l)
+        if m and 1 <= int(m.group(1)) <= len(origin):
+            f, no = origin[int(m.group(1)) - 1]
+            problems.append(f"{f}:{no}:{m.group(2)}: {m.group(3)}")
+        elif l.strip():
+            problems.append(l)
+    return problems
+
+
+def check_libs(root):
+    problems = []
+    setup = root / "scripts/setup.sh"
+    lib = root / "scripts/lib"
+    if not lib.is_dir():
+        return problems
+    sourced = {}
+    for no, line in enumerate(setup.read_text().splitlines(), 1):
+        m = re.match(r'^\s*source\s+"\$SCRIPT_DIR/lib/([A-Za-z0-9_.-]+)"', line)
+        if m:
+            sourced[m.group(1)] = no
+    on_disk = {f.name for f in lib.glob("*.sh")}
+    for name, no in sorted(sourced.items(), key=lambda kv: kv[1]):
+        if name not in on_disk:
+            problems.append(f"scripts/setup.sh:{no}: sources scripts/lib/{name}, which does not exist")
+    for name in sorted(on_disk - set(sourced)):
+        problems.append(f"scripts/lib/{name}:1: not sourced by scripts/setup.sh, so none of its functions exist at run time")
+    seen = {}
+    for f in shell_files(root):
+        for no, line in enumerate(f.read_text().splitlines(), 1):
+            m = re.match(r"^([A-Za-z_][A-Za-z_0-9]*)\(\)\s*\{", line)
+            if not m:
+                continue
+            fn = m.group(1)
+            if fn in seen:
+                problems.append(f"{rel(root, f)}:{no}: function {fn}() is already defined at {seen[fn]}; the later definition silently wins")
+            else:
+                seen[fn] = f"{rel(root, f)}:{no}"
+    return problems
 
 
 def check_registry(root):
@@ -132,11 +197,12 @@ def check_registry(root):
 
     util = registry_entries(root, "UTILITY_REGISTRY")
     if not util:
-        return [f"{rel(root, root / 'scripts/setup.sh')}: UTILITY_REGISTRY not found: the check cannot compare anything"]
+        return ["scripts/lib: UTILITY_REGISTRY not found in setup.sh or lib/*.sh: the check cannot compare anything"]
     reg_tags = {f[0]: (f, path, no) for f, path, no in util}
+    reg_file = rel(root, util[0][1])
     for tag, no in sorted(used.items(), key=lambda kv: kv[1]):
         if tag not in reg_tags:
-            problems.append(f"ansible/k8s-utilities-playbook.yaml:{no}: tag '{tag}' has no UTILITY_REGISTRY entry in scripts/setup.sh "
+            problems.append(f"ansible/k8s-utilities-playbook.yaml:{no}: tag '{tag}' has no UTILITY_REGISTRY entry in {reg_file} "
                             f"(`utils --list` and the help would not show it)")
     utilities = yaml_children(master, "utilities")
     for tag, (fields, path, no) in reg_tags.items():
@@ -237,7 +303,7 @@ def check_cli(root):
     return problems
 
 
-FUNCS = {"syntax": check_syntax, "shellcheck": check_shellcheck, "registry": check_registry,
+FUNCS = {"syntax": check_syntax, "shellcheck": check_shellcheck, "libs": check_libs, "registry": check_registry,
          "yaml-layout": check_yaml_layout, "stale-phrases": check_stale_phrases, "cli": check_cli}
 
 
