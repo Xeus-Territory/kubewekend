@@ -70,6 +70,8 @@
   - [Kubewekend Session Extra 3: RKE2 and The Nightmare with Network and CoreDNS](#kubewekend-session-extra-3-rke2-and-the-nightmare-with-network-and-coredns)
   - [Kubewekend Session Extra 4: Kind and Sandbox environment for GitLab CI](#kubewekend-session-extra-4-kind-and-sandbox-environment-for-gitlab-ci)
   - [Kubewekend Session Extra 5: Learn about the security model in Kubernetes](#kubewekend-session-extra-5-learn-about-the-security-model-in-kubernetes)
+  - [Kubewekend Session Extra 6: Kubernetes Scaling in Action. Try to discovery the Service Mesh with Istio inside Kubewekend Cluster](#kubewekend-session-extra-6-kubernetes-scaling-in-action-try-to-discovery-the-service-mesh-with-istio-inside-kubewekend-cluster)
+  - [Kubewekend Session Extra 7: GitOps from day 1 in Kubernetes with ArgoCD](#kubewekend-session-extra-7-gitops-from-day-1-in-kubernetes-with-argocd)
 
 </details>
 
@@ -678,3 +680,19 @@ Read full article about session at [Kubewekend Session Extra 4: Kind and Sandbox
 > This session covers the Kubernetes API security pipeline across its primary phases (AuthN, AuthZ, and Admission Controllers). It also explores broader Kubernetes security concepts for securing resources, networks, and workloads, while demonstrating how to deploy and experiment with Kyverno as a policy engine to enforce security practices in Kubernetes.
 
 Read full article about session at [Kubewekend Session Extra 5: Learn about the security model in Kubernetes](https://wiki.xeusnguyen.xyz/Tech-Second-Brain/Personal/Kubewekend/Kubewekend-Session-Extra-5)
+
+### Kubewekend Session Extra 6: Kubernetes Scaling in Action. Try to discovery the Service Mesh with Istio inside Kubewekend Cluster
+
+> [!NOTE]
+>
+> This session explores key architectural themes highlighted at **KubeCon + CloudNativeCon North America 2026**—spanning Service Mesh, control plane scalability, and AI-aware traffic management—to show how modern Kubernetes clusters scale cleanly without sacrificing security or observability. We break down how cluster scaling ties directly into the networking stack across **L3/L4 transport security** and **L7 application routing**, before diving into hands-on **Kubewekend** labs deploying **Istio** in both **Sidecar** and **Ambient** (`ztunnel` + Waypoint) data plane modes.
+
+Read full article about session at [Kubewekend Session Extra 6: Kubernetes Scaling in Action. Try to discovery the Service Mesh with Istio inside Kubewekend Cluster](https://wiki.xeusnguyen.xyz/Tech-Second-Brain/Personal/Kubewekend/Kubewekend-Session-Extra-6)
+
+### Kubewekend Session Extra 7: GitOps from day 1 in Kubernetes with ArgoCD
+
+> [!NOTE]
+>
+> This session makes the case for **GitOps** as a foundational Day-1 standard for both platform infrastructure and application delivery, examining where GitOps falls short when over-engineered, and how declarative control planes (like Crossplane and `kro`) alongside Agentic AI shape its next evolution. After comparing major GitOps candidates, we walk through my complete, battle-tested **Argo CD** blueprint: Hybrid **App of Apps + ApplicationSet** bootstrapping, Google Chat notifications, automated PR write-backs with `argocd-image-updater`, and a hands-on PKI/mTLS multi-cluster KinD lab powered by **`argocd-agent`**.
+
+Read full article about session at [Kubewekend Session Extra 7: GitOps from day 1 in Kubernetes with ArgoCD](https://wiki.xeusnguyen.xyz/Tech-Second-Brain/Personal/Kubewekend/Kubewekend-Session-Extra-7)
